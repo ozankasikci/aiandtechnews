@@ -1,0 +1,47 @@
+
+> @technews/web@0.1.0 build /Users/ozan/Projects/technews/apps/web
+> next build
+
+ ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /Users/ozan/Projects/technews/pnpm-lock.yaml as the root directory.
+ To silence this warning, set `outputFileTracingRoot` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/output#caveats for more information.
+ Detected additional lockfiles: 
+   * /Users/ozan/Projects/technews/apps/web/pnpm-lock.yaml
+
+   ▲ Next.js 15.5.12
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 788ms
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/13) ...
+   Generating static pages (3/13) 
+   Generating static pages (6/13) 
+   Generating static pages (9/13) 
+ ✓ Generating static pages (13/13)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                 Size  First Load JS  Revalidate  Expire
+┌ ○ /                                      180 B         111 kB          1m      1y
+├ ○ /_not-found                            998 B         103 kB
+├ ● /[category]                            180 B         111 kB          1m      1y
+├   ├ /tech                                                              1m      1y
+├   ├ /reviews                                                           1m      1y
+├   ├ /science                                                           1m      1y
+├   └ [+3 more paths]
+├ ○ /about                                 162 B         107 kB
+├ ƒ /article/[slug]                        180 B         111 kB
+└ ƒ /search                                172 B         111 kB
++ First Load JS shared by all             102 kB
+  ├ chunks/743-33720d133c383396.js       45.8 kB
+  ├ chunks/8e6518bb-c26e82767f1faf66.js  54.2 kB
+  └ other shared chunks (total)          1.89 kB
+
+
+○  (Static)   prerendered as static content
+●  (SSG)      prerendered as static HTML (uses generateStaticParams)
+ƒ  (Dynamic)  server-rendered on demand
+
