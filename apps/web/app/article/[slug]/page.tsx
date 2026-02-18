@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getArticleBySlug, ALL_ARTICLES, SAMPLE_ARTICLE_BODY } from "../../data/articles";
+import { getArticleBySlug, ALL_ARTICLES } from "../../data/articles";
 import { MostPopularSidebar } from "../../components/Sidebar";
 import { getArticle as fetchArticle, getArticles, mapArticle } from "../../lib/api";
 
@@ -32,7 +32,7 @@ export default async function ArticlePage({ params }: Props) {
   const article = apiData?.article ? mapArticle(apiData.article) : getArticleBySlug(slug);
   if (!article) notFound();
 
-  const body = article.body || SAMPLE_ARTICLE_BODY;
+  const body = article.body || "<p>Article content unavailable.</p>";
 
   // Get related articles
   const relatedData = await getArticles({ category: article.tag.toLowerCase(), limit: 4 });

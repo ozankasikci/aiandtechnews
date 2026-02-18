@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { getTrendingArticles, mapArticle } from "../lib/api";
-import { MOST_POPULAR } from "../data/articles";
 
 export async function MostPopularSidebar() {
   const data = await getTrendingArticles(5);
   const items = data?.articles?.length
     ? data.articles.map(mapArticle).map((a) => ({ title: a.headline, slug: a.slug }))
-    : MOST_POPULAR.map((title) => ({ title, slug: "#" }));
+    : [];
+
+  if (!items.length) return null;
 
   return (
     <aside className="w-full lg:w-[300px] shrink-0">
