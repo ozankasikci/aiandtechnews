@@ -13,25 +13,33 @@ initializeDatabase();
 
 // ── Category mapping ────────────────────────────────────────────────
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  ai: ["ai", "artificial intelligence", "machine learning", "llm", "gpt", "openai", "chatgpt", "deep learning", "neural", "transformer", "anthropic", "gemini", "copilot", "diffusion", "generative"],
-  science: ["science", "space", "nasa", "physics", "biology", "climate", "quantum", "research", "study", "mars", "cern"],
-  reviews: ["review", "hands-on", "benchmark", "vs", "comparison", "tested", "unboxing"],
-  entertainment: ["game", "gaming", "movie", "film", "netflix", "streaming", "playstation", "xbox", "nintendo", "spotify", "disney"],
-  creators: ["creator", "youtube", "tiktok", "influencer", "podcast", "content creator", "twitch"],
+  ai: ["artificial intelligence", "machine learning", "llm", "gpt-", "openai", "chatgpt", "deep learning", "neural network", "transformer model", "anthropic", "copilot", "diffusion model", "generative ai", "large language model", "claude ", "mistral ai"],
+  science: ["science", "space", "nasa", "physics", "biology", "climate", "quantum", "research study", "mars ", "cern", "telescope", "asteroid", "fusion energy", "exoplanet", "genome", "evolution"],
+  entertainment: ["game", "gaming", "movie", "film", "netflix", "streaming", "playstation", "xbox", "nintendo", "spotify", "disney", "trailer", "tv show", "hbo", "theater", "marvel", "star wars", "mandalorian", "grogu", "warner bros", "paramount"],
+  reviews: ["review", "hands-on", "benchmark", "comparison", "tested", "unboxing", "best deals", "deals on", "price drop", "price cut", "off for", "percent off", "sale", "lowest price", "discount"],
+  creators: ["creator", "youtube", "tiktok", "influencer", "podcast", "content creator", "twitch", "subscriber", "patreon"],
   tech: [], // default fallback
 };
 
 function categorize(title: string, content: string): string {
   const titleLower = title.toLowerCase();
   const contentLower = content.toLowerCase().slice(0, 500);
+
   // Check title first (stronger signal), then content
   for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
     if (cat === "tech") continue;
     if (keywords.some((kw) => titleLower.includes(kw))) return cat;
   }
+
+  // Check for standalone " ai " in title (word boundary match)
+  if (/\bai\b/.test(titleLower) && !titleLower.includes("deal") && !titleLower.includes("sale") && !titleLower.includes("price")) {
+    // Only categorize as AI if the article is primarily about AI, not just mentioning it
+    const aiSignals = ["model", "training", "inference", "benchmark", "llm", "chatbot", "prompt", "token"].filter(w => contentLower.includes(w)).length;
+    if (aiSignals >= 2) return "ai";
+  }
+
   for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
     if (cat === "tech") continue;
-    // Require at least 2 keyword matches in content for non-title categorization
     const matches = keywords.filter((kw) => contentLower.includes(kw)).length;
     if (matches >= 2) return cat;
   }
@@ -644,6 +652,7 @@ async function main() {
   // Shuffle and pick up to 5
   const shuffled = allArticles.sort(() => Math.random() - 0.5);
   const slugExists = db.prepare("SELECT 1 FROM articles WHERE slug = ?");
+  const urlExists = db.prepare("SELECT 1 FROM articles WHERE source_url = ?");
   const getCategoryId = db.prepare("SELECT id FROM categories WHERE slug = ?");
   const insertArticle = db.prepare(`
     INSERT INTO articles (title, slug, excerpt, content, featured_image, category_id, author_id, status, published_at, view_count, created_at, updated_at, source, source_url)
@@ -654,6 +663,7 @@ async function main() {
   for (const article of shuffled) {
     if (imported >= 10) break;
     if (!isNewsworthy(article.title, article.source)) continue;
+    if (article.url && urlExists.get(article.url)) continue;
     const slug = slugify(article.title);
     if (slugExists.get(slug)) continue;
 
