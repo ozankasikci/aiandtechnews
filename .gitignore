@@ -6,5 +6,5 @@ dist/
 *.db
 .DS_Store
 .turbo/
-apps/web/public/images/generated/
+# apps/web/public/images/generated/
 *.log
