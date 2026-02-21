@@ -27,6 +27,15 @@ export default async function Home() {
   const feed = articles.slice(1, 7);
   const stickerArticles = articles.slice(7, 9);
 
+  if (!hero) {
+    return (
+      <div className="max-w-[1400px] mx-auto px-4 py-16 text-center">
+        <h1 className="text-3xl font-black mb-4">No articles yet</h1>
+        <p className="text-text-secondary">Check back soon for the latest tech news.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-[1400px] mx-auto flex">
       <RotatedLogo />
