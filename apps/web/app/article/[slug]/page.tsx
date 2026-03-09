@@ -7,6 +7,14 @@ import { getArticle as fetchArticle, getArticles, mapArticle } from "../../lib/a
 
 type Props = { params: Promise<{ slug: string }> };
 
+export async function generateStaticParams() {
+  const data = await getArticles({ limit: 100 });
+  if (!data?.articles?.length) return [];
+  return data.articles.map((a) => ({ slug: a.slug }));
+}
+
+export const dynamicParams = false;
+
 function ShareButtons() {
   return (
     <div className="flex items-center gap-3 py-4 border-b border-border mb-8">
