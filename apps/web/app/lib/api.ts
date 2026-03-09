@@ -80,7 +80,7 @@ export function mapArticle(a: ApiArticle): Article {
 
 async function apiFetch<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(`${API_URL}${path}`, { next: { revalidate: 60 } });
+    const res = await fetch(`${API_URL}${path}`, { cache: "force-cache" });
     if (!res.ok) return null;
     return res.json();
   } catch {
