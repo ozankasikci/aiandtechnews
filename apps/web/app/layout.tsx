@@ -3,6 +3,7 @@ import Script from "next/script";
 import "./globals.css";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
+import { Analytics } from "./components/Analytics";
 
 const GA_ID = "G-32SP4ZKM67";
 
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="min-h-screen bg-bg flex flex-col">
           <Header />
+          <Analytics />
           <div className="flex-1">{children}</div>
           <Footer />
         </div>
