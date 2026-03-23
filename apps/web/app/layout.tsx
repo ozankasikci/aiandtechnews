@@ -8,8 +8,17 @@ import { Analytics } from "./components/Analytics";
 const GA_ID = "G-32SP4ZKM67";
 
 export const metadata: Metadata = {
-  title: "TechNews - AI & Tech News, Daily",
-  description: "AI & Tech News, Daily.",
+  title: {
+    default: "AI and Tech News, Daily | aiandtech.news",
+    template: "%s | AI and Tech News",
+  },
+  description: "Breaking AI and technology news, daily. Covering artificial intelligence, startups, big tech, and developer tools.",
+  openGraph: {
+    siteName: "AI and Tech News",
+    type: "website",
+    url: "https://www.aiandtech.news",
+  },
+  metadataBase: new URL("https://www.aiandtech.news"),
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

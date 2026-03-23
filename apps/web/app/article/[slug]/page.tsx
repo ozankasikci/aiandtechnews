@@ -13,12 +13,13 @@ export async function generateMetadata({ params }: Props) {
   const article = apiData?.article ? mapArticle(apiData.article) : getArticleBySlug(slug);
   if (!article) return { title: "Article Not Found" };
   return {
-    title: `${article.headline} | TechNews`,
+    title: article.headline,
     description: article.excerpt || article.headline,
     openGraph: {
       title: article.headline,
       description: article.excerpt || article.headline,
       images: article.image ? [{ url: article.image }] : [],
+      type: "article",
     },
   };
 }
