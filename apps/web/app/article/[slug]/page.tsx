@@ -7,6 +7,22 @@ import { getArticle as fetchArticle, getArticles, mapArticle } from "../../lib/a
 
 type Props = { params: Promise<{ slug: string }> };
 
+export async function generateMetadata({ params }: Props) {
+  const { slug } = await params;
+  const apiData = await fetchArticle(slug);
+  const article = apiData?.article ? mapArticle(apiData.article) : getArticleBySlug(slug);
+  if (!article) return { title: "Article Not Found" };
+  return {
+    title: `${article.headline} | TechNews`,
+    description: article.excerpt || article.headline,
+    openGraph: {
+      title: article.headline,
+      description: article.excerpt || article.headline,
+      images: article.image ? [{ url: article.image }] : [],
+    },
+  };
+}
+
 export async function generateStaticParams() {
   const data = await getArticles({ limit: 100 });
   if (!data?.articles?.length) return [];
