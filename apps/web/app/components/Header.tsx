@@ -23,8 +23,7 @@ export function Header() {
             <Link
               key={item}
               href={`/${item.toLowerCase()}`}
-              className="transition-all font-bold hover:brightness-125"
-              style={{ color: NAV_COLORS[item] || "#9ca3af" }}
+              className="hover:text-white transition-colors font-medium text-text-secondary"
             >
               {item}
             </Link>
