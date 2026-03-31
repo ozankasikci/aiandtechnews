@@ -24,9 +24,6 @@ export default async function CategoryPage({ params }: Props) {
   return (
     <div className="max-w-[1400px] mx-auto px-4 lg:px-8 py-8">
       <div className="mb-8 pb-6 border-b border-border">
-        <span className={`inline-block px-3 py-1 text-xs font-bold uppercase tracking-wider text-black rounded-sm mb-3 ${cat.color}`}>
-          {cat.title}
-        </span>
         <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-2">{cat.title}</h1>
         <p className="text-text-secondary text-lg">{cat.description}</p>
       </div>
