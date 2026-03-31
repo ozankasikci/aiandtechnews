@@ -44,15 +44,15 @@ export default async function Home() {
         <section className="mb-8">
           <Link href={`/article/${hero.slug}`} className="flex flex-col md:flex-row gap-6 items-stretch group">
             <div className="flex-1 flex flex-col justify-center">
-              <span className="text-accent-purple text-xs font-bold uppercase tracking-wider mb-3">{hero.tag}</span>
-              <h1 className="text-3xl md:text-4xl lg:text-5xl font-black leading-[1.1] mb-4 tracking-tight group-hover:text-accent-purple transition-colors">{hero.headline}</h1>
+              <span className={`${hero.tagColor.replace("bg-", "text-")} text-xs font-bold uppercase tracking-wider mb-3`}>{hero.tag}</span>
+              <h1 className={`text-3xl md:text-4xl lg:text-5xl font-black leading-[1.1] mb-4 tracking-tight ${hero.tagColor.replace("bg-", "group-hover:text-")} transition-colors`}>{hero.headline}</h1>
               <p className="text-text-secondary text-base leading-relaxed mb-4 max-w-lg">{hero.excerpt}</p>
               <div className="flex items-center gap-2 text-text-muted text-sm">
                 <span>{hero.time}</span>
               </div>
             </div>
             <div className="flex-1 relative min-h-[300px] md:min-h-[400px] rounded-sm overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-br from-accent-purple/30 to-accent-magenta/20 z-10 mix-blend-multiply" />
+              <div className={`absolute inset-0 ${hero.tagColor}/30 bg-gradient-to-br z-10 mix-blend-multiply`} />
               <Image src={hero.image} alt={hero.headline} fill className="object-cover" sizes="(max-width: 768px) 100vw, 50vw" />
             </div>
           </Link>
