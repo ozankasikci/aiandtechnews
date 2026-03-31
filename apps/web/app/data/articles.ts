@@ -38,6 +38,17 @@ export const NAV_COLORS: Record<string, string> = {
   Creators: "#f97316",
 };
 
+export const TAG_COLORS: Record<string, string> = {
+  AI: "#8b5cf6",
+  Gaming: "#f97316",
+  Tech: "#3b82f6",
+  Reviews: "#f59e0b",
+  Science: "#10b981",
+  Entertainment: "#ec4899",
+  Creators: "#f97316",
+  News: "#9ca3af",
+};
+
 export const ALL_ARTICLES: Article[] = [];
 
 export function getArticlesByCategory(category: string): Article[] {
