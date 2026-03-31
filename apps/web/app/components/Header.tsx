@@ -23,7 +23,7 @@ export function Header() {
             <Link
               key={item}
               href={`/${item.toLowerCase()}`}
-              className="hover:opacity-100 transition-opacity font-medium opacity-70 hover:opacity-100"
+              className="transition-all font-bold hover:brightness-125"
               style={{ color: NAV_COLORS[item] || "#9ca3af" }}
             >
               {item}
