@@ -32,13 +32,24 @@ export interface ApiCategory {
 function mapColor(color: string): string {
   const colorMap: Record<string, string> = {
     "#8B5CF6": "bg-accent-purple",
+    "#8b5cf6": "bg-accent-purple",
     "#3B82F6": "bg-accent-blue",
+    "#3b82f6": "bg-accent-blue",
     "#10B981": "bg-accent-green",
+    "#10b981": "bg-accent-green",
     "#EC4899": "bg-accent-magenta",
+    "#ec4899": "bg-accent-magenta",
+    "#F97316": "bg-accent-orange",
+    "#f97316": "bg-accent-orange",
+    "#F59E0B": "bg-accent-yellow",
+    "#f59e0b": "bg-accent-yellow",
+    "#22C55E": "bg-accent-green",
+    "#22c55e": "bg-accent-green",
     purple: "bg-accent-purple",
     blue: "bg-accent-blue",
     green: "bg-accent-green",
     magenta: "bg-accent-magenta",
+    orange: "bg-accent-orange",
   };
   return colorMap[color] || "bg-accent-purple";
 }

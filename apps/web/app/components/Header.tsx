@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { NAV_ITEMS } from "../data/articles";
+import { NAV_ITEMS, NAV_COLORS } from "../data/articles";
 
 export function TopBanner() {
   return (
@@ -20,7 +20,12 @@ export function Header() {
         </Link>
         <nav className="hidden md:flex items-center gap-5 text-sm text-text-secondary">
           {NAV_ITEMS.map((item) => (
-            <Link key={item} href={`/${item.toLowerCase()}`} className="hover:text-white transition-colors font-medium">
+            <Link
+              key={item}
+              href={`/${item.toLowerCase()}`}
+              className="hover:opacity-100 transition-opacity font-medium opacity-70 hover:opacity-100"
+              style={{ color: NAV_COLORS[item] || "#9ca3af" }}
+            >
               {item}
             </Link>
           ))}

@@ -22,10 +22,21 @@ export const CATEGORIES: Record<string, { title: string; description: string; co
   science: { title: "Science", description: "Discoveries, space exploration, and the natural world", color: "bg-accent-green" },
   entertainment: { title: "Entertainment", description: "Movies, TV, gaming, and streaming culture", color: "bg-accent-magenta" },
   ai: { title: "AI", description: "Artificial intelligence, machine learning, and the future of computing", color: "bg-accent-purple" },
+  gaming: { title: "Gaming", description: "Video games, consoles, esports, and gaming industry news", color: "bg-accent-orange" },
   creators: { title: "Creators", description: "YouTube, TikTok, podcasts, and the creator economy", color: "bg-accent-green" },
 };
 
-export const NAV_ITEMS = ["Tech", "Reviews", "Science", "Entertainment", "AI", "Creators"];
+export const NAV_ITEMS = ["Tech", "AI", "Gaming", "Reviews", "Science", "Entertainment", "Creators"];
+
+export const NAV_COLORS: Record<string, string> = {
+  AI: "#8b5cf6",
+  Gaming: "#f97316",
+  Tech: "#3b82f6",
+  Reviews: "#f59e0b",
+  Science: "#10b981",
+  Entertainment: "#ec4899",
+  Creators: "#f97316",
+};
 
 export const ALL_ARTICLES: Article[] = [];
 
