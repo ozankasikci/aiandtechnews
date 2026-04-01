@@ -124,11 +124,16 @@ export function ArticleFeed({ initialArticles, initialTotal }: Props) {
               <p className="text-text-secondary text-sm leading-relaxed mb-2 line-clamp-2">{a.excerpt}</p>
               <span className="text-text-muted text-xs">{a.time}</span>
             </div>
-            {a.image && (
-              <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] relative rounded-sm overflow-hidden shrink-0">
-                <Image src={a.image} alt="" fill className="object-cover" sizes="180px" />
-              </div>
-            )}
+            <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] relative rounded-sm overflow-hidden shrink-0">
+              <Image
+                src={a.image || "/images/default-article.jpg"}
+                alt=""
+                fill
+                className="object-cover"
+                sizes="180px"
+                onError={(e) => { (e.target as HTMLImageElement).src = "/images/default-article.jpg"; }}
+              />
+            </div>
           </article>
         </Link>
       ))}

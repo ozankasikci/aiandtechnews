@@ -28,7 +28,14 @@ export function StoryCard({ story }: { story: Article }) {
           </div>
         </div>
         <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] relative rounded-sm overflow-hidden shrink-0">
-          <Image src={story.image} alt="" fill className="object-cover" sizes="180px" />
+          <Image
+            src={story.image || "/images/default-article.jpg"}
+            alt=""
+            fill
+            className="object-cover"
+            sizes="180px"
+            onError={(e) => { (e.target as HTMLImageElement).src = "/images/default-article.jpg"; }}
+          />
         </div>
       </article>
     </Link>

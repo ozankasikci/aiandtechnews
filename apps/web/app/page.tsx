@@ -66,7 +66,7 @@ export default async function Home() {
             </div>
             <div className="flex-1 relative min-h-[300px] md:min-h-[400px] rounded-sm overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-br from-black/30 to-black/10 z-10 mix-blend-multiply" />
-              <Image src={hero.image} alt={hero.headline} fill className="object-cover" sizes="(max-width: 768px) 100vw, 50vw" />
+              <Image src={hero.image || "/images/default-article.jpg"} alt={hero.headline} fill className="object-cover" sizes="(max-width: 768px) 100vw, 50vw" onError={(e) => { (e.target as HTMLImageElement).src = "/images/default-article.jpg"; }} />
             </div>
           </Link>
         </section>
