@@ -3,24 +3,44 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { mapArticle } from "../lib/api";
 
 type Result = {
   id: number;
   slug: string;
-  headline: string;
+  title: string;
   excerpt: string;
-  image: string;
-  tag: string;
-  tagColor: string;
-  time: string;
+  featured_image: string;
+  published_at: string;
+  category: { name: string; slug: string; color: string };
+  author: { name: string; avatar: string };
 };
+
+function colorFromHex(color: string): string {
+  const map: Record<string, string> = {
+    "#8b5cf6": "bg-accent-purple", "#8B5CF6": "bg-accent-purple",
+    "#3b82f6": "bg-accent-blue", "#3B82F6": "bg-accent-blue",
+    "#10b981": "bg-accent-green", "#10B981": "bg-accent-green",
+    "#ec4899": "bg-accent-magenta", "#EC4899": "bg-accent-magenta",
+    "#f97316": "bg-accent-orange", "#F97316": "bg-accent-orange",
+    "#f59e0b": "bg-accent-yellow", "#F59E0B": "bg-accent-yellow",
+    "#22c55e": "bg-accent-green",
+  };
+  return map[color] || "bg-accent-purple";
+}
+
+function timeAgo(dateStr: string): string {
+  const diffH = Math.floor((Date.now() - new Date(dateStr).getTime()) / 3600000);
+  if (diffH < 1) return "Just now";
+  if (diffH < 24) return `${diffH}h ago`;
+  return `${Math.floor(diffH / 24)}d ago`;
+}
 
 export default function SearchPage() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Result[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [total, setTotal] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -36,6 +56,7 @@ export default function SearchPage() {
     if (!q.trim()) {
       setResults([]);
       setSearched(false);
+      setTotal(0);
       return;
     }
     setLoading(true);
@@ -43,8 +64,8 @@ export default function SearchPage() {
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=20`);
       const data = await res.json();
-      const articles = data?.articles?.length ? data.articles.map(mapArticle) : [];
-      setResults(articles);
+      setResults(data.articles || []);
+      setTotal(data.total || 0);
     } catch {
       setResults([]);
     } finally {
@@ -55,10 +76,8 @@ export default function SearchPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setQuery(val);
-    // Update URL without reload
     const url = val ? `/search?q=${encodeURIComponent(val)}` : "/search";
     window.history.replaceState({}, "", url);
-    // Debounce 300ms
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => doSearch(val), 300);
   };
@@ -88,7 +107,7 @@ export default function SearchPage() {
       <div>
         {searched && (
           <h2 className="text-xs font-bold uppercase tracking-widest text-text-muted mb-4 pb-2 border-b border-border">
-            {loading ? "Searching..." : results.length > 0 ? `${results.length} result${results.length !== 1 ? "s" : ""} for "${query}"` : `No results for "${query}"`}
+            {loading ? "Searching..." : total > 0 ? `${total} result${total !== 1 ? "s" : ""} for "${query}"` : `No results for "${query}"`}
           </h2>
         )}
 
@@ -96,27 +115,30 @@ export default function SearchPage() {
           <p className="text-text-muted text-sm mt-2">Start typing to search articles...</p>
         )}
 
-        {results.map((a) => (
-          <Link key={a.id} href={`/article/${a.slug}`}>
-            <article className="flex gap-4 py-5 border-b border-border group" style={{ "--tag-color": a.tagColor.replace("bg-accent-purple","#a855f7").replace("bg-accent-blue","#6366f1").replace("bg-accent-green","#22c55e").replace("bg-accent-magenta","#d946ef").replace("bg-accent-orange","#f97316").replace("bg-accent-yellow","#f59e0b") } as React.CSSProperties}>
-              <div className="flex-1 min-w-0">
-                <span className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-2 ${a.tagColor}`}>
-                  {a.tag}
-                </span>
-                <h3 className="text-lg font-bold leading-snug mb-1.5 transition-colors story-title">
-                  {a.headline}
-                </h3>
-                <p className="text-text-secondary text-sm leading-relaxed mb-2 line-clamp-2">{a.excerpt}</p>
-                <span className="text-text-muted text-xs">{a.time}</span>
-              </div>
-              {a.image && (
-                <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] relative rounded-sm overflow-hidden shrink-0">
-                  <Image src={a.image} alt="" fill className="object-cover" sizes="180px" />
+        {results.map((a) => {
+          const tagColor = colorFromHex(a.category?.color || "");
+          return (
+            <Link key={a.id} href={`/article/${a.slug}`}>
+              <article className="flex gap-4 py-5 border-b border-border group">
+                <div className="flex-1 min-w-0">
+                  <span className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-2 ${tagColor}`}>
+                    {a.category?.name}
+                  </span>
+                  <h3 className="text-lg font-bold leading-snug mb-1.5 group-hover:text-accent-purple transition-colors">
+                    {a.title}
+                  </h3>
+                  <p className="text-text-secondary text-sm leading-relaxed mb-2 line-clamp-2">{a.excerpt}</p>
+                  <span className="text-text-muted text-xs">{timeAgo(a.published_at)}</span>
                 </div>
-              )}
-            </article>
-          </Link>
-        ))}
+                {a.featured_image && (
+                  <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] relative rounded-sm overflow-hidden shrink-0">
+                    <Image src={a.featured_image} alt="" fill className="object-cover" sizes="180px" />
+                  </div>
+                )}
+              </article>
+            </Link>
+          );
+        })}
       </div>
     </div>
   );
