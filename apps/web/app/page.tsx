@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { ArticleImage } from "./components/ArticleImage";
 import Link from "next/link";
 import { MostPopularSidebar } from "./components/Sidebar";
 import { ArticleFeed } from "./components/ArticleFeed";
@@ -66,7 +66,7 @@ export default async function Home() {
             </div>
             <div className="flex-1 relative min-h-[300px] md:min-h-[400px] rounded-sm overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-br from-black/30 to-black/10 z-10 mix-blend-multiply" />
-              <Image src={hero.image || "/images/default-article.jpg"} alt={hero.headline} fill className="object-cover" sizes="(max-width: 768px) 100vw, 50vw" onError={(e) => { (e.target as HTMLImageElement).src = "/images/default-article.jpg"; }} />
+              <ArticleImage src={hero.image} alt={hero.headline} fill className="object-cover" sizes="(max-width: 768px) 100vw, 50vw" priority />
             </div>
           </Link>
         </section>
@@ -86,7 +86,7 @@ export default async function Home() {
               {stickerArticles.map((s, i) => (
                 <Link key={s.id} href={`/article/${s.slug}`} className="block relative rounded-sm overflow-hidden mb-6 group cursor-pointer">
                   <div className="relative h-[220px]">
-                    <Image src={s.image} alt="" fill className="object-cover" sizes="400px" />
+                    <ArticleImage src={s.image} alt="" fill className="object-cover" sizes="400px" />
                   </div>
                   <div className={`${STICKER_COLORS[i % STICKER_COLORS.length]} p-4`}>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-black/70 block mb-1">{s.tag}</span>

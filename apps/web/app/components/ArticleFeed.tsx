@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import { ArticleImage } from "./ArticleImage";
 import type { Article } from "../data/articles";
 
 function colorFromHex(color: string): string {
@@ -125,14 +125,7 @@ export function ArticleFeed({ initialArticles, initialTotal }: Props) {
               <span className="text-text-muted text-xs">{a.time}</span>
             </div>
             <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] relative rounded-sm overflow-hidden shrink-0">
-              <Image
-                src={a.image || "/images/default-article.jpg"}
-                alt=""
-                fill
-                className="object-cover"
-                sizes="180px"
-                onError={(e) => { (e.target as HTMLImageElement).src = "/images/default-article.jpg"; }}
-              />
+              <ArticleImage src={a.image} alt="" fill className="object-cover" sizes="180px" />
             </div>
           </article>
         </Link>
