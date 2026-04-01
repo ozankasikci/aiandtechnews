@@ -1,7 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import { MostPopularSidebar } from "./components/Sidebar";
-import { NewsletterBanner } from "./components/Newsletter";
 import { ArticleFeed } from "./components/ArticleFeed";
 import { ALL_ARTICLES } from "./data/articles";
 import { getArticles, mapArticle } from "./lib/api";
@@ -71,8 +70,6 @@ export default async function Home() {
             </div>
           </Link>
         </section>
-
-        <NewsletterBanner />
 
         <div className="flex flex-col lg:flex-row gap-8">
           <div className="flex-1 min-w-0">
