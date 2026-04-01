@@ -39,9 +39,12 @@ a:hover {
   text-decoration: none;
 }
 
-/* Story card: title changes to tag color on hover */
+/* Story card: white underline on title hover */
 .group:hover .story-title {
-  color: var(--tag-color);
+  text-decoration: underline;
+  text-decoration-color: white;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
 }
 
 /* Scrollbar */
