@@ -77,7 +77,7 @@ export default async function ArticlePage({ params }: Props) {
 
             <div
               className="prose prose-invert max-w-none
-                [&_p]:text-text-secondary [&_p]:text-base [&_p]:leading-relaxed [&_p]:mb-5
+                [&_p]:text-[#e5e5e5] [&_p]:text-base [&_p]:leading-relaxed [&_p]:mb-5
                 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-8 [&_h2]:mb-4 [&_h2]:text-white
                 [&_blockquote]:border-l-4 [&_blockquote]:border-accent-purple [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-text-secondary [&_blockquote]:my-6"
               dangerouslySetInnerHTML={{ __html: body }}
