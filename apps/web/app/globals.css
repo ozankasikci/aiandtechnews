@@ -39,6 +39,11 @@ a:hover {
   text-decoration: none;
 }
 
+/* Story card: title inherits tag color on hover */
+.group:hover .story-title {
+  color: var(--tag-color);
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
