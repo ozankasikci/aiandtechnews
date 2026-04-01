@@ -1,8 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { MostPopularSidebar } from "./components/Sidebar";
-import { StoryCard } from "./components/StoryCard";
 import { NewsletterBanner } from "./components/Newsletter";
+import { ArticleFeed } from "./components/ArticleFeed";
 import { ALL_ARTICLES } from "./data/articles";
 import { getArticles, mapArticle } from "./lib/api";
 import { TAG_COLORS } from "./data/articles";
@@ -34,10 +34,12 @@ export default async function Home() {
   const articles = data?.articles?.length
     ? data.articles.map(mapArticle)
     : ALL_ARTICLES.slice(0, 12);
+  const total = data?.total || articles.length;
 
   const hero = articles[0];
   const feed = articles.slice(1, 7);
   const stickerArticles = articles.slice(7, 9);
+  const initialFeedArticles = articles.slice(1); // all except hero for infinite scroll
 
   if (!hero) {
     return (
@@ -78,17 +80,7 @@ export default async function Home() {
               <span className="text-[10px] font-bold uppercase tracking-widest text-text-muted">Latest</span>
               <div className="flex-1 h-px bg-border" />
             </div>
-            {feed.slice(0, 3).map((s) => <StoryCard key={s.id} story={s} />)}
-
-            {feed.length > 3 && (
-              <>
-                <div className="flex items-center gap-3 py-6">
-                  <h2 className="text-xs font-bold uppercase tracking-widest text-text-muted whitespace-nowrap">More Stories</h2>
-                  <div className="flex-1 h-px bg-border" />
-                </div>
-                {feed.slice(3).map((s) => <StoryCard key={s.id} story={s} />)}
-              </>
-            )}
+            <ArticleFeed initialArticles={initialFeedArticles} initialTotal={total - 1} />
           </div>
 
           <div className="lg:w-[300px] shrink-0">

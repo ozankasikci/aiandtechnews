@@ -4,10 +4,13 @@ const API_BASE = process.env.API_URL || "http://localhost:4001";
 
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get("q") || "";
-  const limit = request.nextUrl.searchParams.get("limit") || "20";
+  const limit = request.nextUrl.searchParams.get("limit") || "12";
+  const page = request.nextUrl.searchParams.get("page") || "1";
 
   try {
-    const url = `${API_BASE}/api/articles?search=${encodeURIComponent(q)}&limit=${limit}`;
+    const params = new URLSearchParams({ limit, page });
+    if (q) params.set("search", q);
+    const url = `${API_BASE}/api/articles?${params}`;
     const res = await fetch(url, { next: { revalidate: 0 } });
     const data = await res.json();
     return NextResponse.json(data);
