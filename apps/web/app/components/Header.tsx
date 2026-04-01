@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { NAV_ITEMS, NAV_COLORS } from "../data/articles";
+import { SubscribeButton } from "./Newsletter";
 
 export function TopBanner() {
   return (
@@ -30,7 +31,7 @@ export function Header() {
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-4">
-          <button className="text-text-secondary hover:text-white text-sm font-medium">Subscribe</button>
+          <SubscribeButton />
           <Link href="/search" className="text-text-secondary hover:text-white">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           </Link>

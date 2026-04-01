@@ -168,4 +168,23 @@ function formatArticleRow(row: Record<string, unknown>) {
   };
 }
 
+// POST /api/subscribe
+router.post("/subscribe", (req: Request, res: Response) => {
+  const { email } = req.body;
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: "Valid email required" });
+    return;
+  }
+  try {
+    db.prepare("INSERT INTO subscribers (email) VALUES (?)").run(email.toLowerCase().trim());
+    res.json({ success: true, message: "You're subscribed!" });
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message?.includes("UNIQUE")) {
+      res.json({ success: true, message: "Already subscribed!" });
+    } else {
+      res.status(500).json({ error: "Something went wrong" });
+    }
+  }
+});
+
 export default router;
