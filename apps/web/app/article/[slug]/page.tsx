@@ -98,15 +98,15 @@ export default async function ArticlePage({ params }: Props) {
                   {related.map((r) => (
                     <div key={r.id} className="group">
                       <Link href={`/article/${r.slug}`}>
-                        <div className="relative h-[200px] rounded-sm overflow-hidden mb-3">
-                          <Image src={r.image} alt="" fill className="object-cover group-hover:scale-105 transition-transform duration-300" sizes="400px" />
+                        <div className="relative h-[160px] rounded-sm overflow-hidden mb-3">
+                          <Image src={r.image} alt="" fill className="object-cover group-hover:scale-105 transition-transform" sizes="300px" />
                         </div>
                       </Link>
-                      <Link href={`/${r.tag.toLowerCase()}`} className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-2 hover:opacity-80 transition-opacity ${r.tagColor}`}>
+                      <Link href={`/${r.tag.toLowerCase()}`} className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-1 hover:opacity-80 transition-opacity ${r.tagColor}`}>
                         {r.tag}
                       </Link>
                       <Link href={`/article/${r.slug}`}>
-                        <h3 className="text-base font-bold leading-snug group-hover:text-accent-purple transition-colors">
+                        <h3 className="text-sm font-bold leading-snug group-hover:text-accent-purple transition-colors">
                           {r.headline}
                         </h3>
                       </Link>
