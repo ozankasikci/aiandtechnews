@@ -39,9 +39,9 @@ a:hover {
   text-decoration: none;
 }
 
-/* Story card: title inherits tag color on hover */
+/* Story card: title gets colored outline on hover */
 .group:hover .story-title {
-  color: var(--tag-color);
+  -webkit-text-stroke: 1px var(--tag-color);
 }
 
 /* Scrollbar */
