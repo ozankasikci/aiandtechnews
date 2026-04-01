@@ -62,9 +62,9 @@ export default async function ArticlePage({ params }: Props) {
       <div className="px-4 lg:px-8 -mt-24 relative z-10">
         <div className="flex flex-col lg:flex-row gap-8">
           <article className="flex-1 min-w-0 max-w-3xl">
-            <span className={`inline-block px-3 py-1 text-xs font-bold uppercase tracking-wider text-black rounded-sm mb-4 ${article.tagColor}`}>
+            <Link href={`/${article.tag.toLowerCase()}`} className={`inline-block px-3 py-1 text-xs font-bold uppercase tracking-wider text-black rounded-sm mb-4 hover:opacity-80 transition-opacity ${article.tagColor}`}>
               {article.tag}
-            </span>
+            </Link>
             <h1 className="text-3xl md:text-4xl lg:text-5xl font-black leading-[1.1] tracking-tight mb-6">
               {article.headline}
             </h1>
@@ -96,17 +96,21 @@ export default async function ArticlePage({ params }: Props) {
                 <h2 className="text-xs font-bold uppercase tracking-widest text-text-muted mb-6">Related Stories</h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {related.map((r) => (
-                    <Link key={r.id} href={`/article/${r.slug}`} className="group">
-                      <div className="relative h-[160px] rounded-sm overflow-hidden mb-3">
-                        <Image src={r.image} alt="" fill className="object-cover group-hover:scale-105 transition-transform" sizes="300px" />
-                      </div>
-                      <span className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-1 ${r.tagColor}`}>
+                    <div key={r.id} className="group">
+                      <Link href={`/article/${r.slug}`}>
+                        <div className="relative h-[200px] rounded-sm overflow-hidden mb-3">
+                          <Image src={r.image} alt="" fill className="object-cover group-hover:scale-105 transition-transform duration-300" sizes="400px" />
+                        </div>
+                      </Link>
+                      <Link href={`/${r.tag.toLowerCase()}`} className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-2 hover:opacity-80 transition-opacity ${r.tagColor}`}>
                         {r.tag}
-                      </span>
-                      <h3 className="text-sm font-bold leading-snug group-hover:text-accent-purple transition-colors">
-                        {r.headline}
-                      </h3>
-                    </Link>
+                      </Link>
+                      <Link href={`/article/${r.slug}`}>
+                        <h3 className="text-base font-bold leading-snug group-hover:text-accent-purple transition-colors">
+                          {r.headline}
+                        </h3>
+                      </Link>
+                    </div>
                   ))}
                 </div>
               </section>
