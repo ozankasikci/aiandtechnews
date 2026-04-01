@@ -55,8 +55,8 @@ export default async function Home() {
         <section className="mb-8">
           <Link href={`/article/${hero.slug}`} className="flex flex-col md:flex-row gap-6 items-stretch group" style={{ "--tag-color": tagHex(hero.tagColor) } as React.CSSProperties}>
             <div className="flex-1 flex flex-col justify-center">
-              <span className={`inline-block w-fit px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-3 ${hero.tagColor}`}>{hero.tag}</span>
               <h1 className="text-3xl md:text-4xl lg:text-5xl font-black leading-[1.1] mb-4 tracking-tight transition-colors story-title">{hero.headline}</h1>
+              <span className={`inline-block w-fit px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-3 ${hero.tagColor}`}>{hero.tag}</span>
               <p className="text-text-secondary text-base leading-relaxed mb-4 max-w-lg">{hero.excerpt}</p>
               <div className="flex items-center gap-2 text-text-muted text-sm">
                 <span>{hero.time}</span>
