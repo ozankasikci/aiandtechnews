@@ -70,7 +70,15 @@ export default async function ArticlePage({ params }: Props) {
             </h1>
 
             <div className="flex items-center gap-3 mb-6 pb-6 border-b border-border">
-              <span className="text-text-muted text-sm">{article.date} · {article.readTime}</span>
+              <img
+                src={article.avatar}
+                alt={article.author}
+                className="w-8 h-8 rounded-full object-cover shrink-0"
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-white text-sm font-semibold leading-tight">{article.author}</span>
+                <span className="text-text-muted text-xs">{article.date} · {article.readTime}</span>
+              </div>
             </div>
 
             <ShareButtons title={article.headline} />
