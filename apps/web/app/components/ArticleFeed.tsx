@@ -50,7 +50,6 @@ function staticToArticle(a: any): Article {
     body: "",
     author: a.author?.name || "TechNews Editorial",
     avatar: a.author?.avatar || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop",
-    excerpt2: a.excerpt || "",
     imageSource: "",
   };
 }
