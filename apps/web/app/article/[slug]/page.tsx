@@ -49,8 +49,26 @@ export default async function ArticlePage({ params }: Props) {
     ? relatedData.articles.map(mapArticle).filter((a) => a.slug !== slug).slice(0, 3)
     : ALL_ARTICLES.filter((a) => a.tag === article.tag && a.slug !== slug).slice(0, 3);
 
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    headline: article.headline,
+    description: article.excerpt,
+    image: article.image ? [`https://www.aiandtech.news${article.image}`] : [],
+    datePublished: article.date,
+    dateModified: article.date,
+    author: [{ "@type": "Person", name: article.author }],
+    publisher: {
+      "@type": "Organization",
+      name: "AI and Tech News",
+      logo: { "@type": "ImageObject", url: "https://www.aiandtech.news/favicon-32.png" },
+    },
+    mainEntityOfPage: { "@type": "WebPage", "@id": `https://www.aiandtech.news/article/${article.slug}` },
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <div className="relative w-full h-[300px] md:h-[450px] lg:h-[500px]">
         <Image src={article.image} alt={article.headline} fill className="object-cover" sizes="100vw" priority />
         <div className="absolute inset-0 bg-gradient-to-t from-bg via-bg/40 to-transparent" />
