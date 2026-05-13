@@ -565,12 +565,8 @@ function ensureAuthors() {
 }
 
 let authorIdCache: Record<string, number> = {};
-function getAuthorId(category: string): number {
-  const name = CATEGORY_AUTHOR_MAP[category] || AUTHOR_PERSONAS[Math.floor(Math.random() * AUTHOR_PERSONAS.length)].name;
-  if (authorIdCache[name]) return authorIdCache[name];
-  const row = db.prepare("SELECT id FROM authors WHERE name = ?").get(name) as { id: number } | undefined;
-  if (row) { authorIdCache[name] = row.id; return row.id; }
-  return 1; // fallback to Admin
+function getAuthorId(_category: string): number {
+  return 1; // Always use TechNews Editorial
 }
 
 // ── AI Rewrite (Gemini) ─────────────────────────────────────────────
@@ -581,7 +577,15 @@ async function rewriteWithClaude(title: string, originalContent: string, source:
   const apiKey = getGeminiApiKey();
   if (!apiKey) { console.error("  ✗ No Gemini API key for rewrite"); return null; }
 
-  const prompt = `You are a tech news editor for TechNews, a modern tech publication. Rewrite this article in your own words with a fresh editorial voice. Keep all facts accurate but make it original content — not a paraphrase.
+  const prompt = `You are a tech news writer. Rewrite this article in a human voice. Rules:
+- Short, punchy sentences. No filler. No em dashes. No "In a move that..." or "It remains to be seen..." cliches.
+- Write like a person explaining news to a friend. Conversational but factual.
+- Keep all facts, names, numbers, and quotes accurate. Include key quotes from sources.
+- No dramatic adjectives (groundbreaking, revolutionary, game-changing). Just say what happened.
+- 5-8 paragraphs using <p> tags. Use <h2> for sections if the article has distinct topics.
+- Aim for 400-600 words. Include context and background, not just the headline facts.
+- Headline: short, direct, no clickbait. State what happened.
+- Excerpt: one plain sentence, max 180 chars.
 
 Original source: ${source}
 Original title: ${title}
@@ -591,9 +595,9 @@ ${plainContent}
 
 Respond in EXACTLY this JSON format, nothing else:
 {
-  "title": "Your rewritten headline (catchy, concise)",
-  "excerpt": "1-2 sentence summary for the article card (max 200 chars)",
-  "content": "Full rewritten article in HTML using <p>, <h2>, <h3> tags. 3-6 paragraphs. Original reporting voice."
+  "title": "Short direct headline",
+  "excerpt": "One sentence summary, max 180 chars",
+  "content": "Full article in HTML with <p> and <h2> tags. Human voice, 400-600 words."
 }`;
 
   try {
@@ -606,7 +610,7 @@ Respond in EXACTLY this JSON format, nothing else:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 2048, responseMimeType: "application/json" }
+          generationConfig: { temperature: 0.7, maxOutputTokens: 4096, responseMimeType: "application/json" }
         })
       }
     );
@@ -659,9 +663,10 @@ async function main() {
     VALUES (?, ?, ?, ?, ?, ?, ?, 'published', datetime('now'), 0, datetime('now'), datetime('now'), ?, ?)
   `);
 
+  const maxImports = Math.max(1, parseInt(process.env.MAX_IMPORTS || "10", 10));
   let imported = 0;
   for (const article of shuffled) {
-    if (imported >= 10) break;
+    if (imported >= maxImports) break;
     if (!isNewsworthy(article.title, article.source)) continue;
     if (article.url && urlExists.get(article.url)) continue;
     const slug = slugify(article.title);
@@ -906,7 +911,7 @@ main()
   .then(() => deleteJunkArticles())
   .then(() => cleanupBadArticles())
   .then(() => enhanceShortArticles())
-  .then(() => { ensureAuthors(); reassignAuthors(); })
+  .then(() => { /* author is always TechNews Editorial (id=1) */ })
   .then(() => cleanupExcerpts())
   .then(() => backfillMissingImages())
   .catch(console.error);

@@ -22,9 +22,20 @@
 - Mobile-first responsive
 - Good typography (Inter or system fonts)
 
+## Ports
+- Web: 3000
+- Dashboard: 3001
+- Server: 4001
+
+## Key Docs
+- `BRIEF.md` — Full product brief
+- `PRODUCT_SPEC.md` — Detailed spec (colors, typography, components, layouts)
+
 ## Commands
 - `pnpm install` — install deps
 - `pnpm dev` — start all apps
 - `pnpm build` — build all
 
-## Read BRIEF.md for full product specification
+## Pending Refactor
+- Server needs modular structure: `modules/news/`, `modules/categories/`, `modules/auth/`, `modules/media/`
+- Each module: routes, service, model files
