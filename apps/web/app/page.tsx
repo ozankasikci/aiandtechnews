@@ -18,6 +18,8 @@ function tagHex(tagColor: string): string {
 
 const STICKER_COLORS = ["bg-accent-green", "bg-accent-magenta", "bg-accent-blue", "bg-accent-purple"];
 
+export const revalidate = 60;
+
 function RotatedLogo() {
   return (
     <div className="hidden lg:flex items-start justify-center w-16 shrink-0 pt-8 sticky top-20">

@@ -6,6 +6,8 @@ import { getArticles, mapArticle } from "../lib/api";
 
 type Props = { params: Promise<{ category: string }> };
 
+export const revalidate = 60;
+
 export function generateStaticParams() {
   return Object.keys(CATEGORIES).map((category) => ({ category }));
 }

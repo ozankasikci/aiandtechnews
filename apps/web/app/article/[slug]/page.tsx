@@ -8,6 +8,8 @@ import { getArticle as fetchArticle, getArticles, mapArticle } from "../../lib/a
 
 type Props = { params: Promise<{ slug: string }> };
 
+export const revalidate = 60;
+
 export async function generateMetadata({ params }: Props) {
   const { slug } = await params;
   const apiData = await fetchArticle(slug);
@@ -31,7 +33,7 @@ export async function generateStaticParams() {
   return data.articles.map((a) => ({ slug: a.slug }));
 }
 
-export const dynamicParams = false;
+export const dynamicParams = true;
 
 export default async function ArticlePage({ params }: Props) {
   const { slug } = await params;

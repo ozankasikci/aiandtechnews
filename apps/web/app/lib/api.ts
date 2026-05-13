@@ -1,6 +1,6 @@
 import type { Article } from "../data/articles";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4001";
 
 export interface ApiArticle {
   id: number;
@@ -91,7 +91,7 @@ export function mapArticle(a: ApiArticle): Article {
 
 async function apiFetch<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(`${API_URL}${path}`, { cache: "force-cache" });
+    const res = await fetch(`${API_URL}${path}`, { next: { revalidate: 60 } });
     if (!res.ok) return null;
     return res.json();
   } catch {
