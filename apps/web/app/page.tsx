@@ -18,7 +18,7 @@ function tagHex(tagColor: string): string {
 
 const STICKER_COLORS = ["bg-accent-green", "bg-accent-magenta", "bg-accent-blue", "bg-accent-purple"];
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 function RotatedLogo() {
   return (

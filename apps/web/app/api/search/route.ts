@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import articlesData from "../../../public/articles-data.json";
 
-const API_BASE = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:4001";
+function getApiBase() {
+  const configured = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL;
+  if (process.env.NODE_ENV === "production") {
+    if (!configured || configured.includes("localhost") || configured.includes("127.0.0.1")) {
+      return "https://technews.subtunnel.dev";
+    }
+  }
+  return configured || "http://localhost:4001";
+}
+
+const API_BASE = getApiBase();
+
+export const dynamic = "force-dynamic";
 
 interface ArticleRecord {
   id: number;
@@ -49,9 +61,7 @@ export async function GET(request: NextRequest) {
   if (q) params.set("search", q);
 
   try {
-    const res = await fetch(`${API_BASE}/api/articles?${params}`, {
-      next: { revalidate: 60 },
-    });
+    const res = await fetch(`${API_BASE}/api/articles?${params}`, { cache: "no-store" });
     if (res.ok) {
       const data = await res.json();
       return NextResponse.json({ ...data, source: "api" });

@@ -908,10 +908,17 @@ function reassignAuthors() {
 }
 
 main()
-  .then(() => deleteJunkArticles())
-  .then(() => cleanupBadArticles())
-  .then(() => enhanceShortArticles())
-  .then(() => { /* author is always TechNews Editorial (id=1) */ })
-  .then(() => cleanupExcerpts())
-  .then(() => backfillMissingImages())
+  .then(() => {
+    if (process.env.IMPORT_ONLY) {
+      console.log("\nIMPORT_ONLY is set; skipping cleanup/enhancement/image backfill tasks.");
+      return;
+    }
+    return Promise.resolve()
+      .then(() => deleteJunkArticles())
+      .then(() => cleanupBadArticles())
+      .then(() => enhanceShortArticles())
+      .then(() => { /* author is always TechNews Editorial (id=1) */ })
+      .then(() => cleanupExcerpts())
+      .then(() => backfillMissingImages());
+  })
   .catch(console.error);

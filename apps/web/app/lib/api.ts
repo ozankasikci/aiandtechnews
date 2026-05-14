@@ -1,6 +1,16 @@
 import type { Article } from "../data/articles";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4001";
+function getApiUrl() {
+  const configured = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL;
+  if (process.env.NODE_ENV === "production") {
+    if (!configured || configured.includes("localhost") || configured.includes("127.0.0.1")) {
+      return "https://technews.subtunnel.dev";
+    }
+  }
+  return configured || "http://localhost:4001";
+}
+
+const API_URL = getApiUrl();
 
 export interface ApiArticle {
   id: number;
@@ -91,7 +101,7 @@ export function mapArticle(a: ApiArticle): Article {
 
 async function apiFetch<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(`${API_URL}${path}`, { next: { revalidate: 60 } });
+    const res = await fetch(`${API_URL}${path}`, { cache: "no-store" });
     if (!res.ok) return null;
     return res.json();
   } catch {
