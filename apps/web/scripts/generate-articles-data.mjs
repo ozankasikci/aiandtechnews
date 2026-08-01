@@ -3,7 +3,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:4001";
 
 async function main() {
   try {

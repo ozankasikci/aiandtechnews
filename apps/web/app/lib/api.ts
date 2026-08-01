@@ -1,7 +1,7 @@
 import type { Article } from "../data/articles";
 
 function getApiUrl() {
-  const configured = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL;
+  const configured = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL)?.trim();
   if (process.env.NODE_ENV === "production") {
     if (!configured || configured.includes("localhost") || configured.includes("127.0.0.1")) {
       return "https://technews.subtunnel.dev";
