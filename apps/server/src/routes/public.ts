@@ -147,6 +147,8 @@ function formatArticleRow(row: Record<string, unknown>) {
     published_at: row.published_at,
     meta_title: row.meta_title,
     meta_description: row.meta_description,
+    source: row.source,
+    source_url: row.source_url,
     view_count: row.view_count,
     created_at: row.created_at,
     updated_at: row.updated_at,

@@ -5,6 +5,12 @@ import { generateToken, requireAuth } from "../auth";
 import { upload } from "../upload";
 import fs from "fs";
 import path from "path";
+import {
+  EDITORIAL_AUTHOR,
+  normalizeSourceUrl,
+  sourceForUrl,
+  validateRewrittenArticle,
+} from "../news-policy";
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -134,20 +140,113 @@ router.get("/dashboard/articles/:id", (req: Request, res: Response) => {
   res.json({ article: formatArticleRow(row) });
 });
 
+function getEditorialAuthorId(): number | null {
+  const author = db
+    .prepare("SELECT id FROM authors WHERE name = ?")
+    .get(EDITORIAL_AUTHOR.name) as { id: number } | undefined;
+  return author?.id ?? null;
+}
+
+function validatePublishedArticle(input: {
+  title: string;
+  excerpt: string;
+  content: string;
+  source: string;
+  sourceUrl: string;
+}): string[] {
+  const errors = validateRewrittenArticle({
+    title: input.title,
+    excerpt: input.excerpt,
+    content: input.content,
+  });
+  const expectedSource = sourceForUrl(input.sourceUrl);
+  if (!expectedSource) errors.push("source URL is not from an approved publication");
+  if (expectedSource && expectedSource !== input.source) errors.push("source does not match source URL");
+  return [...new Set(errors)];
+}
+
 router.post("/dashboard/articles", (req: Request, res: Response) => {
-  const { title, slug, excerpt, content, featured_image, category_id, status, published_at, meta_title, meta_description } = req.body;
+  const {
+    title,
+    slug,
+    excerpt,
+    content,
+    featured_image,
+    category_id,
+    status,
+    published_at,
+    meta_title,
+    meta_description,
+    source,
+    source_url,
+  } = req.body;
 
   if (!title || !slug || !category_id) {
     res.status(400).json({ error: "Title, slug, and category_id are required" });
     return;
   }
 
-  const publishedAt = status === "published" ? (published_at || new Date().toISOString()) : published_at || null;
+  const articleStatus = status || "draft";
+  let normalizedSourceUrl: string | null = null;
+  if (source_url) {
+    try {
+      normalizedSourceUrl = normalizeSourceUrl(source_url);
+    } catch {
+      res.status(400).json({ error: "Source URL is invalid" });
+      return;
+    }
+  }
+
+  if (articleStatus === "published") {
+    if (!source || !normalizedSourceUrl) {
+      res.status(400).json({ error: "Published articles require source and source_url" });
+      return;
+    }
+    const validationErrors = validatePublishedArticle({
+      title,
+      excerpt: excerpt || "",
+      content: content || "",
+      source,
+      sourceUrl: normalizedSourceUrl,
+    });
+    if (validationErrors.length) {
+      res.status(400).json({ error: "Article failed publishing policy", details: validationErrors });
+      return;
+    }
+  }
+
+  const category = db.prepare("SELECT slug FROM categories WHERE id = ?").get(category_id) as { slug: string } | undefined;
+  if (!category) {
+    res.status(400).json({ error: "Category not found" });
+    return;
+  }
+  if (category.slug === "deals") {
+    res.status(400).json({ error: "Deals articles are not allowed" });
+    return;
+  }
+
+  const duplicate = db
+    .prepare("SELECT id FROM articles WHERE slug = ? OR (? IS NOT NULL AND source_url = ?) LIMIT 1")
+    .get(slug, normalizedSourceUrl, normalizedSourceUrl) as { id: number } | undefined;
+  if (duplicate) {
+    res.status(409).json({ error: "Article slug or source_url already exists" });
+    return;
+  }
+
+  const editorialAuthorId = getEditorialAuthorId();
+  if (!editorialAuthorId) {
+    res.status(500).json({ error: "TechNews Editorial author is missing" });
+    return;
+  }
+
+  const publishedAt = articleStatus === "published" ? (published_at || new Date().toISOString()) : published_at || null;
 
   const result = db
     .prepare(
-      `INSERT INTO articles (title, slug, excerpt, content, featured_image, category_id, author_id, status, published_at, meta_title, meta_description)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO articles (
+        title, slug, excerpt, content, featured_image, category_id, author_id, status,
+        published_at, meta_title, meta_description, source, source_url
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       title,
@@ -156,11 +255,13 @@ router.post("/dashboard/articles", (req: Request, res: Response) => {
       content || "",
       featured_image || null,
       category_id,
-      req.user!.id,
-      status || "draft",
+      editorialAuthorId,
+      articleStatus,
       publishedAt,
       meta_title || null,
-      meta_description || null
+      meta_description || null,
+      source || null,
+      normalizedSourceUrl
     );
 
   const article = db
@@ -179,15 +280,86 @@ router.post("/dashboard/articles", (req: Request, res: Response) => {
 
 router.put("/dashboard/articles/:id", (req: Request, res: Response) => {
   const existing = db
-    .prepare("SELECT id FROM articles WHERE id = ?")
-    .get(req.params.id) as { id: number } | undefined;
+    .prepare("SELECT * FROM articles WHERE id = ?")
+    .get(req.params.id) as Record<string, unknown> | undefined;
 
   if (!existing) {
     res.status(404).json({ error: "Article not found" });
     return;
   }
 
-  const { title, slug, excerpt, content, featured_image, category_id, status, published_at, meta_title, meta_description } = req.body;
+  const {
+    title,
+    slug,
+    excerpt,
+    content,
+    featured_image,
+    category_id,
+    status,
+    published_at,
+    meta_title,
+    meta_description,
+    source,
+    source_url,
+  } = req.body;
+
+  let normalizedSourceUrl = existing.source_url as string | null;
+  if (source_url !== undefined) {
+    if (source_url === null || source_url === "") {
+      normalizedSourceUrl = null;
+    } else {
+      try {
+        normalizedSourceUrl = normalizeSourceUrl(source_url);
+      } catch {
+        res.status(400).json({ error: "Source URL is invalid" });
+        return;
+      }
+    }
+  }
+
+  const nextTitle = (title ?? existing.title) as string;
+  const nextSlug = (slug ?? existing.slug) as string;
+  const nextExcerpt = (excerpt ?? existing.excerpt ?? "") as string;
+  const nextContent = (content ?? existing.content ?? "") as string;
+  const nextSource = (source ?? existing.source) as string | null;
+  const nextStatus = (status ?? existing.status) as string;
+  const nextCategoryId = (category_id ?? existing.category_id) as number;
+
+  const category = db.prepare("SELECT slug FROM categories WHERE id = ?").get(nextCategoryId) as { slug: string } | undefined;
+  if (!category) {
+    res.status(400).json({ error: "Category not found" });
+    return;
+  }
+  if (category.slug === "deals") {
+    res.status(400).json({ error: "Deals articles are not allowed" });
+    return;
+  }
+
+  if (nextStatus === "published") {
+    if (!nextSource || !normalizedSourceUrl) {
+      res.status(400).json({ error: "Published articles require source and source_url" });
+      return;
+    }
+    const validationErrors = validatePublishedArticle({
+      title: nextTitle,
+      excerpt: nextExcerpt,
+      content: nextContent,
+      source: nextSource,
+      sourceUrl: normalizedSourceUrl,
+    });
+    if (validationErrors.length) {
+      res.status(400).json({ error: "Article failed publishing policy", details: validationErrors });
+      return;
+    }
+  }
+
+  const duplicate = db
+    .prepare("SELECT id FROM articles WHERE id != ? AND (slug = ? OR (? IS NOT NULL AND source_url = ?)) LIMIT 1")
+    .get(req.params.id, nextSlug, normalizedSourceUrl, normalizedSourceUrl) as { id: number } | undefined;
+  if (duplicate) {
+    res.status(409).json({ error: "Article slug or source_url already exists" });
+    return;
+  }
 
   const publishedAt =
     status === "published" && !published_at
@@ -209,6 +381,18 @@ router.put("/dashboard/articles/:id", (req: Request, res: Response) => {
   if (publishedAt !== undefined) { fields.push("published_at = ?"); values.push(publishedAt); }
   if (meta_title !== undefined) { fields.push("meta_title = ?"); values.push(meta_title); }
   if (meta_description !== undefined) { fields.push("meta_description = ?"); values.push(meta_description); }
+  if (source !== undefined) { fields.push("source = ?"); values.push(source || null); }
+  if (source_url !== undefined) { fields.push("source_url = ?"); values.push(normalizedSourceUrl); }
+
+  if (nextStatus === "published") {
+    const editorialAuthorId = getEditorialAuthorId();
+    if (!editorialAuthorId) {
+      res.status(500).json({ error: "TechNews Editorial author is missing" });
+      return;
+    }
+    fields.push("author_id = ?");
+    values.push(editorialAuthorId);
+  }
 
   if (fields.length === 0) {
     res.status(400).json({ error: "No fields to update" });
@@ -482,6 +666,8 @@ function formatArticleRow(row: Record<string, unknown>) {
     published_at: row.published_at,
     meta_title: row.meta_title,
     meta_description: row.meta_description,
+    source: row.source,
+    source_url: row.source_url,
     view_count: row.view_count,
     created_at: row.created_at,
     updated_at: row.updated_at,
