@@ -41,7 +41,9 @@ These are the top tech news sites to study for layout/UX patterns:
 - Simple typography, lots of whitespace
 - Newsletter-first approach
 
-### Hacker News (news.ycombinator.com)
+### Hacker News-inspired visual reference (news.ycombinator.com)
+
+This reference is visual only. Hacker News must never be used as a news source or discovery feed. See `NEWS_PUBLISHING_POLICY.md`.
 - Ultra-minimal, text-only
 - Upvote system, comment counts
 - Pure link aggregation

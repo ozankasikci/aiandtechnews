@@ -30,6 +30,9 @@
 ## Key Docs
 - `BRIEF.md` — Full product brief
 - `PRODUCT_SPEC.md` — Detailed spec (colors, typography, components, layouts)
+- `NEWS_PUBLISHING_POLICY.md` - Mandatory source, writing, attribution, image, and automation rules for every manual or automated article
+
+Read `NEWS_PUBLISHING_POLICY.md` before any news selection, writing, importing, or publishing work. It is the repository source of truth for article operations.
 
 ## Commands
 - `pnpm install` — install deps
