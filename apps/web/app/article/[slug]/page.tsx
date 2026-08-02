@@ -8,7 +8,7 @@ import { getArticle as fetchArticle, getArticles, mapArticle } from "../../lib/a
 
 type Props = { params: Promise<{ slug: string }> };
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: Props) {
   const { slug } = await params;
@@ -26,14 +26,6 @@ export async function generateMetadata({ params }: Props) {
     },
   };
 }
-
-export async function generateStaticParams() {
-  const data = await getArticles({ limit: 100 });
-  if (!data?.articles?.length) return [];
-  return data.articles.map((a) => ({ slug: a.slug }));
-}
-
-export const dynamicParams = true;
 
 export default async function ArticlePage({ params }: Props) {
   const { slug } = await params;
