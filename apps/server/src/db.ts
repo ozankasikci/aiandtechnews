@@ -47,6 +47,8 @@ export function initializeDatabase() {
       published_at TEXT,
       meta_title TEXT,
       meta_description TEXT,
+      source TEXT,
+      source_url TEXT,
       view_count INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -68,6 +70,16 @@ export function initializeDatabase() {
       value TEXT NOT NULL
     );
   `);
+
+  const articleColumns = db.pragma("table_info(articles)") as { name: string }[];
+  const articleColumnNames = new Set(articleColumns.map((column) => column.name));
+  if (!articleColumnNames.has("source")) {
+    db.exec("ALTER TABLE articles ADD COLUMN source TEXT");
+  }
+  if (!articleColumnNames.has("source_url")) {
+    db.exec("ALTER TABLE articles ADD COLUMN source_url TEXT");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_articles_source_url ON articles(source_url)");
 
   seed();
 }
@@ -94,11 +106,11 @@ function seed() {
   db.prepare(
     "INSERT INTO authors (name, email, password_hash, avatar, bio, role) VALUES (?, ?, ?, ?, ?, ?)"
   ).run(
-    "Admin",
+    "TechNews Editorial",
     "admin@technews.com",
     passwordHash,
     null,
-    "TechNews administrator and editor-in-chief.",
+    "The TechNews editorial team covers artificial intelligence and technology.",
     "admin"
   );
   
