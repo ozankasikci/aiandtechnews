@@ -68,6 +68,7 @@ Do not replace a usable source image merely to make the article look more consis
 ## Daily automation contract
 
 - The active job runs daily at 09:00 in `Europe/Istanbul`.
+- The repository entrypoint is `pnpm --filter @technews/server news:daily`.
 - Publish at most one new article per run. The importer must enforce this even if a larger environment value is supplied.
 - Run with `IMPORT_ONLY=1`.
 - An import-only run must not trigger bulk cleanup, rewriting or enhancement of older articles, or image backfills.
