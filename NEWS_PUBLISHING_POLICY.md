@@ -67,16 +67,19 @@ Do not replace a usable source image merely to make the article look more consis
 
 ## Daily automation contract
 
-- The active job runs daily at 09:00 in `Europe/Istanbul`.
+- The external scheduler checks every five minutes in `Europe/Istanbul` and maintains four randomized publication slots per calendar day.
+- Generate one slot in each window: 06:30 to 10:00, 10:30 to 14:00, 14:30 to 18:00, and 18:30 to 22:00.
+- Target four successfully published articles per day, while publishing at most one new article per importer run.
 - The repository entrypoint is `pnpm --filter @technews/server news:daily`.
-- Publish at most one new article per run. The importer must enforce this even if a larger environment value is supplied.
-- Run with `IMPORT_ONLY=1`.
+- Run with `IMPORT_ONLY=1` and `MAX_IMPORTS=1`. The importer must clamp every individual run to one article even if a larger environment value is supplied.
+- A slot is complete only when the database count increases by exactly one and the inserted row is identified. A run that publishes no compliant article must retry that slot after 30 minutes.
 - An import-only run must not trigger bulk cleanup, rewriting or enhancement of older articles, or image backfills.
-- An importer lock must prevent overlapping runs.
-- A rejected candidate is skipped. It must not be replaced with unverified or lower-quality material merely to publish something that day.
+- Importer and scheduler locks must prevent overlapping runs.
+- A rejected candidate is skipped. It must not be replaced with unverified or lower-quality material merely to fill a slot.
 - A failed rewrite, failed validation, missing database field, or other unsafe state must make the run fail or skip the candidate. It must never silently publish fallback text.
+- After insertion, verify the exact article through the public API and canonical public page. A verification warning does not permit a second insertion for the same slot.
 
-The scheduler is external to this repository. As reported on 2026-08-02, the cron job is enabled and its most recent run succeeded. That operational status is a snapshot, not a guarantee. Verify the external scheduler and its latest run directly whenever current status matters. Do not infer scheduler health from this repository alone.
+The scheduler is external to this repository. Its operational status is a snapshot, not a guarantee. Verify the external scheduler, current daily state, and latest run directly whenever current status matters. Do not infer scheduler health from this repository alone.
 
 ## Manual publishing checklist
 
