@@ -9,3 +9,5 @@ dist/
 # apps/web/public/images/generated/
 *.log
 .claude/channels/
+.claude/settings.local.json
+memory/
