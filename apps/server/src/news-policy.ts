@@ -46,6 +46,17 @@ const FORBIDDEN_COPY = [
   { pattern: /\bgame-changing\b/i, label: "game-changing" },
 ];
 
+const AUTOMATIC_TECH_TOPIC_PATTERNS = [
+  /\b(?:ai|artificial intelligence|machine learning|llm|chatgpt|chatbot|openai|anthropic|gemini|neural network|foundation model)\b/i,
+  /\b(?:software|app|application|developer|api|code|coding|programming|open source|operating system|windows|macos|linux|ios|android)\b/i,
+  /\b(?:cybersecurity|security update|data breach|malware|ransomware|hack(?:ed|ing)?|privacy|encryption|password|vulnerability)\b/i,
+  /\b(?:chip|semiconductor|processor|cpu|gpu|computer|laptop|smartphone|tablet|server|data center|cloud computing|database)\b/i,
+  /\b(?:internet|web browser|browser|search engine|social network|social media|online platform|streaming technology)\b/i,
+  /\b(?:robot|robotics|autonomous|self-driving|electric vehicle|ev battery|drone|satellite|spacex|rocket technology)\b/i,
+  /\b(?:startup|venture capital|funding round|seed round|series [a-z]|fintech|healthtech|biotech|edtech)\b/i,
+  /\/(?:tech|technology|ai-artificial-intelligence|cybersecurity|gadgets|computing|mobile|apps|software|hardware|transportation)\//i,
+];
+
 export function slugify(title: string): string {
   return title
     .toLowerCase()
@@ -133,6 +144,22 @@ export function getItemRejectionReason(
   if (oldTitleYear && Number(oldTitleYear) < cutoffYear) return "obviously old repost";
   if (oldUrlYear && Number(oldUrlYear) < cutoffYear) return "obviously old repost";
 
+  return null;
+}
+
+export function getAutomaticItemRejectionReason(
+  title: string,
+  sourceUrl: string,
+  expectedSource?: string,
+  now = new Date(),
+): string | null {
+  const generalRejection = getItemRejectionReason(title, sourceUrl, expectedSource, now);
+  if (generalRejection) return generalRejection;
+
+  const topicEvidence = `${title.trim()} ${sourceUrl}`;
+  if (!AUTOMATIC_TECH_TOPIC_PATTERNS.some((pattern) => pattern.test(topicEvidence))) {
+    return "not clearly technology-related; non-tech stories require manual import";
+  }
   return null;
 }
 

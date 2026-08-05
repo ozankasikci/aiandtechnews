@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  getAutomaticItemRejectionReason,
   getItemRejectionReason,
   normalizeSourceUrl,
   slugify,
@@ -39,6 +40,44 @@ test("rejects low-quality, promotional, and old items", () => {
   assert.match(getItemRejectionReason("Research paper [PDF]", "https://arstechnica.com/science/paper", "Ars Technica", current) || "", /PDF/);
   assert.match(getItemRejectionReason("A classic operating system (2009)", "https://arstechnica.com/tech/os", "Ars Technica", current) || "", /old repost/);
   assert.equal(getItemRejectionReason("Apple updates macOS", "https://www.theverge.com/tech/apple-macos", "The Verge", current), null);
+});
+
+test("automatic imports reject non-tech entertainment while manual policy still allows it", () => {
+  const title = "Spider-Man: Brand New Day Smashes Box Office Records With $1 Billion Worldwide Opening";
+  const url = "https://www.theverge.com/entertainment/975297/spider-man-brand-new-day-marvel-sony-xmen-doomsday";
+
+  assert.equal(getItemRejectionReason(title, url, "The Verge"), null);
+  assert.match(getAutomaticItemRejectionReason(title, url, "The Verge") || "", /not clearly technology-related/i);
+});
+
+test("automatic imports accept clearly technology-related stories", () => {
+  assert.equal(
+    getAutomaticItemRejectionReason(
+      "Apple releases a macOS security update",
+      "https://www.theverge.com/tech/975300/apple-macos-security-update",
+      "The Verge",
+    ),
+    null,
+  );
+  assert.equal(
+    getAutomaticItemRejectionReason(
+      "OpenAI launches a new model for developers",
+      "https://techcrunch.com/2026/08/05/openai-launches-a-new-model-for-developers/",
+      "TechCrunch",
+    ),
+    null,
+  );
+});
+
+test("automatic imports fail closed when a general-feed story has no technology signal", () => {
+  assert.match(
+    getAutomaticItemRejectionReason(
+      "Summer travel destinations attracting record crowds",
+      "https://techcrunch.com/2026/08/05/summer-travel-destinations/",
+      "TechCrunch",
+    ) || "",
+    /not clearly technology-related/i,
+  );
 });
 
 test("creates deterministic slugs", () => {

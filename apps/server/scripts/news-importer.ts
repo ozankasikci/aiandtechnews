@@ -5,6 +5,7 @@ import db, { initializeDatabase } from "../src/db";
 import {
   APPROVED_FEEDS,
   EDITORIAL_AUTHOR,
+  getAutomaticItemRejectionReason,
   getItemRejectionReason,
   normalizeSourceUrl,
   RewrittenArticle,
@@ -165,7 +166,7 @@ function parseFeed(xml: string, source: string): FeedArticle[] {
   return articles;
 }
 
-async function fetchApprovedFeedItems(): Promise<FeedArticle[]> {
+async function fetchApprovedFeedItems(automaticOnly: boolean): Promise<FeedArticle[]> {
   const feedResults = await Promise.all(APPROVED_FEEDS.map(async (feed) => {
     console.log(`Fetching RSS: ${feed.source}`);
     const result = await fetchText(feed.url);
@@ -180,7 +181,9 @@ async function fetchApprovedFeedItems(): Promise<FeedArticle[]> {
   const uniqueItems: FeedArticle[] = [];
 
   for (const item of feedResults.flat()) {
-    const rejection = getItemRejectionReason(item.title, item.url, item.source);
+    const rejection = automaticOnly
+      ? getAutomaticItemRejectionReason(item.title, item.url, item.source)
+      : getItemRejectionReason(item.title, item.url, item.source);
     if (rejection) {
       console.log(`Rejected RSS item (${rejection}): ${item.title}`);
       continue;
@@ -494,8 +497,10 @@ function isStored(sourceUrl: string, slug: string): boolean {
   return Boolean(duplicate);
 }
 
-async function importFeedItem(item: FeedArticle): Promise<boolean> {
-  const initialRejection = getItemRejectionReason(item.title, item.url, item.source);
+async function importFeedItem(item: FeedArticle, automaticOnly: boolean): Promise<boolean> {
+  const initialRejection = automaticOnly
+    ? getAutomaticItemRejectionReason(item.title, item.url, item.source)
+    : getItemRejectionReason(item.title, item.url, item.source);
   if (initialRejection) {
     console.log(`Rejected (${initialRejection}): ${item.title}`);
     return false;
@@ -516,7 +521,13 @@ async function importFeedItem(item: FeedArticle): Promise<boolean> {
     console.log(`Rejected canonical URL outside ${item.source}: ${canonicalUrl}`);
     return false;
   }
-  if (getItemRejectionReason(item.title, canonicalUrl, item.source)) return false;
+  const canonicalRejection = automaticOnly
+    ? getAutomaticItemRejectionReason(item.title, canonicalUrl, item.source)
+    : getItemRejectionReason(item.title, canonicalUrl, item.source);
+  if (canonicalRejection) {
+    console.log(`Rejected canonical item (${canonicalRejection}): ${item.title}`);
+    return false;
+  }
   if (isStored(canonicalUrl, initialSlug)) {
     console.log(`Duplicate canonical source URL or source headline slug: ${item.title}`);
     return false;
@@ -627,9 +638,9 @@ export async function runDailyImporter(): Promise<number> {
   }
 
   return runWithLock(async () => {
-    const candidates = await fetchApprovedFeedItems();
+    const candidates = await fetchApprovedFeedItems(true);
     for (const candidate of candidates) {
-      if (await importFeedItem(candidate)) return 1;
+      if (await importFeedItem(candidate, true)) return 1;
     }
     console.log("No compliant new article was available. Published 0 articles.");
     return 0;
@@ -648,11 +659,11 @@ export async function runManualImporter(articleUrl: string): Promise<number> {
       throw new Error("Manual imports must use TechCrunch, The Verge, or Ars Technica");
     }
 
-    const feedItems = await fetchApprovedFeedItems();
+    const feedItems = await fetchApprovedFeedItems(false);
     const candidate = feedItems.find((item) => item.url === normalizedRequestedUrl);
     if (!candidate) {
       throw new Error("Manual imports must originate from an item currently present in an approved RSS feed");
     }
-    return await importFeedItem(candidate) ? 1 : 0;
+    return await importFeedItem(candidate, false) ? 1 : 0;
   });
 }

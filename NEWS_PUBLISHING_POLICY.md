@@ -17,6 +17,10 @@ Use RSS items from these publications only:
 - Reject deals, coupons, sales roundups, buying guides based on discounts, and other promotional items.
 - Reject Show HN posts, PDFs, videos presented as the item itself, abstracts, arXiv-style entries, and obviously old reposts.
 - A manual article must also originate from one of the three approved RSS feeds. A permitted domain by itself is not enough.
+- **Automatic imports must be clearly technology-related.** They must have an explicit technology signal in the RSS headline or canonical URL, such as AI, software, cybersecurity, computing, hardware, internet platforms, robotics, autonomous systems, or technology startups.
+- General-interest, entertainment, film, television, celebrity, sports, travel, culture, and other non-tech stories must be rejected by automation even when they appear in an approved publication's RSS feed.
+- Non-tech news may be added only through the manual importer. Manual publication still requires an approved current RSS item and every other editorial quality check in this policy.
+- Automatic topic classification must fail closed: if technology relevance is unclear, skip the story rather than using it to fill a scheduled slot.
 - Preserve the canonical source URL. Do not replace it with a search result, aggregator, tracking URL, or home page.
 
 Before writing, confirm both of these are new:
@@ -76,6 +80,7 @@ Do not replace a usable source image merely to make the article look more consis
 - An import-only run must not trigger bulk cleanup, rewriting or enhancement of older articles, or image backfills.
 - Importer and scheduler locks must prevent overlapping runs.
 - A rejected candidate is skipped. It must not be replaced with unverified or lower-quality material merely to fill a slot.
+- Automatic candidates must pass the technology-topic gate before fetching, rewriting, or insertion. The daily scheduler must never use the manual-import path to bypass this gate.
 - A failed rewrite, failed validation, missing database field, or other unsafe state must make the run fail or skip the candidate. It must never silently publish fallback text.
 - After insertion, verify the exact article through the public API and canonical public page. A verification warning does not permit a second insertion for the same slot.
 
