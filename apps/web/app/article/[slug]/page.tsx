@@ -5,8 +5,11 @@ import { getArticleBySlug, ALL_ARTICLES } from "../../data/articles";
 import { MostPopularSidebar } from "../../components/Sidebar";
 import { ShareButtons } from "../../components/ShareButtons";
 import { getArticle as fetchArticle, getArticles, mapArticle } from "../../lib/api";
+import { toAbsoluteUrl } from "../../lib/dates";
 
 type Props = { params: Promise<{ slug: string }> };
+
+const BASE_URL = "https://www.aiandtech.news";
 
 export const dynamic = "force-dynamic";
 
@@ -15,14 +18,28 @@ export async function generateMetadata({ params }: Props) {
   const apiData = await fetchArticle(slug);
   const article = apiData?.article ? mapArticle(apiData.article) : getArticleBySlug(slug);
   if (!article) return { title: "Article Not Found" };
+  const canonicalUrl = `${BASE_URL}/article/${article.slug}`;
+  const imageUrl = toAbsoluteUrl(article.image, BASE_URL);
+
   return {
     title: article.headline,
     description: article.excerpt || article.headline,
+    alternates: { canonical: canonicalUrl },
     openGraph: {
       title: article.headline,
       description: article.excerpt || article.headline,
-      images: article.image ? [{ url: article.image }] : [],
+      url: canonicalUrl,
+      images: imageUrl ? [{ url: imageUrl }] : [],
       type: "article",
+      publishedTime: article.publishedAt,
+      modifiedTime: article.updatedAt,
+      authors: [`${BASE_URL}/about`],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: article.headline,
+      description: article.excerpt || article.headline,
+      images: imageUrl ? [imageUrl] : [],
     },
   };
 }
@@ -36,6 +53,8 @@ export default async function ArticlePage({ params }: Props) {
   if (!article) notFound();
 
   const body = article.body || "<p>Article content unavailable.</p>";
+  const articleUrl = `${BASE_URL}/article/${article.slug}`;
+  const imageUrl = toAbsoluteUrl(article.image, BASE_URL);
 
   // Get related articles
   const relatedData = await getArticles({ category: article.tag.toLowerCase(), limit: 4 });
@@ -48,16 +67,20 @@ export default async function ArticlePage({ params }: Props) {
     "@type": "NewsArticle",
     headline: article.headline,
     description: article.excerpt,
-    image: article.image ? [`https://www.aiandtech.news${article.image}`] : [],
-    datePublished: article.date,
-    dateModified: article.date,
-    author: [{ "@type": "Person", name: article.author }],
+    image: imageUrl ? [imageUrl] : undefined,
+    datePublished: article.publishedAt,
+    dateModified: article.updatedAt || article.publishedAt,
+    articleSection: article.tag,
+    inLanguage: "en",
+    isAccessibleForFree: true,
+    author: [{ "@type": "Organization", name: "TechNews Editorial", url: `${BASE_URL}/about` }],
     publisher: {
       "@type": "Organization",
       name: "AI and Tech News",
-      logo: { "@type": "ImageObject", url: "https://www.aiandtech.news/favicon-32.png" },
+      url: BASE_URL,
+      logo: { "@type": "ImageObject", url: `${BASE_URL}/icon-512.png`, width: 512, height: 512 },
     },
-    mainEntityOfPage: { "@type": "WebPage", "@id": `https://www.aiandtech.news/article/${article.slug}` },
+    mainEntityOfPage: { "@type": "WebPage", "@id": articleUrl },
   };
 
   return (
@@ -66,9 +89,6 @@ export default async function ArticlePage({ params }: Props) {
       <div className="relative w-full h-[300px] md:h-[450px] lg:h-[500px]">
         <Image src={article.image} alt={article.headline} fill className="object-cover" sizes="100vw" priority />
         <div className="absolute inset-0 bg-gradient-to-t from-bg via-bg/40 to-transparent" />
-        {article.imageSource && (
-          <span className="absolute bottom-3 right-4 text-xs text-white/50 z-10">Image: {article.imageSource}</span>
-        )}
       </div>
 
       <div className="px-4 lg:px-8 -mt-24 relative z-10">
@@ -90,6 +110,16 @@ export default async function ArticlePage({ params }: Props) {
               <div className="flex flex-col gap-0.5">
                 <span className="text-white text-sm font-semibold leading-tight">{article.author}</span>
                 <span className="text-text-muted text-xs">{article.date} · {article.readTime}</span>
+                {article.source && article.sourceUrl && (
+                  <Link
+                    href={article.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-text-muted hover:text-white text-xs transition-colors"
+                  >
+                    Original reporting: {article.source}
+                  </Link>
+                )}
               </div>
             </div>
 

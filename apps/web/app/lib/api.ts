@@ -1,4 +1,5 @@
 import type { Article } from "../data/articles";
+import { parseApiDate, toIsoDate } from "./dates";
 
 function getApiUrl() {
   const configured = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL)?.trim();
@@ -26,6 +27,8 @@ export interface ApiArticle {
   view_count: number;
   created_at: string;
   updated_at: string;
+  source?: string;
+  source_url?: string;
   category: { id: number; name: string; slug: string; description: string; color: string };
   author: { id: number; name: string; email: string; avatar: string; bio: string; role: string };
 }
@@ -80,6 +83,8 @@ function timeAgo(dateStr: string): string {
 }
 
 export function mapArticle(a: ApiArticle): Article {
+  const publishedDate = parseApiDate(a.published_at || a.created_at);
+
   return {
     id: a.id,
     slug: a.slug,
@@ -90,11 +95,13 @@ export function mapArticle(a: ApiArticle): Article {
     author: a.author?.name || "Staff",
     avatar: a.author?.avatar || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop&crop=face",
     time: timeAgo(a.published_at || a.created_at),
-    date: new Date(a.published_at || a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    date: publishedDate?.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) || "Date unavailable",
+    publishedAt: toIsoDate(a.published_at || a.created_at),
+    updatedAt: toIsoDate(a.updated_at || a.published_at || a.created_at),
     readTime: `${Math.max(2, Math.ceil((a.content?.length || 0) / 1000))} min read`,
     image: a.featured_image || "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=500&fit=crop",
-    imageSource: (a as any).source || undefined,
-    sourceUrl: (a as any).source_url || undefined,
+    source: a.source || undefined,
+    sourceUrl: a.source_url || undefined,
     body: a.content,
   };
 }

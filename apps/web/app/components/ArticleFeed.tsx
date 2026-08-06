@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { ArticleImage } from "./ArticleImage";
 import type { Article } from "../data/articles";
+import { toIsoDate } from "../lib/dates";
 
 function colorFromHex(color: string): string {
   const map: Record<string, string> = {
@@ -45,12 +46,15 @@ function staticToArticle(a: any): Article {
     tag: a.category?.name || "News",
     tagColor,
     date: published.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    publishedAt: toIsoDate(a.published_at),
+    updatedAt: toIsoDate(a.updated_at || a.published_at),
     readTime: "2 min read",
     time,
     body: "",
     author: a.author?.name || "TechNews Editorial",
     avatar: a.author?.avatar || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop",
-    imageSource: "",
+    source: a.source || undefined,
+    sourceUrl: a.source_url || undefined,
   };
 }
 
