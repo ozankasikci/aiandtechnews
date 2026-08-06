@@ -1,5 +1,6 @@
 import { MetadataRoute } from "next";
-import { getArticles } from "./lib/api";
+import { getArticlesUpTo } from "./lib/api";
+import { parseApiDate } from "./lib/dates";
 import { CATEGORIES } from "./data/articles";
 
 const BASE_URL = "https://www.aiandtech.news";
@@ -23,11 +24,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Article pages
   let article_pages: MetadataRoute.Sitemap = [];
   try {
-    const data = await getArticles({ limit: 500 });
-    if (data?.articles) {
-      article_pages = data.articles.map((a) => ({
+    const articles = await getArticlesUpTo(500);
+    if (articles) {
+      article_pages = articles.map((a) => ({
         url: `${BASE_URL}/article/${a.slug}`,
-        lastModified: new Date(a.published_at),
+        lastModified: parseApiDate(a.published_at) || new Date(),
         changeFrequency: "weekly" as const,
         priority: 0.7,
       }));

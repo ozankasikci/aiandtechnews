@@ -4,9 +4,14 @@ import { notFound } from "next/navigation";
 import { getArticleBySlug, ALL_ARTICLES } from "../../data/articles";
 import { MostPopularSidebar } from "../../components/Sidebar";
 import { ShareButtons } from "../../components/ShareButtons";
+import { AnalyticsLink } from "../../components/AnalyticsLink";
+import { ArticleReadTracker } from "../../components/ArticleReadTracker";
 import { getArticle as fetchArticle, getArticles, mapArticle } from "../../lib/api";
+import { toAbsoluteUrl } from "../../lib/dates";
 
 type Props = { params: Promise<{ slug: string }> };
+
+const BASE_URL = "https://www.aiandtech.news";
 
 export const dynamic = "force-dynamic";
 
@@ -15,14 +20,28 @@ export async function generateMetadata({ params }: Props) {
   const apiData = await fetchArticle(slug);
   const article = apiData?.article ? mapArticle(apiData.article) : getArticleBySlug(slug);
   if (!article) return { title: "Article Not Found" };
+  const canonicalUrl = `${BASE_URL}/article/${article.slug}`;
+  const imageUrl = toAbsoluteUrl(article.image, BASE_URL);
+
   return {
     title: article.headline,
     description: article.excerpt || article.headline,
+    alternates: { canonical: canonicalUrl },
     openGraph: {
       title: article.headline,
       description: article.excerpt || article.headline,
-      images: article.image ? [{ url: article.image }] : [],
+      url: canonicalUrl,
+      images: imageUrl ? [{ url: imageUrl }] : [],
       type: "article",
+      publishedTime: article.publishedAt,
+      modifiedTime: article.updatedAt,
+      authors: [`${BASE_URL}/about`],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: article.headline,
+      description: article.excerpt || article.headline,
+      images: imageUrl ? [imageUrl] : [],
     },
   };
 }
@@ -36,6 +55,8 @@ export default async function ArticlePage({ params }: Props) {
   if (!article) notFound();
 
   const body = article.body || "<p>Article content unavailable.</p>";
+  const articleUrl = `${BASE_URL}/article/${article.slug}`;
+  const imageUrl = toAbsoluteUrl(article.image, BASE_URL);
 
   // Get related articles
   const relatedData = await getArticles({ category: article.tag.toLowerCase(), limit: 4 });
@@ -48,16 +69,20 @@ export default async function ArticlePage({ params }: Props) {
     "@type": "NewsArticle",
     headline: article.headline,
     description: article.excerpt,
-    image: article.image ? [`https://www.aiandtech.news${article.image}`] : [],
-    datePublished: article.date,
-    dateModified: article.date,
-    author: [{ "@type": "Person", name: article.author }],
+    image: imageUrl ? [imageUrl] : undefined,
+    datePublished: article.publishedAt,
+    dateModified: article.updatedAt || article.publishedAt,
+    articleSection: article.tag,
+    inLanguage: "en",
+    isAccessibleForFree: true,
+    author: [{ "@type": "Organization", name: "TechNews Editorial", url: `${BASE_URL}/about` }],
     publisher: {
       "@type": "Organization",
       name: "AI and Tech News",
-      logo: { "@type": "ImageObject", url: "https://www.aiandtech.news/favicon-32.png" },
+      url: BASE_URL,
+      logo: { "@type": "ImageObject", url: `${BASE_URL}/icon-512.png`, width: 512, height: 512 },
     },
-    mainEntityOfPage: { "@type": "WebPage", "@id": `https://www.aiandtech.news/article/${article.slug}` },
+    mainEntityOfPage: { "@type": "WebPage", "@id": articleUrl },
   };
 
   return (
@@ -66,9 +91,6 @@ export default async function ArticlePage({ params }: Props) {
       <div className="relative w-full h-[300px] md:h-[450px] lg:h-[500px]">
         <Image src={article.image} alt={article.headline} fill className="object-cover" sizes="100vw" priority />
         <div className="absolute inset-0 bg-gradient-to-t from-bg via-bg/40 to-transparent" />
-        {article.imageSource && (
-          <span className="absolute bottom-3 right-4 text-xs text-white/50 z-10">Image: {article.imageSource}</span>
-        )}
       </div>
 
       <div className="px-4 lg:px-8 -mt-24 relative z-10">
@@ -90,18 +112,36 @@ export default async function ArticlePage({ params }: Props) {
               <div className="flex flex-col gap-0.5">
                 <span className="text-white text-sm font-semibold leading-tight">{article.author}</span>
                 <span className="text-text-muted text-xs">{article.date} · {article.readTime}</span>
+                {article.source && article.sourceUrl && (
+                  <AnalyticsLink
+                    href={article.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    eventName="source_click"
+                    eventParameters={{
+                      content_type: "article",
+                      item_id: article.slug,
+                      source: article.source,
+                    }}
+                    className="text-text-muted hover:text-white text-xs transition-colors"
+                  >
+                    Original reporting: {article.source}
+                  </AnalyticsLink>
+                )}
               </div>
             </div>
 
             <ShareButtons title={article.headline} />
 
             <div
+              id="article-body"
               className="prose prose-invert max-w-none
                 [&_p]:text-[#e5e5e5] [&_p]:text-base [&_p]:leading-relaxed [&_p]:mb-5
                 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-8 [&_h2]:mb-4 [&_h2]:text-white
                 [&_blockquote]:border-l-4 [&_blockquote]:border-accent-purple [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-text-secondary [&_blockquote]:my-6"
               dangerouslySetInnerHTML={{ __html: body }}
             />
+            <ArticleReadTracker bodyId="article-body" slug={article.slug} category={article.tag} />
 
             {related.length > 0 && (
               <section className="mt-12 pt-8 border-t border-border">
@@ -109,19 +149,37 @@ export default async function ArticlePage({ params }: Props) {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {related.map((r) => (
                     <div key={r.id} className="group">
-                      <Link href={`/article/${r.slug}`}>
+                      <AnalyticsLink
+                        href={`/article/${r.slug}`}
+                        eventName="select_content"
+                        eventParameters={{
+                          content_type: "related_article",
+                          item_id: r.slug,
+                          source_article: article.slug,
+                          link_position: "image",
+                        }}
+                      >
                         <div className="relative h-[160px] rounded-sm overflow-hidden mb-3">
                           <Image src={r.image} alt="" fill className="object-cover group-hover:scale-105 transition-transform" sizes="300px" />
                         </div>
-                      </Link>
+                      </AnalyticsLink>
                       <Link href={`/${r.tag.toLowerCase()}`} className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-1 hover:opacity-80 transition-opacity ${r.tagColor}`}>
                         {r.tag}
                       </Link>
-                      <Link href={`/article/${r.slug}`}>
+                      <AnalyticsLink
+                        href={`/article/${r.slug}`}
+                        eventName="select_content"
+                        eventParameters={{
+                          content_type: "related_article",
+                          item_id: r.slug,
+                          source_article: article.slug,
+                          link_position: "headline",
+                        }}
+                      >
                         <h3 className="text-sm font-bold leading-snug group-hover:text-accent-purple transition-colors">
                           {r.headline}
                         </h3>
-                      </Link>
+                      </AnalyticsLink>
                     </div>
                   ))}
                 </div>

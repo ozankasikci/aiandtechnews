@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { trackEvent } from "../lib/analytics";
 
-export function NewsletterBanner() {
+export function NewsletterBanner({ placement = "inline" }: { placement?: string }) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
@@ -22,6 +23,7 @@ export function NewsletterBanner() {
         setStatus("success");
         setMessage(data.message || "You're subscribed!");
         setEmail("");
+        trackEvent("generate_lead", { method: "newsletter", placement });
       } else {
         setStatus("error");
         setMessage(data.error || "Something went wrong");
@@ -63,7 +65,7 @@ export function NewsletterBanner() {
   );
 }
 
-export function SubscribeButton() {
+export function SubscribeButton({ placement = "header" }: { placement?: string }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
@@ -84,6 +86,7 @@ export function SubscribeButton() {
         setStatus("success");
         setMessage(data.message || "You're subscribed!");
         setEmail("");
+        trackEvent("generate_lead", { method: "newsletter", placement });
       } else {
         setStatus("error");
         setMessage(data.error || "Something went wrong");
@@ -97,7 +100,10 @@ export function SubscribeButton() {
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setOpen(true);
+          trackEvent("newsletter_open", { placement });
+        }}
         className="text-text-secondary hover:text-white text-sm font-medium transition-colors"
       >
         Subscribe
