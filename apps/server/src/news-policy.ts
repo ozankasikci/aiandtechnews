@@ -24,18 +24,27 @@ const SOURCE_HOSTS: Record<string, string[]> = {
   "Ars Technica": ["arstechnica.com"],
 };
 
+const PROMOTIONAL_PATTERNS = [
+  /\b(?:deals?|coupon|discount|sale|buying guide)\b/i,
+  /\b(?:lowest|best) price\b/i,
+  /\bprice (?:drop|cut)\b/i,
+  /\b(?:save \$?\d+|\d+% off|percent off)\b/i,
+  /\b(?:prime day|black friday|cyber monday)\b/i,
+  /\b(?:last chance|pre-?orders?|pre-?order bonuses?)\b/i,
+];
+
 const REJECTED_TITLE_PATTERNS: Array<[RegExp, string]> = [
   [/^show hn:/i, "Show HN item"],
   [/^state of show hn/i, "Show HN item"],
   [/\[(?:pdf|video)\]/i, "PDF or video item"],
   [/\b(?:abstract|arxiv)\s*:/i, "abstract or arXiv-style item"],
   [/\barxiv\b/i, "arXiv-style item"],
-  [/\b(?:deals?|coupon|discount|sale|buying guide)\b/i, "deal or promotional item"],
-  [/\b(?:lowest|best) price\b/i, "deal or promotional item"],
-  [/\bprice (?:drop|cut)\b/i, "deal or promotional item"],
-  [/\b(?:save \$?\d+|\d+% off|percent off)\b/i, "deal or promotional item"],
-  [/\b(?:prime day|black friday|cyber monday)\b/i, "deal or promotional item"],
+  ...PROMOTIONAL_PATTERNS.map((pattern) => [pattern, "deal or promotional item"] as [RegExp, string]),
 ];
+
+function containsPromotionalLanguage(value: string): boolean {
+  return PROMOTIONAL_PATTERNS.some((pattern) => pattern.test(value));
+}
 
 const FORBIDDEN_COPY = [
   { pattern: /\u2014/, label: "em dash" },
@@ -137,6 +146,8 @@ export function getItemRejectionReason(
 
   if (/\.(?:pdf|mp4|mov|webm)(?:$|[?#])/i.test(url.pathname)) return "PDF or video item";
   if (/\/(?:videos?|deals?)(?:\/|$)/i.test(url.pathname)) return "video, deal, or promotional item";
+  const urlWords = decodeURIComponent(url.pathname).replace(/[-_/]+/g, " ");
+  if (containsPromotionalLanguage(urlWords)) return "deal or promotional item";
 
   const oldTitleYear = title.match(/\(((?:19|20)\d{2})\)\s*$/)?.[1];
   const oldUrlYear = url.pathname.match(/\/((?:19|20)\d{2})\//)?.[1];
@@ -177,6 +188,7 @@ export function validateRewrittenArticle(article: RewrittenArticle): string[] {
   if (!title) errors.push("headline is missing");
   if (title.length > 120) errors.push("headline exceeds 120 characters");
   if (/!{1,}|\?{2,}/.test(title)) errors.push("headline appears clickbait-like");
+  if (containsPromotionalLanguage(title)) errors.push("headline is promotional");
 
   if (!excerpt) errors.push("excerpt is missing");
   if (excerpt.length > 180) errors.push("excerpt exceeds 180 characters");

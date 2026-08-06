@@ -42,6 +42,13 @@ test("rejects low-quality, promotional, and old items", () => {
   assert.equal(getItemRejectionReason("Apple updates macOS", "https://www.theverge.com/tech/apple-macos", "The Verge", current), null);
 });
 
+test("rejects the Samsung preorder promotion from its headline and canonical URL", () => {
+  const title = "Last Chance For Samsung Galaxy Z Fold 8 And Flip 8 Preorder Bonuses";
+  const url = "https://www.theverge.com/gadgets/976103/samsung-galaxy-z-fold-flip-8-preorder-airpods-pro-3-deal-sale";
+
+  assert.match(getItemRejectionReason(title, url, "The Verge") || "", /promotional/i);
+});
+
 test("automatic imports reject non-tech entertainment while manual policy still allows it", () => {
   const title = "Spider-Man: Brand New Day Smashes Box Office Records With $1 Billion Worldwide Opening";
   const url = "https://www.theverge.com/entertainment/975297/spider-man-brand-new-day-marvel-sony-xmen-doomsday";
@@ -86,6 +93,13 @@ test("creates deterministic slugs", () => {
 
 test("accepts an article that follows the writing contract", () => {
   assert.deepEqual(validateRewrittenArticle(validArticle()), []);
+});
+
+test("rejects a promotional headline produced during rewriting", () => {
+  const article = validArticle();
+  article.title = "Last Chance For Samsung Galaxy Z Fold 8 And Flip 8 Preorder Bonuses";
+
+  assert.match(validateRewrittenArticle(article).join("\n"), /promotional/i);
 });
 
 test("rejects prohibited language, source footers, and invalid fields", () => {

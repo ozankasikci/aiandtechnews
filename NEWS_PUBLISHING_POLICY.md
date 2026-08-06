@@ -14,7 +14,7 @@ Use RSS items from these publications only:
 
 - Never use Hacker News as a source or discovery feed.
 - Do not create or publish a Deals category.
-- Reject deals, coupons, sales roundups, buying guides based on discounts, and other promotional items.
+- Reject deals, coupons, sales roundups, buying guides based on discounts, preorder offers, bonus offers, "last chance" pitches, and other promotional items. Apply this check to both the RSS headline and normalized canonical URL words.
 - Reject Show HN posts, PDFs, videos presented as the item itself, abstracts, arXiv-style entries, and obviously old reposts.
 - A manual article must also originate from one of the three approved RSS feeds. A permitted domain by itself is not enough.
 - **Automatic imports must be clearly technology-related.** They must have an explicit technology signal in the RSS headline or canonical URL, such as AI, software, cybersecurity, computing, hardware, internet platforms, robotics, autonomous systems, or technology startups.
@@ -42,6 +42,7 @@ Rewrite the source into an original, human-sounding article. Do not copy the sou
 - Do not use the phrases `In a move that` or `It remains to be seen`.
 - Do not describe a development as `groundbreaking`, `revolutionary`, or `game-changing`.
 - Write a short, direct, factual, non-clickbait headline.
+- Re-run the promotional-language check against the rewritten headline. A rewrite must never turn an accepted source headline into promotional copy.
 - Write one plain-sentence excerpt with no HTML and no more than 180 characters.
 - Target 400 to 600 words, generally in 5 to 8 paragraphs.
 - Start with a clear lede explaining what happened.
