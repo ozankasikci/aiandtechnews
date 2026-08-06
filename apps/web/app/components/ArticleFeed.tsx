@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArticleImage } from "./ArticleImage";
 import type { Article } from "../data/articles";
 import { toIsoDate } from "../lib/dates";
+import { trackEvent } from "../lib/analytics";
 
 function colorFromHex(color: string): string {
   const map: Record<string, string> = {
@@ -116,7 +117,14 @@ export function ArticleFeed({ initialArticles, initialTotal }: Props) {
   return (
     <div>
       {articles.map((a) => (
-        <Link key={a.id} href={`/article/${a.slug}`}>
+        <Link
+          key={a.id}
+          href={`/article/${a.slug}`}
+          onClick={() => trackEvent("select_content", {
+            content_type: "article_feed",
+            item_id: a.slug,
+          })}
+        >
           <article className="flex gap-4 py-5 border-b border-border group" style={{ "--tag-color": tagHex(a.tagColor) } as React.CSSProperties}>
             <div className="flex-1 min-w-0">
               <span className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-2 ${a.tagColor}`}>

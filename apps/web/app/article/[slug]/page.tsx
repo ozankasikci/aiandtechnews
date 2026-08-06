@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { getArticleBySlug, ALL_ARTICLES } from "../../data/articles";
 import { MostPopularSidebar } from "../../components/Sidebar";
 import { ShareButtons } from "../../components/ShareButtons";
+import { AnalyticsLink } from "../../components/AnalyticsLink";
+import { ArticleReadTracker } from "../../components/ArticleReadTracker";
 import { getArticle as fetchArticle, getArticles, mapArticle } from "../../lib/api";
 import { toAbsoluteUrl } from "../../lib/dates";
 
@@ -111,14 +113,20 @@ export default async function ArticlePage({ params }: Props) {
                 <span className="text-white text-sm font-semibold leading-tight">{article.author}</span>
                 <span className="text-text-muted text-xs">{article.date} · {article.readTime}</span>
                 {article.source && article.sourceUrl && (
-                  <Link
+                  <AnalyticsLink
                     href={article.sourceUrl}
                     target="_blank"
                     rel="noopener noreferrer"
+                    eventName="source_click"
+                    eventParameters={{
+                      content_type: "article",
+                      item_id: article.slug,
+                      source: article.source,
+                    }}
                     className="text-text-muted hover:text-white text-xs transition-colors"
                   >
                     Original reporting: {article.source}
-                  </Link>
+                  </AnalyticsLink>
                 )}
               </div>
             </div>
@@ -126,12 +134,14 @@ export default async function ArticlePage({ params }: Props) {
             <ShareButtons title={article.headline} />
 
             <div
+              id="article-body"
               className="prose prose-invert max-w-none
                 [&_p]:text-[#e5e5e5] [&_p]:text-base [&_p]:leading-relaxed [&_p]:mb-5
                 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-8 [&_h2]:mb-4 [&_h2]:text-white
                 [&_blockquote]:border-l-4 [&_blockquote]:border-accent-purple [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-text-secondary [&_blockquote]:my-6"
               dangerouslySetInnerHTML={{ __html: body }}
             />
+            <ArticleReadTracker bodyId="article-body" slug={article.slug} category={article.tag} />
 
             {related.length > 0 && (
               <section className="mt-12 pt-8 border-t border-border">
@@ -139,19 +149,37 @@ export default async function ArticlePage({ params }: Props) {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {related.map((r) => (
                     <div key={r.id} className="group">
-                      <Link href={`/article/${r.slug}`}>
+                      <AnalyticsLink
+                        href={`/article/${r.slug}`}
+                        eventName="select_content"
+                        eventParameters={{
+                          content_type: "related_article",
+                          item_id: r.slug,
+                          source_article: article.slug,
+                          link_position: "image",
+                        }}
+                      >
                         <div className="relative h-[160px] rounded-sm overflow-hidden mb-3">
                           <Image src={r.image} alt="" fill className="object-cover group-hover:scale-105 transition-transform" sizes="300px" />
                         </div>
-                      </Link>
+                      </AnalyticsLink>
                       <Link href={`/${r.tag.toLowerCase()}`} className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-1 hover:opacity-80 transition-opacity ${r.tagColor}`}>
                         {r.tag}
                       </Link>
-                      <Link href={`/article/${r.slug}`}>
+                      <AnalyticsLink
+                        href={`/article/${r.slug}`}
+                        eventName="select_content"
+                        eventParameters={{
+                          content_type: "related_article",
+                          item_id: r.slug,
+                          source_article: article.slug,
+                          link_position: "headline",
+                        }}
+                      >
                         <h3 className="text-sm font-bold leading-snug group-hover:text-accent-purple transition-colors">
                           {r.headline}
                         </h3>
-                      </Link>
+                      </AnalyticsLink>
                     </div>
                   ))}
                 </div>

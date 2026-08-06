@@ -11,7 +11,13 @@ function AnalyticsInner() {
 
   useEffect(() => {
     if (typeof window.gtag === "function") {
-      window.gtag("config", GA_ID, { page_path: pathname });
+      const query = searchParams.toString();
+      const pagePath = query ? `${pathname}?${query}` : pathname;
+      window.gtag("event", "page_view", {
+        page_path: pagePath,
+        page_location: window.location.href,
+        page_title: document.title,
+      });
     }
   }, [pathname, searchParams]);
 
