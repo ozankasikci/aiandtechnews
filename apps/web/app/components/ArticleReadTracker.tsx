@@ -9,12 +9,18 @@ interface ArticleReadTrackerProps {
   category: string;
 }
 
+// An article whose body fits in the viewport meets the 75% position on mount,
+// so require a minimum dwell time before counting it as read.
+const MIN_DWELL_MS = 10_000;
+
 export function ArticleReadTracker({ bodyId, slug, category }: ArticleReadTrackerProps) {
   useEffect(() => {
     let tracked = false;
+    const start = Date.now();
 
     const checkProgress = () => {
       if (tracked) return;
+      if (Date.now() - start < MIN_DWELL_MS) return;
       const body = document.getElementById(bodyId);
       if (!body) return;
 
@@ -35,9 +41,12 @@ export function ArticleReadTracker({ bodyId, slug, category }: ArticleReadTracke
 
     window.addEventListener("scroll", checkProgress, { passive: true });
     window.addEventListener("resize", checkProgress);
-    checkProgress();
+    // Covers short articles that need no scrolling: check again once the
+    // dwell threshold has passed.
+    const dwellTimer = window.setTimeout(checkProgress, MIN_DWELL_MS);
 
     return () => {
+      window.clearTimeout(dwellTimer);
       window.removeEventListener("scroll", checkProgress);
       window.removeEventListener("resize", checkProgress);
     };

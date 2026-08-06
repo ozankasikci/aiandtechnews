@@ -1,12 +1,21 @@
-import { getArticles } from "../lib/api";
-import { buildNewsSitemap } from "./news-sitemap";
+import { getArticlesUpTo } from "../lib/api";
+import { parseApiDate } from "../lib/dates";
+import { buildNewsSitemap, RECENT_NEWS_WINDOW_MS } from "./news-sitemap";
 
 export const revalidate = 300;
 
-export async function GET() {
-  const data = await getArticles({ limit: 100 });
+// Google News sitemaps allow up to 1,000 URLs; articles older than the
+// 48-hour window are filtered out by buildNewsSitemap.
+const MAX_NEWS_ARTICLES = 1_000;
 
-  if (!data) {
+export async function GET() {
+  const cutoff = Date.now() - RECENT_NEWS_WINDOW_MS;
+  const articles = await getArticlesUpTo(MAX_NEWS_ARTICLES, (article) => {
+    const published = parseApiDate(article.published_at);
+    return published !== null && published.getTime() < cutoff;
+  });
+
+  if (!articles) {
     return new Response(buildNewsSitemap([]), {
       status: 503,
       headers: {
@@ -17,7 +26,7 @@ export async function GET() {
     });
   }
 
-  return new Response(buildNewsSitemap(data.articles), {
+  return new Response(buildNewsSitemap(articles), {
     headers: {
       "Content-Type": "application/xml; charset=utf-8",
       "Cache-Control": "public, max-age=0, s-maxage=300, stale-while-revalidate=300",

@@ -68,9 +68,9 @@ function mapColor(color: string): string {
 }
 
 function timeAgo(dateStr: string): string {
-  // DB stores UTC without Z suffix — append Z to parse correctly
-  const utcStr = dateStr.includes("Z") || dateStr.includes("+") ? dateStr : dateStr + "Z";
-  const diff = Date.now() - new Date(utcStr).getTime();
+  const parsed = parseApiDate(dateStr);
+  if (!parsed) return "Just now";
+  const diff = Date.now() - parsed.getTime();
   if (diff < 0) return "Just now";
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "Just now";
@@ -79,7 +79,7 @@ function timeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(utcStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 export function mapArticle(a: ApiArticle): Article {
@@ -124,6 +124,32 @@ export async function getArticles(opts?: { page?: number; limit?: number; catego
   if (opts?.search) params.set("search", opts.search);
   const qs = params.toString();
   return apiFetch<{ articles: ApiArticle[]; total: number; page: number; totalPages: number }>(`/api/articles${qs ? `?${qs}` : ""}`);
+}
+
+// The public API caps each page at 50 articles, so callers that need more
+// (sitemaps) must paginate. Results arrive newest first; `stopWhen` lets
+// callers stop paginating once articles are older than they need. Returns
+// null when the first request fails so callers can distinguish "API down"
+// from "no articles".
+export async function getArticlesUpTo(
+  maxCount: number,
+  stopWhen?: (article: ApiArticle) => boolean,
+): Promise<ApiArticle[] | null> {
+  const pageSize = 50;
+  const articles: ApiArticle[] = [];
+  let page = 1;
+
+  while (articles.length < maxCount) {
+    const data = await getArticles({ page, limit: pageSize });
+    if (!data) return page === 1 ? null : articles;
+    if (!data.articles.length) break;
+    articles.push(...data.articles);
+    if (stopWhen && data.articles.some(stopWhen)) break;
+    if (page >= (data.totalPages || 1)) break;
+    page++;
+  }
+
+  return articles.slice(0, maxCount);
 }
 
 export async function getTrendingArticles(limit = 5) {

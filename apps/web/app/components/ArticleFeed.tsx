@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { ArticleImage } from "./ArticleImage";
 import type { Article } from "../data/articles";
-import { toIsoDate } from "../lib/dates";
+import { parseApiDate, toIsoDate } from "../lib/dates";
 import { trackEvent } from "../lib/analytics";
 
 function colorFromHex(color: string): string {
@@ -33,7 +33,7 @@ function tagHex(tagColor: string): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function staticToArticle(a: any): Article {
   const tagColor = colorFromHex(a.category?.color || "");
-  const published = a.published_at ? new Date(a.published_at) : new Date();
+  const published = parseApiDate(a.published_at) || new Date();
   const diffMs = Date.now() - published.getTime();
   const diffH = Math.floor(diffMs / 3600000);
   const time = diffH < 1 ? "Just now" : diffH < 24 ? `${diffH}h ago` : `${Math.floor(diffH / 24)}d ago`;
@@ -46,7 +46,7 @@ function staticToArticle(a: any): Article {
     image: a.featured_image || "",
     tag: a.category?.name || "News",
     tagColor,
-    date: published.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    date: published.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }),
     publishedAt: toIsoDate(a.published_at),
     updatedAt: toIsoDate(a.updated_at || a.published_at),
     readTime: "2 min read",

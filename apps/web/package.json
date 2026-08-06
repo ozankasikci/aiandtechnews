@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "tsx --test app/lib/*.test.ts app/article/*.test.ts app/news-sitemap.xml/*.test.ts"
   },
   "dependencies": {
     "next": "^15.1.0",
@@ -18,6 +19,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "^4",
+    "tsx": "^4.19.0",
     "typescript": "^5"
   }
 }

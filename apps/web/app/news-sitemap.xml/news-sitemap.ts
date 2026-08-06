@@ -1,7 +1,7 @@
 import { parseApiDate } from "../lib/dates";
 
 const BASE_URL = "https://www.aiandtech.news";
-const RECENT_NEWS_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
+export const RECENT_NEWS_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
 
 export interface NewsSitemapArticle {
   slug: string;

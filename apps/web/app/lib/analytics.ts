@@ -8,6 +8,18 @@ export function sanitizeSearchTerm(value: string): string {
   return normalized;
 }
 
+export function sanitizePagePath(pathname: string, searchParams: URLSearchParams): string {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of searchParams.entries()) {
+    const sanitized = sanitizeSearchTerm(value);
+    if (sanitized) params.set(key, sanitized);
+  }
+
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
 export function trackEvent(name: string, parameters: AnalyticsParameters = {}): void {
   if (typeof window === "undefined" || typeof window.gtag !== "function") return;
 

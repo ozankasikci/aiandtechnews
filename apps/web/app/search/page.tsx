@@ -83,10 +83,14 @@ export default function SearchPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setQuery(val);
-    const url = val ? `/search?q=${encodeURIComponent(val)}` : "/search";
-    window.history.replaceState({}, "", url);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => doSearch(val), 300);
+    debounceRef.current = setTimeout(() => {
+      // Updating the URL inside the debounce keeps router-driven page_view
+      // events to one per settled query instead of one per keystroke.
+      const url = val ? `/search?q=${encodeURIComponent(val)}` : "/search";
+      window.history.replaceState({}, "", url);
+      doSearch(val);
+    }, 300);
   };
 
   return (
