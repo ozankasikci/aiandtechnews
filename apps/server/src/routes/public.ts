@@ -6,6 +6,7 @@ import { NewsletterService } from "../newsletter/service";
 
 const router: ReturnType<typeof Router> = Router();
 const newsletter = new NewsletterService(db);
+const signupAttempts: number[] = [];
 
 // GET /api/articles — list published articles
 router.get("/articles", (req: Request, res: Response) => {
@@ -183,6 +184,14 @@ function secretsMatch(supplied: string | undefined, expected: string): boolean {
 
 // POST /api/subscribe
 router.post("/subscribe", async (req: Request, res: Response) => {
+  const now = Date.now();
+  while (signupAttempts.length && signupAttempts[0] < now - 60_000) signupAttempts.shift();
+  if (signupAttempts.length >= 30) {
+    res.status(429).json({ error: "Too many signup attempts. Please try again shortly." });
+    return;
+  }
+  signupAttempts.push(now);
+
   const email = typeof req.body?.email === "string" ? req.body.email : "";
   const placement = typeof req.body?.placement === "string" ? req.body.placement : "unknown";
   try {

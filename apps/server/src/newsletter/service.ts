@@ -94,6 +94,14 @@ function toPublicArticle(row: ArticleRow): DigestArticle {
   };
 }
 
+function parseArticleTimestamp(value: string | null): number {
+  if (!value) return Number.NaN;
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
+    ? `${value.replace(" ", "T")}Z`
+    : value;
+  return Date.parse(normalized);
+}
+
 export class NewsletterService {
   private readonly siteUrl: string;
 
@@ -219,7 +227,7 @@ export class NewsletterService {
       .all() as ArticleRow[];
     const articles = articleRows
       .filter((article) => {
-        const publishedAt = article.published_at ? Date.parse(article.published_at) : Number.NaN;
+        const publishedAt = parseArticleTimestamp(article.published_at);
         return Number.isFinite(publishedAt) && publishedAt <= now.getTime() && publishedAt >= cutoff;
       })
       .slice(0, 5)
@@ -232,7 +240,7 @@ export class NewsletterService {
       .prepare("SELECT id, email, status, confirmation_sent_at FROM subscribers WHERE status = 'active' ORDER BY id")
       .all() as SubscriberRow[];
 
-    for (const subscriber of subscribers) {
+    for (const [index, subscriber] of subscribers.entries()) {
       const delivery = this.database
         .prepare("SELECT status FROM newsletter_deliveries WHERE subscriber_id = ? AND edition_key = ?")
         .get(subscriber.id, edition) as { status: string } | undefined;
@@ -275,6 +283,10 @@ export class NewsletterService {
           )
           .run(message, subscriber.id, edition);
         result.failed += 1;
+      }
+
+      if (index < subscribers.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 550));
       }
     }
 

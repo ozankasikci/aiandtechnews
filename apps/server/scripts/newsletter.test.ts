@@ -104,7 +104,7 @@ test("subscription confirmation, digest, idempotency, and unsubscribe form a com
       `INSERT INTO articles (id, title, slug, excerpt, published_at, status, category_id)
        VALUES (1, ?, ?, ?, ?, 'published', 1)`,
     )
-    .run("A useful AI update", "useful-ai-update", "What changed and why it matters.", new Date(now.getTime() - 60_000).toISOString());
+    .run("A useful AI update", "useful-ai-update", "What changed and why it matters.", "2026-08-09 07:59:00");
 
   const firstDigest = await service.sendDailyDigest(new Date(now.getTime() + 240_000));
   assert.deepEqual(firstDigest, {

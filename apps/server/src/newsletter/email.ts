@@ -23,32 +23,45 @@ export function createResendSender(environment: NodeJS.ProcessEnv = process.env)
       throw new NewsletterConfigurationError("Newsletter delivery is not configured");
     }
 
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "Idempotency-Key": idempotencyKey,
-      },
-      body: JSON.stringify({
-        from,
-        to: [email.to],
-        subject: email.subject,
-        html: email.html,
-        text: email.text,
-        ...(environment.NEWSLETTER_REPLY_TO?.trim()
-          ? { reply_to: environment.NEWSLETTER_REPLY_TO.trim() }
-          : {}),
-        ...(email.headers ? { headers: email.headers } : {}),
-        ...(email.tags ? { tags: email.tags } : {}),
-      }),
+    const requestBody = JSON.stringify({
+      from,
+      to: [email.to],
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+      ...(environment.NEWSLETTER_REPLY_TO?.trim()
+        ? { reply_to: environment.NEWSLETTER_REPLY_TO.trim() }
+        : {}),
+      ...(email.headers ? { headers: email.headers } : {}),
+      ...(email.tags ? { tags: email.tags } : {}),
     });
 
-    const body = (await response.json().catch(() => ({}))) as { id?: string; message?: string; error?: string };
-    if (!response.ok || !body.id) {
-      throw new Error(body.message || body.error || `Email provider returned ${response.status}`);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: requestBody,
+      });
+
+      const body = (await response.json().catch(() => ({}))) as { id?: string; message?: string; error?: string };
+      if (response.ok && body.id) return { id: body.id };
+
+      const retryable = response.status === 429 || response.status >= 500;
+      if (!retryable || attempt === 2) {
+        throw new Error(body.message || body.error || `Email provider returned ${response.status}`);
+      }
+      const retryAfterSeconds = Number(response.headers.get("retry-after"));
+      const delay = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? retryAfterSeconds * 1000
+        : 650 * (attempt + 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    return { id: body.id };
+
+    throw new Error("Email provider retry limit reached");
   };
 }
 
