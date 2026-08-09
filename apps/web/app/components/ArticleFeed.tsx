@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { Fragment, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { ArticleImage } from "./ArticleImage";
+import { NewsletterBanner } from "./Newsletter";
 import type { Article } from "../data/articles";
 import { parseApiDate, toIsoDate } from "../lib/dates";
 import { trackEvent } from "../lib/analytics";
@@ -116,31 +117,33 @@ export function ArticleFeed({ initialArticles, initialTotal }: Props) {
 
   return (
     <div>
-      {articles.map((a) => (
-        <Link
-          key={a.id}
-          href={`/article/${a.slug}`}
-          onClick={() => trackEvent("select_content", {
-            content_type: "article_feed",
-            item_id: a.slug,
-          })}
-        >
-          <article className="flex gap-4 py-5 border-b border-border group" style={{ "--tag-color": tagHex(a.tagColor) } as React.CSSProperties}>
-            <div className="flex-1 min-w-0">
-              <span className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-2 ${a.tagColor}`}>
-                {a.tag}
-              </span>
-              <h3 className="text-lg font-bold leading-snug mb-1.5 transition-colors story-title">
-                {a.headline}
-              </h3>
-              <p className="text-text-secondary text-sm leading-relaxed mb-2 line-clamp-2">{a.excerpt}</p>
-              <span className="text-text-muted text-xs">{a.time}</span>
-            </div>
-            <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] relative rounded-sm overflow-hidden shrink-0">
-              <ArticleImage src={a.image} alt="" fill className="object-cover" sizes="180px" />
-            </div>
-          </article>
-        </Link>
+      {articles.map((a, index) => (
+        <Fragment key={a.id}>
+          <Link
+            href={`/article/${a.slug}`}
+            onClick={() => trackEvent("select_content", {
+              content_type: "article_feed",
+              item_id: a.slug,
+            })}
+          >
+            <article className="flex gap-4 py-5 border-b border-border group" style={{ "--tag-color": tagHex(a.tagColor) } as React.CSSProperties}>
+              <div className="flex-1 min-w-0">
+                <span className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-2 ${a.tagColor}`}>
+                  {a.tag}
+                </span>
+                <h3 className="text-lg font-bold leading-snug mb-1.5 transition-colors story-title">
+                  {a.headline}
+                </h3>
+                <p className="text-text-secondary text-sm leading-relaxed mb-2 line-clamp-2">{a.excerpt}</p>
+                <span className="text-text-muted text-xs">{a.time}</span>
+              </div>
+              <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] relative rounded-sm overflow-hidden shrink-0">
+                <ArticleImage src={a.image} alt="" fill className="object-cover" sizes="180px" />
+              </div>
+            </article>
+          </Link>
+          {index === 2 && <NewsletterBanner placement="homepage_feed" />}
+        </Fragment>
       ))}
 
       <div ref={sentinelRef} className="py-2" />

@@ -42,19 +42,19 @@ export function NewsletterBanner({ placement = "inline" }: { placement?: string 
       {status === "success" ? (
         <p className="text-accent-green font-semibold text-sm">{message}</p>
       ) : (
-        <form onSubmit={submit} className="flex gap-2">
+        <form onSubmit={submit} className="flex flex-col sm:flex-row gap-2">
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="your@email.com"
             required
-            className="flex-1 bg-bg border border-border rounded-sm px-4 py-2.5 text-sm text-white placeholder:text-text-muted focus:outline-none focus:border-accent-purple transition-colors"
+            className="w-full flex-1 bg-bg border border-border rounded-sm px-4 py-2.5 text-sm text-white placeholder:text-text-muted focus:outline-none focus:border-accent-purple transition-colors"
           />
           <button
             type="submit"
             disabled={status === "loading"}
-            className="bg-accent-purple hover:brightness-110 transition-all text-white text-sm font-bold px-5 py-2.5 rounded-sm shrink-0 disabled:opacity-50"
+            className="w-full sm:w-auto bg-accent-purple hover:brightness-110 transition-all text-white text-sm font-bold px-5 py-2.5 rounded-sm shrink-0 disabled:opacity-50"
           >
             {status === "loading" ? "..." : "Subscribe"}
           </button>
