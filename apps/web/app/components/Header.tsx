@@ -15,8 +15,8 @@ export function Header() {
     <header className="sticky top-0 z-50 bg-bg border-b border-border">
       <div className="max-w-[1400px] mx-auto flex items-center h-14 px-4 gap-6">
         <Link href="/" className="flex items-center mr-4 shrink-0">
-          <span className="text-2xl font-black tracking-tighter text-white uppercase" style={{ fontFamily: "var(--font-sans)" }}>
-            TechNews
+          <span className="text-xl md:text-2xl font-black tracking-tighter text-white uppercase" style={{ fontFamily: "var(--font-sans)" }}>
+            AI &amp; Tech News
           </span>
         </Link>
         <nav className="hidden md:flex items-center gap-5 text-sm text-text-secondary">

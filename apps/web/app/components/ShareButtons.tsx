@@ -1,5 +1,7 @@
 "use client";
 
+import { trackEvent } from "../lib/analytics";
+
 export function ShareButtons({ title }: { title: string }) {
   const share = (platform: string) => {
     const url = window.location.href;
@@ -12,11 +14,21 @@ export function ShareButtons({ title }: { title: string }) {
       reddit: `https://www.reddit.com/submit?url=${encodedUrl}&title=${text}`,
       telegram: `https://t.me/share/url?url=${encodedUrl}&text=${text}`,
     };
+    trackEvent("share", {
+      method: platform,
+      content_type: "article",
+      item_id: window.location.pathname.replace("/article/", ""),
+    });
     window.open(links[platform], "_blank", "width=600,height=400");
   };
 
   const copyLink = async () => {
     await navigator.clipboard.writeText(window.location.href);
+    trackEvent("share", {
+      method: "copy_link",
+      content_type: "article",
+      item_id: window.location.pathname.replace("/article/", ""),
+    });
   };
 
   return (

@@ -9,9 +9,11 @@ export type Article = {
   avatar: string;
   time: string;
   date: string;
+  publishedAt?: string;
+  updatedAt?: string;
   readTime: string;
   image: string;
-  imageSource?: string;
+  source?: string;
   sourceUrl?: string;
   body?: string;
 };

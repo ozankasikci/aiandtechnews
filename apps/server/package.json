@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "news:daily": "IMPORT_ONLY=1 tsx scripts/scrape-news.ts",
     "news:manual": "tsx scripts/scrape-single.ts",
+    "test": "tsx --test scripts/news-policy.test.ts",
     "test:news-policy": "tsx --test scripts/news-policy.test.ts"
   },
   "dependencies": {

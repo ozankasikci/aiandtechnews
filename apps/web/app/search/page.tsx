@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { sanitizeSearchTerm, trackEvent } from "../lib/analytics";
 
 type Result = {
   id: number;
@@ -42,6 +43,7 @@ export default function SearchPage() {
   const [searched, setSearched] = useState(false);
   const [total, setTotal] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTrackedQueryRef = useRef("");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -66,6 +68,11 @@ export default function SearchPage() {
       const data = await res.json();
       setResults(data.articles || []);
       setTotal(data.total || 0);
+      const searchTerm = sanitizeSearchTerm(q);
+      if (searchTerm && searchTerm !== lastTrackedQueryRef.current) {
+        lastTrackedQueryRef.current = searchTerm;
+        trackEvent("search", { search_term: searchTerm, result_count: data.total || 0 });
+      }
     } catch {
       setResults([]);
     } finally {
@@ -76,10 +83,14 @@ export default function SearchPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setQuery(val);
-    const url = val ? `/search?q=${encodeURIComponent(val)}` : "/search";
-    window.history.replaceState({}, "", url);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => doSearch(val), 300);
+    debounceRef.current = setTimeout(() => {
+      // Updating the URL inside the debounce keeps router-driven page_view
+      // events to one per settled query instead of one per keystroke.
+      const url = val ? `/search?q=${encodeURIComponent(val)}` : "/search";
+      window.history.replaceState({}, "", url);
+      doSearch(val);
+    }, 300);
   };
 
   return (
@@ -118,7 +129,14 @@ export default function SearchPage() {
         {results.map((a) => {
           const tagColor = colorFromHex(a.category?.color || "");
           return (
-            <Link key={a.id} href={`/article/${a.slug}`}>
+            <Link
+              key={a.id}
+              href={`/article/${a.slug}`}
+              onClick={() => trackEvent("select_content", {
+                content_type: "search_result",
+                item_id: a.slug,
+              })}
+            >
               <article className="flex gap-4 py-5 border-b border-border group">
                 <div className="flex-1 min-w-0">
                   <span className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-2 ${tagColor}`}>

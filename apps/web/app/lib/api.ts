@@ -1,4 +1,5 @@
 import type { Article } from "../data/articles";
+import { parseApiDate, toIsoDate } from "./dates";
 
 function getApiUrl() {
   const configured = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL)?.trim();
@@ -26,6 +27,8 @@ export interface ApiArticle {
   view_count: number;
   created_at: string;
   updated_at: string;
+  source?: string;
+  source_url?: string;
   category: { id: number; name: string; slug: string; description: string; color: string };
   author: { id: number; name: string; email: string; avatar: string; bio: string; role: string };
 }
@@ -65,9 +68,9 @@ function mapColor(color: string): string {
 }
 
 function timeAgo(dateStr: string): string {
-  // DB stores UTC without Z suffix — append Z to parse correctly
-  const utcStr = dateStr.includes("Z") || dateStr.includes("+") ? dateStr : dateStr + "Z";
-  const diff = Date.now() - new Date(utcStr).getTime();
+  const parsed = parseApiDate(dateStr);
+  if (!parsed) return "Just now";
+  const diff = Date.now() - parsed.getTime();
   if (diff < 0) return "Just now";
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "Just now";
@@ -76,10 +79,12 @@ function timeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(utcStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 export function mapArticle(a: ApiArticle): Article {
+  const publishedDate = parseApiDate(a.published_at || a.created_at);
+
   return {
     id: a.id,
     slug: a.slug,
@@ -90,11 +95,13 @@ export function mapArticle(a: ApiArticle): Article {
     author: a.author?.name || "Staff",
     avatar: a.author?.avatar || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop&crop=face",
     time: timeAgo(a.published_at || a.created_at),
-    date: new Date(a.published_at || a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    date: publishedDate?.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) || "Date unavailable",
+    publishedAt: toIsoDate(a.published_at || a.created_at),
+    updatedAt: toIsoDate(a.updated_at || a.published_at || a.created_at),
     readTime: `${Math.max(2, Math.ceil((a.content?.length || 0) / 1000))} min read`,
     image: a.featured_image || "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=500&fit=crop",
-    imageSource: (a as any).source || undefined,
-    sourceUrl: (a as any).source_url || undefined,
+    source: a.source || undefined,
+    sourceUrl: a.source_url || undefined,
     body: a.content,
   };
 }
@@ -117,6 +124,32 @@ export async function getArticles(opts?: { page?: number; limit?: number; catego
   if (opts?.search) params.set("search", opts.search);
   const qs = params.toString();
   return apiFetch<{ articles: ApiArticle[]; total: number; page: number; totalPages: number }>(`/api/articles${qs ? `?${qs}` : ""}`);
+}
+
+// The public API caps each page at 50 articles, so callers that need more
+// (sitemaps) must paginate. Results arrive newest first; `stopWhen` lets
+// callers stop paginating once articles are older than they need. Returns
+// null when the first request fails so callers can distinguish "API down"
+// from "no articles".
+export async function getArticlesUpTo(
+  maxCount: number,
+  stopWhen?: (article: ApiArticle) => boolean,
+): Promise<ApiArticle[] | null> {
+  const pageSize = 50;
+  const articles: ApiArticle[] = [];
+  let page = 1;
+
+  while (articles.length < maxCount) {
+    const data = await getArticles({ page, limit: pageSize });
+    if (!data) return page === 1 ? null : articles;
+    if (!data.articles.length) break;
+    articles.push(...data.articles);
+    if (stopWhen && data.articles.some(stopWhen)) break;
+    if (page >= (data.totalPages || 1)) break;
+    page++;
+  }
+
+  return articles.slice(0, maxCount);
 }
 
 export async function getTrendingArticles(limit = 5) {
