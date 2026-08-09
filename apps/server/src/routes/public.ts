@@ -1,7 +1,11 @@
 import { Router, Request, Response } from "express";
+import { timingSafeEqual } from "crypto";
 import db from "../db";
+import { NewsletterConfigurationError } from "../newsletter/email";
+import { NewsletterService } from "../newsletter/service";
 
 const router: ReturnType<typeof Router> = Router();
+const newsletter = new NewsletterService(db);
 
 // GET /api/articles — list published articles
 router.get("/articles", (req: Request, res: Response) => {
@@ -170,23 +174,99 @@ function formatArticleRow(row: Record<string, unknown>) {
   };
 }
 
+function secretsMatch(supplied: string | undefined, expected: string): boolean {
+  if (!supplied) return false;
+  const suppliedBuffer = Buffer.from(supplied);
+  const expectedBuffer = Buffer.from(expected);
+  return suppliedBuffer.length === expectedBuffer.length && timingSafeEqual(suppliedBuffer, expectedBuffer);
+}
+
 // POST /api/subscribe
-router.post("/subscribe", (req: Request, res: Response) => {
-  const { email } = req.body;
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    res.status(400).json({ error: "Valid email required" });
-    return;
-  }
+router.post("/subscribe", async (req: Request, res: Response) => {
+  const email = typeof req.body?.email === "string" ? req.body.email : "";
+  const placement = typeof req.body?.placement === "string" ? req.body.placement : "unknown";
   try {
-    db.prepare("INSERT INTO subscribers (email) VALUES (?)").run(email.toLowerCase().trim());
-    res.json({ success: true, message: "You're subscribed!" });
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message?.includes("UNIQUE")) {
-      res.json({ success: true, message: "Already subscribed!" });
-    } else {
-      res.status(500).json({ error: "Something went wrong" });
+    const result = await newsletter.requestSubscription(email, placement);
+    const message = result.state === "already_active"
+      ? "You're already subscribed."
+      : "Check your inbox to confirm your subscription.";
+    res.json({ success: true, state: result.state, message });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      res.status(400).json({ error: error.message });
+      return;
     }
+    if (error instanceof NewsletterConfigurationError) {
+      res.status(503).json({ error: "Newsletter signup is temporarily unavailable" });
+      return;
+    }
+    console.error("Newsletter signup failed", error);
+    res.status(502).json({ error: "We could not send the confirmation email. Please try again." });
   }
 });
+
+// GET /api/newsletter/confirm?token=...
+router.get("/newsletter/confirm", async (req: Request, res: Response) => {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  try {
+    const result = await newsletter.confirmSubscription(token);
+    res.json(result);
+  } catch (error) {
+    if (error instanceof NewsletterConfigurationError) {
+      res.status(503).json({ state: "unavailable", error: "Newsletter confirmation is temporarily unavailable" });
+      return;
+    }
+    console.error("Newsletter confirmation failed", error);
+    res.status(500).json({ state: "invalid", error: "Confirmation failed" });
+  }
+});
+
+async function unsubscribe(req: Request, res: Response) {
+  const token = typeof req.query.token === "string"
+    ? req.query.token
+    : typeof req.body?.token === "string"
+      ? req.body.token
+      : "";
+  try {
+    const state = newsletter.unsubscribe(token);
+    res.json({ state });
+  } catch (error) {
+    if (error instanceof NewsletterConfigurationError) {
+      res.status(503).json({ state: "unavailable", error: "Unsubscribe is temporarily unavailable" });
+      return;
+    }
+    console.error("Newsletter unsubscribe failed", error);
+    res.status(500).json({ state: "invalid", error: "Unsubscribe failed" });
+  }
+}
+
+// GET and POST /api/newsletter/unsubscribe?token=...
+router.get("/newsletter/unsubscribe", unsubscribe);
+router.post("/newsletter/unsubscribe", unsubscribe);
+
+async function sendDigest(req: Request, res: Response) {
+  const expectedSecret = (process.env.NEWSLETTER_CRON_SECRET || process.env.CRON_SECRET || "").trim();
+  const suppliedSecret = req.header("authorization")?.replace(/^Bearer\s+/i, "");
+  if (!expectedSecret || !secretsMatch(suppliedSecret, expectedSecret)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  try {
+    const result = await newsletter.sendDailyDigest();
+    res.json({ success: result.failed === 0, ...result });
+  } catch (error) {
+    if (error instanceof NewsletterConfigurationError) {
+      res.status(503).json({ error: "Newsletter delivery is not configured" });
+      return;
+    }
+    console.error("Newsletter digest failed", error);
+    res.status(500).json({ error: "Newsletter digest failed" });
+  }
+}
+
+// Vercel Cron invokes GET. POST is available for a secured manual retry.
+router.get("/newsletter/digest", sendDigest);
+router.post("/newsletter/digest", sendDigest);
 
 export default router;

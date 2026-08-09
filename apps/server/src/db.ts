@@ -69,6 +69,31 @@ export function initializeDatabase() {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS subscribers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      source_placement TEXT,
+      confirmation_sent_at TEXT,
+      confirmed_at TEXT,
+      unsubscribed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS newsletter_deliveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subscriber_id INTEGER NOT NULL,
+      edition_key TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'sending',
+      provider_message_id TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      sent_at TEXT,
+      UNIQUE(subscriber_id, edition_key),
+      FOREIGN KEY (subscriber_id) REFERENCES subscribers(id) ON DELETE CASCADE
+    );
   `);
 
   const articleColumns = db.pragma("table_info(articles)") as { name: string }[];
@@ -80,6 +105,31 @@ export function initializeDatabase() {
     db.exec("ALTER TABLE articles ADD COLUMN source_url TEXT");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_articles_source_url ON articles(source_url)");
+
+  const subscriberColumns = db.pragma("table_info(subscribers)") as { name: string }[];
+  const subscriberColumnNames = new Set(subscriberColumns.map((column) => column.name));
+  const subscriberMigrations = [
+    ["status", "ALTER TABLE subscribers ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'"],
+    ["source_placement", "ALTER TABLE subscribers ADD COLUMN source_placement TEXT"],
+    ["confirmation_sent_at", "ALTER TABLE subscribers ADD COLUMN confirmation_sent_at TEXT"],
+    ["confirmed_at", "ALTER TABLE subscribers ADD COLUMN confirmed_at TEXT"],
+    ["unsubscribed_at", "ALTER TABLE subscribers ADD COLUMN unsubscribed_at TEXT"],
+    ["created_at", "ALTER TABLE subscribers ADD COLUMN created_at TEXT"],
+    ["updated_at", "ALTER TABLE subscribers ADD COLUMN updated_at TEXT"],
+  ] as const;
+
+  for (const [column, statement] of subscriberMigrations) {
+    if (!subscriberColumnNames.has(column)) db.exec(statement);
+  }
+
+  db.exec(`
+    UPDATE subscribers
+    SET status = COALESCE(NULLIF(status, ''), 'pending'),
+        created_at = COALESCE(created_at, datetime('now')),
+        updated_at = COALESCE(updated_at, datetime('now'))
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_subscribers_status ON subscribers(status)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_newsletter_deliveries_edition ON newsletter_deliveries(edition_key, status)");
 
   seed();
 }
