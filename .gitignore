@@ -9,3 +9,4 @@ dist/
 # apps/web/public/images/generated/
 *.log
 .claude/channels/
+.vercel
