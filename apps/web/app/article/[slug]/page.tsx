@@ -112,22 +112,6 @@ export default async function ArticlePage({ params }: Props) {
               <div className="flex flex-col gap-0.5">
                 <span className="text-white text-sm font-semibold leading-tight">{article.author}</span>
                 <span className="text-text-muted text-xs">{article.date} · {article.readTime}</span>
-                {article.source && article.sourceUrl && (
-                  <AnalyticsLink
-                    href={article.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    eventName="source_click"
-                    eventParameters={{
-                      content_type: "article",
-                      item_id: article.slug,
-                      source: article.source,
-                    }}
-                    className="text-text-muted hover:text-white text-xs transition-colors"
-                  >
-                    Original reporting: {article.source}
-                  </AnalyticsLink>
-                )}
               </div>
             </div>
 
