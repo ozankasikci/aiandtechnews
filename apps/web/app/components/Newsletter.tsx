@@ -16,14 +16,14 @@ export function NewsletterBanner({ placement = "inline" }: { placement?: string 
       const res = await fetch("/api/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, placement }),
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         setStatus("success");
-        setMessage(data.message || "You're subscribed!");
+        setMessage(data.message || "Check your inbox to confirm your subscription.");
         setEmail("");
-        trackEvent("generate_lead", { method: "newsletter", placement });
+        trackEvent("newsletter_signup_requested", { method: "newsletter", placement });
       } else {
         setStatus("error");
         setMessage(data.error || "Something went wrong");
@@ -38,7 +38,7 @@ export function NewsletterBanner({ placement = "inline" }: { placement?: string 
     <div className="bg-bg-card border border-border rounded-sm p-6 my-8">
       <p className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-2">Newsletter</p>
       <h3 className="text-xl font-black mb-1">Get the best AI & tech news daily</h3>
-      <p className="text-text-secondary text-sm mb-4">No spam. Unsubscribe anytime.</p>
+      <p className="text-text-secondary text-sm mb-4">A concise daily digest. Unsubscribe anytime.</p>
       {status === "success" ? (
         <p className="text-accent-green font-semibold text-sm">{message}</p>
       ) : (
@@ -61,6 +61,7 @@ export function NewsletterBanner({ placement = "inline" }: { placement?: string 
         </form>
       )}
       {status === "error" && <p className="text-red-400 text-xs mt-2">{message}</p>}
+      {status !== "success" && <p className="text-text-muted text-[11px] leading-relaxed mt-3">We use your email only to send this newsletter.</p>}
     </div>
   );
 }
@@ -70,6 +71,7 @@ export function SubscribeButton({ placement = "header" }: { placement?: string }
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [resultState, setResultState] = useState("");
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,14 +81,15 @@ export function SubscribeButton({ placement = "header" }: { placement?: string }
       const res = await fetch("/api/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, placement }),
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         setStatus("success");
-        setMessage(data.message || "You're subscribed!");
+        setMessage(data.message || "Check your inbox to confirm your subscription.");
+        setResultState(data.state || "confirmation_sent");
         setEmail("");
-        trackEvent("generate_lead", { method: "newsletter", placement });
+        trackEvent("newsletter_signup_requested", { method: "newsletter", placement });
       } else {
         setStatus("error");
         setMessage(data.error || "Something went wrong");
@@ -126,12 +129,14 @@ export function SubscribeButton({ placement = "header" }: { placement?: string }
             </button>
             <p className="text-[10px] font-bold uppercase tracking-widest text-accent-purple mb-3">Newsletter</p>
             <h2 className="text-2xl font-black mb-2">Stay in the loop</h2>
-            <p className="text-text-secondary text-sm mb-6">The best AI & tech stories, delivered daily. No spam. Unsubscribe anytime.</p>
+            <p className="text-text-secondary text-sm mb-6">The AI and technology stories worth knowing, delivered in one concise daily digest.</p>
             {status === "success" ? (
               <div className="text-center py-4">
                 <div className="text-4xl mb-3">✓</div>
                 <p className="text-accent-green font-bold text-lg">{message}</p>
-                <p className="text-text-secondary text-sm mt-1">Welcome to the list.</p>
+                <p className="text-text-secondary text-sm mt-1">
+                  {resultState === "already_active" ? "No further action is needed." : "Use the link in that email to finish signing up."}
+                </p>
               </div>
             ) : (
               <form onSubmit={submit} className="flex flex-col gap-3">
@@ -152,6 +157,7 @@ export function SubscribeButton({ placement = "header" }: { placement?: string }
                   {status === "loading" ? "Subscribing..." : "Subscribe"}
                 </button>
                 {status === "error" && <p className="text-red-400 text-xs">{message}</p>}
+                <p className="text-text-muted text-[11px] leading-relaxed">We use your email only to send this newsletter.</p>
               </form>
             )}
           </div>
