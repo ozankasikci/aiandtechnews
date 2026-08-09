@@ -54,7 +54,7 @@ test("automatic imports reject non-tech entertainment while manual policy still 
   const url = "https://www.theverge.com/entertainment/975297/spider-man-brand-new-day-marvel-sony-xmen-doomsday";
 
   assert.equal(getItemRejectionReason(title, url, "The Verge"), null);
-  assert.match(getAutomaticItemRejectionReason(title, url, "The Verge") || "", /not clearly technology-related/i);
+  assert.match(getAutomaticItemRejectionReason(title, url, "The Verge") || "", /entertainment|not clearly technology-related/i);
 });
 
 test("automatic imports accept clearly technology-related stories", () => {
@@ -84,6 +84,55 @@ test("automatic imports fail closed when a general-feed story has no technology 
       "TechCrunch",
     ) || "",
     /not clearly technology-related/i,
+  );
+});
+
+test("automatic imports reject weak stories that escaped through generic URL or title signals", () => {
+  assert.match(
+    getAutomaticItemRejectionReason(
+      "Ted Lasso Returns for Season Four Alongside New Tech and App Releases",
+      "https://www.theverge.com/tech/977084/ted-lasso-bose-tony-installer",
+      "The Verge",
+    ) || "",
+    /review, guide, or roundup|entertainment/i,
+  );
+  assert.match(
+    getAutomaticItemRejectionReason(
+      "NASA Perseverance Rover Nears Mars Distance Record",
+      "https://arstechnica.com/space/2026/08/the-first-self-driving-vehicle-on-mars-has-proven-to-be-a-smashing-success",
+      "Ars Technica",
+    ) || "",
+    /not clearly technology-related/i,
+  );
+});
+
+test("automatic imports reject entertainment even when a generic technology word is present", () => {
+  assert.match(
+    getAutomaticItemRejectionReason(
+      "Spider-Man Season Four Arrives With a New Mobile App",
+      "https://www.theverge.com/tech/975297/spider-man-season-four-mobile-app",
+      "The Verge",
+    ) || "",
+    /entertainment/i,
+  );
+});
+
+test("news policy rejects reviews and recurring mixed-topic roundups", () => {
+  assert.match(
+    getItemRejectionReason(
+      "Review: The $450 Chuwi UniBook Laptop Falls Short",
+      "https://www.theverge.com/tech/977031/chuwi-unibook-laptop-intel-wildcat-lake-review",
+      "The Verge",
+    ) || "",
+    /rather than news/i,
+  );
+  assert.match(
+    getItemRejectionReason(
+      "New apps and hardware to try this weekend",
+      "https://www.theverge.com/tech/977084/apps-hardware-installer",
+      "The Verge",
+    ) || "",
+    /rather than news/i,
   );
 });
 

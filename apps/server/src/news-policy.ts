@@ -36,6 +36,7 @@ const PROMOTIONAL_PATTERNS = [
 const REJECTED_TITLE_PATTERNS: Array<[RegExp, string]> = [
   [/^show hn:/i, "Show HN item"],
   [/^state of show hn/i, "Show HN item"],
+  [/\b(?:review|hands-on|buying guide|roundup)\b/i, "review, guide, or roundup rather than news"],
   [/\[(?:pdf|video)\]/i, "PDF or video item"],
   [/\b(?:abstract|arxiv)\s*:/i, "abstract or arXiv-style item"],
   [/\barxiv\b/i, "arXiv-style item"],
@@ -55,7 +56,7 @@ const FORBIDDEN_COPY = [
   { pattern: /\bgame-changing\b/i, label: "game-changing" },
 ];
 
-const AUTOMATIC_TECH_TOPIC_PATTERNS = [
+const AUTOMATIC_TECH_TITLE_PATTERNS = [
   /\b(?:ai|artificial intelligence|machine learning|llm|chatgpt|chatbot|openai|anthropic|gemini|neural network|foundation model)\b/i,
   /\b(?:software|app|application|developer|api|code|coding|programming|open source|operating system|windows|macos|linux|ios|android)\b/i,
   /\b(?:cybersecurity|security update|data breach|malware|ransomware|hack(?:ed|ing)?|privacy|encryption|password|vulnerability)\b/i,
@@ -63,7 +64,15 @@ const AUTOMATIC_TECH_TOPIC_PATTERNS = [
   /\b(?:internet|web browser|browser|search engine|social network|social media|online platform|streaming technology)\b/i,
   /\b(?:robot|robotics|autonomous|self-driving|electric vehicle|ev battery|drone|satellite|spacex|rocket technology)\b/i,
   /\b(?:startup|venture capital|funding round|seed round|series [a-z]|fintech|healthtech|biotech|edtech)\b/i,
-  /\/(?:tech|technology|ai-artificial-intelligence|cybersecurity|gadgets|computing|mobile|apps|software|hardware|transportation)\//i,
+];
+
+const AUTOMATIC_TECH_SECTION_PATTERN =
+  /\/(?:ai-artificial-intelligence|cybersecurity|computing|mobile|apps|software|hardware|transportation|tech-policy)\//i;
+
+const AUTOMATIC_NON_TECH_TITLE_PATTERNS = [
+  /\bbox office\b/i,
+  /\bseason (?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i,
+  /\b(?:movie|film) trailer\b/i,
 ];
 
 export function slugify(title: string): string {
@@ -148,6 +157,9 @@ export function getItemRejectionReason(
   if (/\/(?:videos?|deals?)(?:\/|$)/i.test(url.pathname)) return "video, deal, or promotional item";
   const urlWords = decodeURIComponent(url.pathname).replace(/[-_/]+/g, " ");
   if (containsPromotionalLanguage(urlWords)) return "deal or promotional item";
+  if (/\b(?:review|hands on|buying guide|roundup|installer)\b/i.test(urlWords)) {
+    return "review, guide, or roundup rather than news";
+  }
 
   const oldTitleYear = title.match(/\(((?:19|20)\d{2})\)\s*$/)?.[1];
   const oldUrlYear = url.pathname.match(/\/((?:19|20)\d{2})\//)?.[1];
@@ -167,8 +179,14 @@ export function getAutomaticItemRejectionReason(
   const generalRejection = getItemRejectionReason(title, sourceUrl, expectedSource, now);
   if (generalRejection) return generalRejection;
 
-  const topicEvidence = `${title.trim()} ${sourceUrl}`;
-  if (!AUTOMATIC_TECH_TOPIC_PATTERNS.some((pattern) => pattern.test(topicEvidence))) {
+  const normalizedTitle = title.trim();
+  if (AUTOMATIC_NON_TECH_TITLE_PATTERNS.some((pattern) => pattern.test(normalizedTitle))) {
+    return "entertainment or general-interest story rather than technology news";
+  }
+
+  const hasTitleSignal = AUTOMATIC_TECH_TITLE_PATTERNS.some((pattern) => pattern.test(normalizedTitle));
+  const hasSpecificSectionSignal = AUTOMATIC_TECH_SECTION_PATTERN.test(sourceUrl);
+  if (!hasTitleSignal && !hasSpecificSectionSignal) {
     return "not clearly technology-related; non-tech stories require manual import";
   }
   return null;

@@ -15,10 +15,12 @@ Use RSS items from these publications only:
 - Never use Hacker News as a source or discovery feed.
 - Do not create or publish a Deals category.
 - Reject deals, coupons, sales roundups, buying guides based on discounts, preorder offers, bonus offers, "last chance" pitches, and other promotional items. Apply this check to both the RSS headline and normalized canonical URL words.
+- Reject product reviews, hands-on pieces, buying guides, editorial roundups, and recurring mixed-topic columns such as Installer. The site publishes news, not review or recommendation content.
 - Reject Show HN posts, PDFs, videos presented as the item itself, abstracts, arXiv-style entries, and obviously old reposts.
 - A manual article must also originate from one of the three approved RSS feeds. A permitted domain by itself is not enough.
-- **Automatic imports must be clearly technology-related.** They must have an explicit technology signal in the RSS headline or canonical URL, such as AI, software, cybersecurity, computing, hardware, internet platforms, robotics, autonomous systems, or technology startups.
+- **Automatic imports must be clearly technology-related.** They must have an explicit technology signal in the RSS headline or a specific technology section in the canonical URL, such as AI, software, cybersecurity, computing, hardware, internet platforms, robotics, autonomous systems, or technology startups. A generic `/tech/` or `/gadgets/` URL is not sufficient by itself.
 - General-interest, entertainment, film, television, celebrity, sports, travel, culture, and other non-tech stories must be rejected by automation even when they appear in an approved publication's RSS feed.
+- Science and space stories must center on a concrete technology development to qualify automatically. Exploration milestones, records, and general science coverage are not enough.
 - Non-tech news may be added only through the manual importer. Manual publication still requires an approved current RSS item and every other editorial quality check in this policy.
 - Automatic topic classification must fail closed: if technology relevance is unclear, skip the story rather than using it to fill a scheduled slot.
 - Preserve the canonical source URL. Do not replace it with a search result, aggregator, tracking URL, or home page.
