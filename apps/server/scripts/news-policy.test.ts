@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  APPROVED_FEEDS,
   getAutomaticItemRejectionReason,
   getItemRejectionReason,
   normalizeSourceUrl,
@@ -9,7 +10,7 @@ import {
   validateRewrittenArticle,
 } from "./news-policy";
 
-const validParagraph = "The company shared a detailed product update with customers and developers today. The release changes how teams use the service while keeping its existing tools available. Executives described the update without announcing new pricing or making unsupported performance claims. Customers can review the published documentation before deciding whether the changes fit their work. The company said a broader rollout will follow after the first group completes testing. That schedule gives teams time to compare the update with their current systems and requirements.";
+const validParagraph = "The company shared a detailed product update with customers and developers today. The release changes how teams use the service while keeping its existing tools available. Executives described the update without announcing new pricing or making unsupported performance claims. Customers can review the published documentation before deciding whether the changes fit their work.";
 
 function validArticle() {
   return {
@@ -23,7 +24,18 @@ test("recognizes only approved publication domains", () => {
   assert.equal(sourceForUrl("https://techcrunch.com/example"), "TechCrunch");
   assert.equal(sourceForUrl("https://www.theverge.com/tech/example"), "The Verge");
   assert.equal(sourceForUrl("https://arstechnica.com/ai/example"), "Ars Technica");
+  assert.equal(sourceForUrl("https://www.wired.com/story/example"), "WIRED");
+  assert.equal(sourceForUrl("https://www.engadget.com/example"), "Engadget");
+  assert.equal(sourceForUrl("https://www.bleepingcomputer.com/news/security/example"), "BleepingComputer");
+  assert.equal(sourceForUrl("https://www.theregister.com/2026/08/16/example"), "The Register");
   assert.equal(sourceForUrl("https://news.ycombinator.com/item?id=1"), null);
+});
+
+test("includes the expanded approved RSS feed set", () => {
+  assert.deepEqual(
+    APPROVED_FEEDS.map((feed) => feed.source),
+    ["TechCrunch", "The Verge", "Ars Technica", "WIRED", "Engadget", "BleepingComputer", "The Register"],
+  );
 });
 
 test("normalizes common tracking parameters without changing the article path", () => {
@@ -144,6 +156,23 @@ test("accepts an article that follows the writing contract", () => {
   assert.deepEqual(validateRewrittenArticle(validArticle()), []);
 });
 
+test("enforces the 150 to 300 word range", () => {
+  const article = validArticle();
+  const paragraph = (count: number) => Array.from({ length: count }, (_, index) => `word${index}`).join(" ");
+
+  article.content = `<p>${paragraph(29)}</p>` + Array.from({ length: 4 }, () => `<p>${paragraph(30)}</p>`).join("");
+  assert.match(validateRewrittenArticle(article).join("\n"), /150 to 300 words/i);
+
+  article.content = Array.from({ length: 5 }, () => `<p>${paragraph(30)}</p>`).join("");
+  assert.doesNotMatch(validateRewrittenArticle(article).join("\n"), /150 to 300 words/i);
+
+  article.content = Array.from({ length: 5 }, () => `<p>${paragraph(60)}</p>`).join("");
+  assert.doesNotMatch(validateRewrittenArticle(article).join("\n"), /150 to 300 words/i);
+
+  article.content = `<p>${paragraph(61)}</p>` + Array.from({ length: 4 }, () => `<p>${paragraph(60)}</p>`).join("");
+  assert.match(validateRewrittenArticle(article).join("\n"), /150 to 300 words/i);
+});
+
 test("rejects a promotional headline produced during rewriting", () => {
   const article = validArticle();
   article.title = "Last Chance For Samsung Galaxy Z Fold 8 And Flip 8 Preorder Bonuses";
@@ -169,5 +198,5 @@ test("rejects invalid article HTML and length", () => {
   const errors = validateRewrittenArticle(article).join("\n");
   assert.match(errors, /other than p or h2/i);
   assert.match(errors, /5 to 8 paragraphs/i);
-  assert.match(errors, /400 to 600 words/i);
+  assert.match(errors, /150 to 300 words/i);
 });

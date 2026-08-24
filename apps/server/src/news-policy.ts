@@ -2,6 +2,10 @@ export const APPROVED_FEEDS = [
   { source: "TechCrunch", url: "https://techcrunch.com/feed/" },
   { source: "The Verge", url: "https://www.theverge.com/rss/index.xml" },
   { source: "Ars Technica", url: "https://feeds.arstechnica.com/arstechnica/index" },
+  { source: "WIRED", url: "https://www.wired.com/feed/rss" },
+  { source: "Engadget", url: "https://www.engadget.com/rss.xml" },
+  { source: "BleepingComputer", url: "https://www.bleepingcomputer.com/feed/" },
+  { source: "The Register", url: "https://www.theregister.com/headlines.atom" },
 ] as const;
 
 export const EDITORIAL_AUTHOR = {
@@ -18,10 +22,19 @@ export interface RewrittenArticle {
   content: string;
 }
 
+export interface ArticleValidationOptions {
+  minWords?: number;
+  maxWords?: number;
+}
+
 const SOURCE_HOSTS: Record<string, string[]> = {
   TechCrunch: ["techcrunch.com"],
   "The Verge": ["theverge.com"],
   "Ars Technica": ["arstechnica.com"],
+  WIRED: ["wired.com"],
+  Engadget: ["engadget.com"],
+  BleepingComputer: ["bleepingcomputer.com"],
+  "The Register": ["theregister.com"],
 };
 
 const PROMOTIONAL_PATTERNS = [
@@ -196,7 +209,10 @@ function sentenceCount(text: string): number {
   return (text.match(/[.!?](?:["')\]]*)?(?=\s+[A-Z0-9]|$)/g) || []).length;
 }
 
-export function validateRewrittenArticle(article: RewrittenArticle): string[] {
+export function validateRewrittenArticle(
+  article: RewrittenArticle,
+  options: ArticleValidationOptions = {},
+): string[] {
   const errors: string[] = [];
   const title = typeof article.title === "string" ? article.title.trim() : "";
   const excerpt = typeof article.excerpt === "string" ? article.excerpt.trim() : "";
@@ -233,8 +249,12 @@ export function validateRewrittenArticle(article: RewrittenArticle): string[] {
   if (paragraphs.length < 5 || paragraphs.length > 8) errors.push("article must contain 5 to 8 paragraphs");
   if (paragraphs.some((paragraph) => !stripHtml(paragraph[1]))) errors.push("article contains an empty paragraph");
 
+  const minWords = options.minWords ?? 150;
+  const maxWords = options.maxWords ?? 300;
   const words = wordCount(content);
-  if (words < 400 || words > 600) errors.push(`article must contain 400 to 600 words, found ${words}`);
+  if (words < minWords || words > maxWords) {
+    errors.push(`article must contain ${minWords} to ${maxWords} words, found ${words}`);
+  }
 
   const lastParagraph = paragraphs.at(-1);
   if (lastParagraph && /^(?:source|sources)\s*:/i.test(stripHtml(lastParagraph[1]))) {
