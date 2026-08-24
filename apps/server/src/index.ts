@@ -15,14 +15,14 @@ app.use(express.json());
 // Serve uploaded files
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
-// Routes
-app.use("/api", publicRoutes);
-app.use("/api", dashboardRoutes);
-
 // Health check
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+// Routes
+app.use("/api", publicRoutes);
+app.use("/api", dashboardRoutes);
 
 // Initialize database and start server
 initializeDatabase();
