@@ -66,6 +66,64 @@ export function NewsletterBanner({ placement = "inline" }: { placement?: string 
   );
 }
 
+export function FooterNewsletterForm() {
+  const placement = "footer";
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [message, setMessage] = useState("");
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) return;
+    setStatus("loading");
+    try {
+      const res = await fetch("/api/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, placement }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatus("success");
+        setMessage(data.message || "Check your inbox to confirm your subscription.");
+        setEmail("");
+        trackEvent("newsletter_signup_requested", { method: "newsletter", placement });
+      } else {
+        setStatus("error");
+        setMessage(data.error || "Something went wrong");
+      }
+    } catch {
+      setStatus("error");
+      setMessage("Something went wrong. Try again.");
+    }
+  };
+
+  if (status === "success") {
+    return <p className="text-accent-green font-semibold text-xs">{message}</p>;
+  }
+
+  return (
+    <form onSubmit={submit} className="flex gap-2">
+      <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="your@email.com"
+        required
+        className="min-w-0 flex-1 bg-bg border border-border rounded-sm px-3 py-2 text-xs text-white placeholder:text-text-muted focus:outline-none focus:border-accent-purple transition-colors"
+      />
+      <button
+        type="submit"
+        disabled={status === "loading"}
+        className="bg-accent-purple hover:brightness-110 transition-all text-white text-xs font-bold px-4 py-2 rounded-sm shrink-0 disabled:opacity-50"
+      >
+        {status === "loading" ? "..." : "Subscribe"}
+      </button>
+      {status === "error" && <p className="text-red-400 text-[11px] self-center">{message}</p>}
+    </form>
+  );
+}
+
 export function SubscribeButton({ placement = "header" }: { placement?: string }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
