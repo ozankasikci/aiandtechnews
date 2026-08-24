@@ -43,9 +43,17 @@ function createTestDatabase() {
       title TEXT NOT NULL,
       slug TEXT NOT NULL,
       excerpt TEXT NOT NULL,
+      content TEXT,
       published_at TEXT,
       status TEXT NOT NULL,
       category_id INTEGER NOT NULL
+    );
+    CREATE TABLE newsletter_editions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      edition_key TEXT NOT NULL UNIQUE,
+      subject TEXT NOT NULL,
+      articles TEXT NOT NULL,
+      created_at TEXT NOT NULL
     );
   `);
   return database;
@@ -101,10 +109,16 @@ test("subscription confirmation, digest, idempotency, and unsubscribe form a com
   database.prepare("INSERT INTO categories (id, name) VALUES (1, 'AI')").run();
   database
     .prepare(
-      `INSERT INTO articles (id, title, slug, excerpt, published_at, status, category_id)
-       VALUES (1, ?, ?, ?, ?, 'published', 1)`,
+      `INSERT INTO articles (id, title, slug, excerpt, content, published_at, status, category_id)
+       VALUES (1, ?, ?, ?, ?, ?, 'published', 1)`,
     )
-    .run("A useful AI update", "useful-ai-update", "What changed and why it matters.", "2026-08-09 07:59:00");
+    .run(
+      "A useful AI update",
+      "useful-ai-update",
+      "What changed and why it matters.",
+      `<p>${Array.from({ length: 440 }, () => "word").join(" ")}</p>`,
+      "2026-08-09 07:59:00",
+    );
 
   const firstDigest = await service.sendDailyDigest(new Date(now.getTime() + 240_000));
   assert.deepEqual(firstDigest, {
@@ -117,6 +131,26 @@ test("subscription confirmation, digest, idempotency, and unsubscribe form a com
   assert.equal(sent.length, 3);
   assert.match(sent[2].email.headers?.["List-Unsubscribe"] || "", /newsletter\/unsubscribe/);
   assert.equal(sent[2].email.html.includes("—"), false);
+
+  // The digest carries a per-story read time and leads with the top story.
+  assert.equal(sent[2].email.subject, "A useful AI update");
+  assert.match(sent[2].email.html, /\(2 minute read\)/);
+  assert.match(sent[2].email.text, /A useful AI update \(2 minute read\)/);
+  assert.match(sent[2].email.html, />AI</);
+
+  const archived = service.getEdition("2026-08-09");
+  assert.ok(archived);
+  assert.equal(archived.subject, "A useful AI update");
+  assert.deepEqual(archived.articles, [
+    {
+      title: "A useful AI update",
+      slug: "useful-ai-update",
+      excerpt: "What changed and why it matters.",
+      category: "AI",
+      readingMinutes: 2,
+    },
+  ]);
+  assert.deepEqual(service.listEditions().map((edition) => edition.edition), ["2026-08-09"]);
 
   const duplicateDigest = await service.sendDailyDigest(new Date(now.getTime() + 300_000));
   assert.equal(duplicateDigest.sent, 0);

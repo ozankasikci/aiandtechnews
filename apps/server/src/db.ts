@@ -94,6 +94,14 @@ export function initializeDatabase() {
       UNIQUE(subscriber_id, edition_key),
       FOREIGN KEY (subscriber_id) REFERENCES subscribers(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS newsletter_editions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      edition_key TEXT NOT NULL UNIQUE,
+      subject TEXT NOT NULL,
+      articles TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   const articleColumns = db.pragma("table_info(articles)") as { name: string }[];

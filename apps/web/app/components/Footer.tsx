@@ -41,6 +41,9 @@ export function Footer() {
             <h3 className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-3">Newsletter</h3>
             <p className="text-text-secondary text-xs mb-3">The best AI &amp; tech stories in one concise daily digest.</p>
             <FooterNewsletterForm />
+            <Link href="/newsletter/archive" className="inline-block text-text-muted hover:text-white text-xs mt-3 transition-colors">
+              Browse past editions
+            </Link>
           </div>
         </div>
         <div className="pt-6 border-t border-border text-text-muted text-xs">

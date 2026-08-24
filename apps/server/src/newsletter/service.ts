@@ -3,11 +3,13 @@ import {
   confirmationEmail,
   createResendSender,
   digestEmail,
+  digestSubject,
   type DigestArticle,
   type EmailSender,
   NewsletterConfigurationError,
   welcomeEmail,
 } from "./email";
+import { readingMinutes } from "./reading-time";
 import { createNewsletterToken, verifyNewsletterToken } from "./tokens";
 
 type DatabaseConnection = InstanceType<typeof Database>;
@@ -23,8 +25,16 @@ interface ArticleRow {
   title: string;
   slug: string;
   excerpt: string;
+  content: string | null;
   category_name: string;
   published_at: string | null;
+}
+
+export interface NewsletterEdition {
+  edition: string;
+  subject: string;
+  articles: DigestArticle[];
+  createdAt: string;
 }
 
 export interface NewsletterEnvironment {
@@ -91,6 +101,7 @@ function toPublicArticle(row: ArticleRow): DigestArticle {
     slug: row.slug,
     excerpt: row.excerpt,
     category: row.category_name,
+    readingMinutes: readingMinutes(row.content),
   };
 }
 
@@ -211,13 +222,56 @@ export class NewsletterService {
     return "unsubscribed";
   }
 
+  listEditions(limit = 30): NewsletterEdition[] {
+    const rows = this.database
+      .prepare(
+        `SELECT edition_key, subject, articles, created_at
+         FROM newsletter_editions
+         ORDER BY edition_key DESC
+         LIMIT ?`,
+      )
+      .all(Math.min(Math.max(limit, 1), 100)) as {
+      edition_key: string;
+      subject: string;
+      articles: string;
+      created_at: string;
+    }[];
+
+    return rows.map((row) => this.toEdition(row));
+  }
+
+  getEdition(editionKey: string): NewsletterEdition | null {
+    const row = this.database
+      .prepare("SELECT edition_key, subject, articles, created_at FROM newsletter_editions WHERE edition_key = ?")
+      .get(editionKey) as
+      | { edition_key: string; subject: string; articles: string; created_at: string }
+      | undefined;
+    return row ? this.toEdition(row) : null;
+  }
+
+  private toEdition(row: {
+    edition_key: string;
+    subject: string;
+    articles: string;
+    created_at: string;
+  }): NewsletterEdition {
+    let articles: DigestArticle[] = [];
+    try {
+      const parsed = JSON.parse(row.articles);
+      if (Array.isArray(parsed)) articles = parsed;
+    } catch {
+      // A malformed row should not take the archive down.
+    }
+    return { edition: row.edition_key, subject: row.subject, articles, createdAt: row.created_at };
+  }
+
   async sendDailyDigest(now = new Date()): Promise<DigestResult> {
     const secret = requireTokenSecret(this.environment);
     const edition = formatIstanbulDate(now);
     const cutoff = now.getTime() - 30 * 60 * 60 * 1000;
     const articleRows = this.database
       .prepare(
-        `SELECT a.title, a.slug, a.excerpt, a.published_at, c.name AS category_name
+        `SELECT a.title, a.slug, a.excerpt, a.content, a.published_at, c.name AS category_name
          FROM articles a
          JOIN categories c ON c.id = a.category_id
          WHERE a.status = 'published'
@@ -235,6 +289,16 @@ export class NewsletterService {
 
     const result: DigestResult = { edition, articles: articles.length, sent: 0, skipped: 0, failed: 0 };
     if (articles.length === 0) return result;
+
+    // Recorded before delivery so the public archive reflects what this
+    // edition contained even if some sends fail.
+    this.database
+      .prepare(
+        `INSERT INTO newsletter_editions (edition_key, subject, articles, created_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(edition_key) DO UPDATE SET subject = excluded.subject, articles = excluded.articles`,
+      )
+      .run(edition, digestSubject(articles), JSON.stringify(articles), now.toISOString());
 
     const subscribers = this.database
       .prepare("SELECT id, email, status, confirmation_sent_at FROM subscribers WHERE status = 'active' ORDER BY id")

@@ -129,6 +129,26 @@ export interface DigestArticle {
   slug: string;
   excerpt: string;
   category: string;
+  readingMinutes: number;
+}
+
+export function digestSubject(articles: DigestArticle[]): string {
+  const lead = articles[0];
+  if (!lead) return "Today in AI and technology";
+  const rest = articles.length - 1;
+  return rest > 0 ? `${lead.title} (+${rest} more)` : lead.title;
+}
+
+// Groups articles under their category so the digest reads as sections
+// rather than one flat list, preserving the order they were selected in.
+export function groupByCategory(articles: DigestArticle[]): { category: string; articles: DigestArticle[] }[] {
+  const sections: { category: string; articles: DigestArticle[] }[] = [];
+  for (const article of articles) {
+    const existing = sections.find((section) => section.category === article.category);
+    if (existing) existing.articles.push(article);
+    else sections.push({ category: article.category, articles: [article] });
+  }
+  return sections;
 }
 
 export function digestEmail(
@@ -137,28 +157,48 @@ export function digestEmail(
   siteUrl: string,
   unsubscribeUrl: string,
 ): NewsletterEmail {
-  const articleHtml = articles
-    .map((article) => {
-      const url = `${siteUrl}/article/${encodeURIComponent(article.slug)}`;
-      return `<div style="padding:18px 0;border-top:1px solid #292936">
-        <div style="color:#9b87f5;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;margin-bottom:7px">${escapeHtml(article.category)}</div>
-        <a href="${escapeHtml(url)}" style="color:#f5f5f7;text-decoration:none;font-size:20px;line-height:1.3;font-weight:800">${escapeHtml(article.title)}</a>
-        <p style="color:#b8b8c2;line-height:1.55;margin:8px 0 0">${escapeHtml(article.excerpt)}</p>
+  const sections = groupByCategory(articles);
+
+  const sectionsHtml = sections
+    .map((section) => {
+      const items = section.articles
+        .map((article) => {
+          const url = `${siteUrl}/article/${encodeURIComponent(article.slug)}`;
+          return `<div style="padding:0 0 18px">
+        <a href="${escapeHtml(url)}" style="color:#f5f5f7;text-decoration:none;font-size:19px;line-height:1.3;font-weight:800">${escapeHtml(article.title)}</a>
+        <span style="color:#8f8f9c;font-size:13px;white-space:nowrap"> (${article.readingMinutes} minute read)</span>
+        <p style="color:#b8b8c2;line-height:1.55;margin:7px 0 0">${escapeHtml(article.excerpt)}</p>
+      </div>`;
+        })
+        .join("");
+      return `<div style="padding:18px 0 0;border-top:1px solid #292936">
+        <div style="color:#9b87f5;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;margin-bottom:12px">${escapeHtml(section.category)}</div>
+        ${items}
       </div>`;
     })
     .join("");
-  const textArticles = articles
-    .map((article) => `${article.title}\n${article.excerpt}\n${siteUrl}/article/${encodeURIComponent(article.slug)}`)
+
+  const textArticles = sections
+    .map((section) => {
+      const items = section.articles
+        .map(
+          (article) =>
+            `${article.title} (${article.readingMinutes} minute read)\n${article.excerpt}\n${siteUrl}/article/${encodeURIComponent(article.slug)}`,
+        )
+        .join("\n\n");
+      return `${section.category.toUpperCase()}\n\n${items}`;
+    })
     .join("\n\n");
 
+  const totalMinutes = articles.reduce((sum, article) => sum + article.readingMinutes, 0);
   const content = `
     <h1 style="margin:0 0 8px;font-size:26px;line-height:1.2">Today in AI and technology</h1>
-    <p style="color:#c8c8d0;line-height:1.65;margin:0 0 14px">The stories worth knowing, selected from today&apos;s coverage.</p>
-    ${articleHtml}
-    <div style="padding-top:22px">${button("See all stories", siteUrl)}</div>`;
+    <p style="color:#c8c8d0;line-height:1.65;margin:0 0 18px">${articles.length} ${articles.length === 1 ? "story" : "stories"} worth knowing, about ${totalMinutes} ${totalMinutes === 1 ? "minute" : "minutes"} of reading.</p>
+    ${sectionsHtml}
+    <div style="padding-top:14px;border-top:1px solid #292936">${button("See all stories", siteUrl)}</div>`;
   return {
     to,
-    subject: `${articles.length} AI and tech stories worth knowing today`,
+    subject: digestSubject(articles),
     html: emailLayout(content, `You subscribed at aiandtech.news. <a href="${escapeHtml(unsubscribeUrl)}" style="color:#b7a7ff">Unsubscribe</a>.`),
     text: `Today in AI and technology\n\n${textArticles}\n\nSee all stories: ${siteUrl}\n\nUnsubscribe: ${unsubscribeUrl}`,
     headers: {

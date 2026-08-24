@@ -168,3 +168,26 @@ export async function getArticle(slug: string) {
 export async function getCategories() {
   return apiFetch<{ categories: ApiCategory[] }>("/api/categories");
 }
+
+export interface NewsletterEditionArticle {
+  title: string;
+  slug: string;
+  excerpt: string;
+  category: string;
+  readingMinutes: number;
+}
+
+export interface NewsletterEdition {
+  edition: string;
+  subject: string;
+  articles: NewsletterEditionArticle[];
+  createdAt: string;
+}
+
+export async function getNewsletterEditions(limit = 30) {
+  return apiFetch<{ editions: NewsletterEdition[] }>(`/api/newsletter/editions?limit=${limit}`);
+}
+
+export async function getNewsletterEdition(edition: string) {
+  return apiFetch<{ edition: NewsletterEdition }>(`/api/newsletter/editions/${encodeURIComponent(edition)}`);
+}

@@ -253,6 +253,20 @@ async function unsubscribe(req: Request, res: Response) {
 router.get("/newsletter/unsubscribe", unsubscribe);
 router.post("/newsletter/unsubscribe", unsubscribe);
 
+router.get("/newsletter/editions", (req: Request, res: Response) => {
+  const limit = parseInt(String(req.query.limit || "30"), 10);
+  res.json({ editions: newsletter.listEditions(Number.isFinite(limit) ? limit : 30) });
+});
+
+router.get("/newsletter/editions/:edition", (req: Request, res: Response) => {
+  const edition = newsletter.getEdition(String(req.params.edition));
+  if (!edition) {
+    res.status(404).json({ error: "Edition not found" });
+    return;
+  }
+  res.json({ edition });
+});
+
 async function sendDigest(req: Request, res: Response) {
   const expectedSecret = (process.env.NEWSLETTER_CRON_SECRET || process.env.CRON_SECRET || "").trim();
   const suppliedSecret = req.header("authorization")?.replace(/^Bearer\s+/i, "");
