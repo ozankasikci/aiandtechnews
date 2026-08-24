@@ -1,4 +1,10 @@
 {
   "framework": "nextjs",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "crons": [
+    {
+      "path": "/api/newsletter/digest",
+      "schedule": "0 5 * * *"
+    }
+  ]
 }

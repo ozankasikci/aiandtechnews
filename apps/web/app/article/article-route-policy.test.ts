@@ -18,3 +18,8 @@ test("article metadata declares canonical URLs and normalized schema fields", ()
   assert.match(pageSource, /toAbsoluteUrl\(article\.image, BASE_URL\)/);
   assert.doesNotMatch(pageSource, /`https:\/\/www\.aiandtech\.news\$\{article\.image\}`/);
 });
+
+test("article pages do not display public source attribution", () => {
+  assert.doesNotMatch(pageSource, /Original reporting:/);
+  assert.doesNotMatch(pageSource, /eventName=["']source_click["']/);
+});
