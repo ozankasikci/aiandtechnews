@@ -1,5 +1,6 @@
 import type { Article } from "../data/articles";
 import { parseApiDate, toIsoDate } from "./dates";
+import { readingTimeLabel } from "./reading-time";
 
 function getApiUrl() {
   const configured = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL)?.trim();
@@ -100,7 +101,7 @@ export function mapArticle(a: ApiArticle): Article {
     date: publishedDate?.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) || "Date unavailable",
     publishedAt: toIsoDate(a.published_at || a.created_at),
     updatedAt: toIsoDate(a.updated_at || a.published_at || a.created_at),
-    readTime: `${Math.max(2, Math.ceil((a.content?.length || 0) / 1000))} min read`,
+    readTime: readingTimeLabel(a.content),
     image: a.featured_image || "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=500&fit=crop",
     source: a.source || undefined,
     sourceUrl: a.source_url || undefined,
