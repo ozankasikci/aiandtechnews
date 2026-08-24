@@ -6,10 +6,30 @@ import { getArticles, mapArticle } from "../lib/api";
 
 type Props = { params: Promise<{ category: string }> };
 
+const BASE_URL = "https://www.aiandtech.news";
+
 export const revalidate = 60;
 
 export function generateStaticParams() {
   return Object.keys(CATEGORIES).map((category) => ({ category }));
+}
+
+export async function generateMetadata({ params }: Props) {
+  const { category } = await params;
+  const cat = CATEGORIES[category];
+  if (!cat) return { title: "Not Found" };
+  const canonicalUrl = `${BASE_URL}/${category}`;
+
+  return {
+    title: `${cat.title} News`,
+    description: cat.description,
+    alternates: { canonical: canonicalUrl },
+    openGraph: {
+      title: `${cat.title} News`,
+      description: cat.description,
+      url: canonicalUrl,
+    },
+  };
 }
 
 export default async function CategoryPage({ params }: Props) {

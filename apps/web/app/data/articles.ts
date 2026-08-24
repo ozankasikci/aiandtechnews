@@ -15,6 +15,8 @@ export type Article = {
   image: string;
   source?: string;
   sourceUrl?: string;
+  metaTitle?: string;
+  metaDescription?: string;
   body?: string;
 };
 

@@ -6,6 +6,7 @@ import { MostPopularSidebar } from "../../components/Sidebar";
 import { ShareButtons } from "../../components/ShareButtons";
 import { AnalyticsLink } from "../../components/AnalyticsLink";
 import { ArticleReadTracker } from "../../components/ArticleReadTracker";
+import { NewsletterBanner } from "../../components/Newsletter";
 import { getArticle as fetchArticle, getArticles, mapArticle } from "../../lib/api";
 import { toAbsoluteUrl } from "../../lib/dates";
 
@@ -22,14 +23,16 @@ export async function generateMetadata({ params }: Props) {
   if (!article) return { title: "Article Not Found" };
   const canonicalUrl = `${BASE_URL}/article/${article.slug}`;
   const imageUrl = toAbsoluteUrl(article.image, BASE_URL);
+  const metaTitle = article.metaTitle || article.headline;
+  const metaDescription = article.metaDescription || article.excerpt || article.headline;
 
   return {
-    title: article.headline,
-    description: article.excerpt || article.headline,
+    title: metaTitle,
+    description: metaDescription,
     alternates: { canonical: canonicalUrl },
     openGraph: {
-      title: article.headline,
-      description: article.excerpt || article.headline,
+      title: metaTitle,
+      description: metaDescription,
       url: canonicalUrl,
       images: imageUrl ? [{ url: imageUrl }] : [],
       type: "article",
@@ -39,8 +42,8 @@ export async function generateMetadata({ params }: Props) {
     },
     twitter: {
       card: "summary_large_image",
-      title: article.headline,
-      description: article.excerpt || article.headline,
+      title: metaTitle,
+      description: metaDescription,
       images: imageUrl ? [imageUrl] : [],
     },
   };
@@ -126,6 +129,8 @@ export default async function ArticlePage({ params }: Props) {
               dangerouslySetInnerHTML={{ __html: body }}
             />
             <ArticleReadTracker bodyId="article-body" slug={article.slug} category={article.tag} />
+
+            <NewsletterBanner placement="article_footer" />
 
             {related.length > 0 && (
               <section className="mt-12 pt-8 border-t border-border">

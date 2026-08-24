@@ -29,6 +29,8 @@ export interface ApiArticle {
   updated_at: string;
   source?: string;
   source_url?: string;
+  meta_title?: string | null;
+  meta_description?: string | null;
   category: { id: number; name: string; slug: string; description: string; color: string };
   author: { id: number; name: string; email: string; avatar: string; bio: string; role: string };
 }
@@ -102,6 +104,8 @@ export function mapArticle(a: ApiArticle): Article {
     image: a.featured_image || "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=500&fit=crop",
     source: a.source || undefined,
     sourceUrl: a.source_url || undefined,
+    metaTitle: a.meta_title || undefined,
+    metaDescription: a.meta_description || undefined,
     body: a.content,
   };
 }
