@@ -2,8 +2,8 @@ import { ArticleImage } from "./components/ArticleImage";
 import Link from "next/link";
 import { MostPopularSidebar } from "./components/Sidebar";
 import { ArticleFeed } from "./components/ArticleFeed";
-import { ALL_ARTICLES } from "./data/articles";
 import { getArticles, mapArticle } from "./lib/api";
+import { fallbackArticles } from "./lib/fallback";
 import { TAG_COLORS } from "./data/articles";
 
 function tagHex(tagColor: string): string {
@@ -34,7 +34,7 @@ export default async function Home() {
   const data = await getArticles({ limit: 12 });
   const articles = data?.articles?.length
     ? data.articles.map(mapArticle)
-    : ALL_ARTICLES.slice(0, 12);
+    : fallbackArticles(12);
   const total = data?.total || articles.length;
 
   const hero = articles[0];

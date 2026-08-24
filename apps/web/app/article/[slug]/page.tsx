@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getArticleBySlug, ALL_ARTICLES } from "../../data/articles";
+import { fallbackArticlesByCategory } from "../../lib/fallback";
 import { MostPopularSidebar } from "../../components/Sidebar";
 import { ShareButtons } from "../../components/ShareButtons";
 import { AnalyticsLink } from "../../components/AnalyticsLink";
@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: Props) {
   const { slug } = await params;
   const apiData = await fetchArticle(slug);
-  const article = apiData?.article ? mapArticle(apiData.article) : getArticleBySlug(slug);
+  const article = apiData?.article ? mapArticle(apiData.article) : null;
   if (!article) return { title: "Article Not Found" };
   const canonicalUrl = `${BASE_URL}/article/${article.slug}`;
   const imageUrl = toAbsoluteUrl(article.image, BASE_URL);
@@ -52,9 +52,10 @@ export async function generateMetadata({ params }: Props) {
 export default async function ArticlePage({ params }: Props) {
   const { slug } = await params;
 
-  // Try API first, fall back to static
+  // The offline snapshot carries no article bodies, so a story we cannot
+  // fetch is a 404 rather than a page with an empty body.
   const apiData = await fetchArticle(slug);
-  const article = apiData?.article ? mapArticle(apiData.article) : getArticleBySlug(slug);
+  const article = apiData?.article ? mapArticle(apiData.article) : null;
   if (!article) notFound();
 
   const body = article.body || "<p>Article content unavailable.</p>";
@@ -65,7 +66,7 @@ export default async function ArticlePage({ params }: Props) {
   const relatedData = await getArticles({ category: article.tag.toLowerCase(), limit: 4 });
   const related = relatedData?.articles?.length
     ? relatedData.articles.map(mapArticle).filter((a) => a.slug !== slug).slice(0, 3)
-    : ALL_ARTICLES.filter((a) => a.tag === article.tag && a.slug !== slug).slice(0, 3);
+    : fallbackArticlesByCategory(article.tag).filter((a) => a.slug !== slug).slice(0, 3);
 
   const jsonLd = {
     "@context": "https://schema.org",
