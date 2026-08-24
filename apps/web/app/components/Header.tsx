@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { NAV_ITEMS, NAV_COLORS } from "../data/articles";
 import { SubscribeButton } from "./Newsletter";
+import { MobileNav } from "./MobileNav";
 
 export function TopBanner() {
   return (
@@ -14,6 +15,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 bg-bg border-b border-border">
       <div className="max-w-[1400px] mx-auto flex items-center h-14 px-4 gap-6">
+        <MobileNav />
         <Link href="/" className="flex items-center mr-4 shrink-0">
           <span className="text-xl md:text-2xl font-black tracking-tighter text-white uppercase" style={{ fontFamily: "var(--font-sans)" }}>
             AI &amp; Tech News
