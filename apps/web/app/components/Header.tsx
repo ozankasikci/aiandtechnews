@@ -3,14 +3,6 @@ import { NAV_ITEMS, NAV_COLORS } from "../data/articles";
 import { SubscribeButton } from "./Newsletter";
 import { MobileNav } from "./MobileNav";
 
-export function TopBanner() {
-  return (
-    <div className="w-full bg-[#111] border-b border-border py-2 px-4 text-center">
-      <span className="text-text-secondary text-xs tracking-wide">Reliable iOS Metrics — Sponsored</span>
-    </div>
-  );
-}
-
 export function Header() {
   return (
     <header className="sticky top-0 z-50 bg-bg border-b border-border">

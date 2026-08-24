@@ -5,21 +5,8 @@ import Link from "next/link";
 import { ArticleImage } from "./ArticleImage";
 import { NewsletterBanner } from "./Newsletter";
 import type { Article } from "../data/articles";
-import { parseApiDate, toIsoDate } from "../lib/dates";
+import { snapshotToArticle } from "../lib/fallback";
 import { trackEvent } from "../lib/analytics";
-
-function colorFromHex(color: string): string {
-  const map: Record<string, string> = {
-    "#8b5cf6": "bg-accent-purple", "#8B5CF6": "bg-accent-purple",
-    "#3b82f6": "bg-accent-blue", "#3B82F6": "bg-accent-blue",
-    "#10b981": "bg-accent-green", "#10B981": "bg-accent-green",
-    "#ec4899": "bg-accent-magenta", "#EC4899": "bg-accent-magenta",
-    "#f97316": "bg-accent-orange", "#F97316": "bg-accent-orange",
-    "#f59e0b": "bg-accent-yellow", "#F59E0B": "bg-accent-yellow",
-    "#22c55e": "bg-accent-green",
-  };
-  return map[color] || "bg-accent-purple";
-}
 
 function tagHex(tagColor: string): string {
   return tagColor
@@ -31,41 +18,20 @@ function tagHex(tagColor: string): string {
     .replace("bg-accent-yellow", "#f59e0b");
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function staticToArticle(a: any): Article {
-  const tagColor = colorFromHex(a.category?.color || "");
-  const published = parseApiDate(a.published_at) || new Date();
-  const diffMs = Date.now() - published.getTime();
-  const diffH = Math.floor(diffMs / 3600000);
-  const time = diffH < 1 ? "Just now" : diffH < 24 ? `${diffH}h ago` : `${Math.floor(diffH / 24)}d ago`;
-
-  return {
-    id: a.id,
-    slug: a.slug,
-    headline: a.title,
-    excerpt: a.excerpt || "",
-    image: a.featured_image || "",
-    tag: a.category?.name || "News",
-    tagColor,
-    date: published.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }),
-    publishedAt: toIsoDate(a.published_at),
-    updatedAt: toIsoDate(a.updated_at || a.published_at),
-    readTime: "2 min read",
-    time,
-    body: "",
-    author: a.author?.name || "TechNews Editorial",
-    avatar: a.author?.avatar || "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop",
-    source: a.source || undefined,
-    sourceUrl: a.source_url || undefined,
-  };
-}
-
 interface Props {
   initialArticles: Article[];
   initialTotal: number;
+  /** Restricts paging to one category; omit on the homepage to page everything. */
+  category?: string;
+  newsletterPlacement?: string;
 }
 
-export function ArticleFeed({ initialArticles, initialTotal }: Props) {
+export function ArticleFeed({
+  initialArticles,
+  initialTotal,
+  category,
+  newsletterPlacement = "homepage_feed",
+}: Props) {
   const [articles, setArticles] = useState<Article[]>(initialArticles);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(initialArticles.length < initialTotal);
@@ -93,10 +59,12 @@ export function ArticleFeed({ initialArticles, initialTotal }: Props) {
     setLoading(true);
     try {
       const nextPage = page + 1;
-      const res = await fetch(`/api/search?page=${nextPage}&limit=12`);
+      const params = new URLSearchParams({ page: String(nextPage), limit: "12" });
+      if (category) params.set("category", category);
+      const res = await fetch(`/api/search?${params}`);
       const data = await res.json();
       if (data.articles?.length) {
-        const newArticles = data.articles.map(staticToArticle);
+        const newArticles = data.articles.map((a: Parameters<typeof snapshotToArticle>[0]) => snapshotToArticle(a));
         setArticles((prev) => {
           const existingIds = new Set(prev.map((a) => a.id));
           const unique = newArticles.filter((a: Article) => !existingIds.has(a.id));
@@ -142,7 +110,7 @@ export function ArticleFeed({ initialArticles, initialTotal }: Props) {
               </div>
             </article>
           </Link>
-          {index === 2 && <NewsletterBanner placement="homepage_feed" />}
+          {index === 2 && <NewsletterBanner placement={newsletterPlacement} />}
         </Fragment>
       ))}
 

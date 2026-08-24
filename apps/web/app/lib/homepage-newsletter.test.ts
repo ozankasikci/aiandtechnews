@@ -12,7 +12,8 @@ const newsletterSource = readFileSync(
 );
 
 test("the landing-page feed shows the newsletter card after three stories", () => {
-  assert.match(feedSource, /index === 2 && <NewsletterBanner placement="homepage_feed" \/>/);
+  assert.match(feedSource, /index === 2 && <NewsletterBanner placement=\{newsletterPlacement\} \/>/);
+  assert.match(feedSource, /newsletterPlacement = "homepage_feed"/);
 });
 
 test("the landing-page signup form stacks at the mobile breakpoint", () => {
