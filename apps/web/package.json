@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx --test app/lib/*.test.ts app/article/*.test.ts app/news-sitemap.xml/*.test.ts"
+    "test": "tsx --test app/lib/*.test.ts app/article/*.test.ts app/news-sitemap.xml/*.test.ts app/rss.xml/*.test.ts"
   },
   "dependencies": {
     "next": "^15.1.0",

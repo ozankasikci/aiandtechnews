@@ -1,5 +1,6 @@
 import type { Article } from "../data/articles";
 import { parseApiDate, toIsoDate } from "./dates";
+import { readingTimeLabel } from "./reading-time";
 
 function getApiUrl() {
   const configured = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL)?.trim();
@@ -29,6 +30,8 @@ export interface ApiArticle {
   updated_at: string;
   source?: string;
   source_url?: string;
+  meta_title?: string | null;
+  meta_description?: string | null;
   category: { id: number; name: string; slug: string; description: string; color: string };
   author: { id: number; name: string; email: string; avatar: string; bio: string; role: string };
 }
@@ -98,10 +101,12 @@ export function mapArticle(a: ApiArticle): Article {
     date: publishedDate?.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) || "Date unavailable",
     publishedAt: toIsoDate(a.published_at || a.created_at),
     updatedAt: toIsoDate(a.updated_at || a.published_at || a.created_at),
-    readTime: `${Math.max(2, Math.ceil((a.content?.length || 0) / 1000))} min read`,
+    readTime: readingTimeLabel(a.content),
     image: a.featured_image || "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=500&fit=crop",
     source: a.source || undefined,
     sourceUrl: a.source_url || undefined,
+    metaTitle: a.meta_title || undefined,
+    metaDescription: a.meta_description || undefined,
     body: a.content,
   };
 }
@@ -162,4 +167,27 @@ export async function getArticle(slug: string) {
 
 export async function getCategories() {
   return apiFetch<{ categories: ApiCategory[] }>("/api/categories");
+}
+
+export interface NewsletterEditionArticle {
+  title: string;
+  slug: string;
+  excerpt: string;
+  category: string;
+  readingMinutes: number;
+}
+
+export interface NewsletterEdition {
+  edition: string;
+  subject: string;
+  articles: NewsletterEditionArticle[];
+  createdAt: string;
+}
+
+export async function getNewsletterEditions(limit = 30) {
+  return apiFetch<{ editions: NewsletterEdition[] }>(`/api/newsletter/editions?limit=${limit}`);
+}
+
+export async function getNewsletterEdition(edition: string) {
+  return apiFetch<{ edition: NewsletterEdition }>(`/api/newsletter/editions/${encodeURIComponent(edition)}`);
 }

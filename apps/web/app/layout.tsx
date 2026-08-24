@@ -6,6 +6,32 @@ import { Footer } from "./components/Footer";
 import { Analytics } from "./components/Analytics";
 
 const GA_ID = "G-32SP4ZKM67";
+const BASE_URL = "https://www.aiandtech.news";
+
+const siteJsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${BASE_URL}/#organization`,
+      name: "AI and Tech News",
+      url: BASE_URL,
+      logo: { "@type": "ImageObject", url: `${BASE_URL}/icon-512.png`, width: 512, height: 512 },
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${BASE_URL}/#website`,
+      name: "AI and Tech News",
+      url: BASE_URL,
+      publisher: { "@id": `${BASE_URL}/#organization` },
+      potentialAction: {
+        "@type": "SearchAction",
+        target: { "@type": "EntryPoint", urlTemplate: `${BASE_URL}/search?q={search_term_string}` },
+        "query-input": "required name=search_term_string",
+      },
+    },
+  ],
+};
 
 export const metadata: Metadata = {
   title: {
@@ -19,6 +45,9 @@ export const metadata: Metadata = {
     url: "https://www.aiandtech.news",
   },
   metadataBase: new URL("https://www.aiandtech.news"),
+  alternates: {
+    types: { "application/rss+xml": [{ url: "/rss.xml", title: "AI and Tech News" }] },
+  },
   icons: {
     icon: [
       { url: "/favicon-16.png", sizes: "16x16", type: "image/png" },
@@ -38,6 +67,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
       </head>
       <body>
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(siteJsonLd) }} />
         <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} strategy="afterInteractive" />
         <Script id="ga-init" strategy="afterInteractive">
           {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{send_page_view:false});`}

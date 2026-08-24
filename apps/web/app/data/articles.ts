@@ -15,6 +15,8 @@ export type Article = {
   image: string;
   source?: string;
   sourceUrl?: string;
+  metaTitle?: string;
+  metaDescription?: string;
   body?: string;
 };
 
@@ -51,12 +53,3 @@ export const TAG_COLORS: Record<string, string> = {
   News: "#9ca3af",
 };
 
-export const ALL_ARTICLES: Article[] = [];
-
-export function getArticlesByCategory(category: string): Article[] {
-  return ALL_ARTICLES.filter((a) => a.tag.toLowerCase() === category.toLowerCase());
-}
-
-export function getArticleBySlug(slug: string): Article | undefined {
-  return ALL_ARTICLES.find((a) => a.slug === slug);
-}

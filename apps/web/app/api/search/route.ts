@@ -29,36 +29,44 @@ interface ArticleRecord {
 const allArticles: ArticleRecord[] = (articlesData as { articles: ArticleRecord[] }).articles || [];
 const totalArticles: number = (articlesData as { total: number }).total || allArticles.length;
 
-function fallbackSearch(q: string, limit: number, page: number) {
-  const filtered = q
-    ? allArticles.filter(
-        (a) =>
-          a.title.toLowerCase().includes(q) ||
-          a.excerpt.toLowerCase().includes(q) ||
-          a.category?.name?.toLowerCase().includes(q)
-      )
-    : allArticles;
+function fallbackSearch(q: string, category: string, limit: number, page: number) {
+  let filtered = allArticles;
+  if (category) {
+    filtered = filtered.filter(
+      (a) => a.category?.slug?.toLowerCase() === category || a.category?.name?.toLowerCase() === category,
+    );
+  }
+  if (q) {
+    filtered = filtered.filter(
+      (a) =>
+        a.title.toLowerCase().includes(q) ||
+        a.excerpt.toLowerCase().includes(q) ||
+        a.category?.name?.toLowerCase().includes(q),
+    );
+  }
 
-  const total = filtered.length;
+  const narrowed = Boolean(q || category);
+  const total = narrowed ? filtered.length : totalArticles;
   const offset = (page - 1) * limit;
-  const articles = filtered.slice(offset, offset + limit);
 
   return {
-    articles,
-    total: q ? total : totalArticles,
+    articles: filtered.slice(offset, offset + limit),
+    total,
     page,
-    totalPages: Math.ceil((q ? total : totalArticles) / limit),
+    totalPages: Math.ceil(total / limit),
     source: "static-fallback",
   };
 }
 
 export async function GET(request: NextRequest) {
   const q = (request.nextUrl.searchParams.get("q") || "").toLowerCase().trim();
+  const category = (request.nextUrl.searchParams.get("category") || "").toLowerCase().trim();
   const limit = parseInt(request.nextUrl.searchParams.get("limit") || "12");
   const page = parseInt(request.nextUrl.searchParams.get("page") || "1");
 
   const params = new URLSearchParams({ limit: String(limit), page: String(page) });
   if (q) params.set("search", q);
+  if (category) params.set("category", category);
 
   try {
     const res = await fetch(`${API_BASE}/api/articles?${params}`, { cache: "no-store" });
@@ -70,5 +78,5 @@ export async function GET(request: NextRequest) {
     // Fall through to the static snapshot so search/infinite scroll degrade gracefully.
   }
 
-  return NextResponse.json(fallbackSearch(q, limit, page));
+  return NextResponse.json(fallbackSearch(q, category, limit, page));
 }
