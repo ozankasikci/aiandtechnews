@@ -21,7 +21,7 @@ export function NewsletterBanner({ placement = "inline" }: { placement?: string 
       const data = await res.json();
       if (res.ok && data.success) {
         setStatus("success");
-        setMessage(data.message || "Check your inbox to confirm your subscription.");
+        setMessage(data.message || "You're subscribed.");
         setEmail("");
         trackEvent("newsletter_signup_requested", { method: "newsletter", placement });
       } else {
@@ -85,7 +85,7 @@ export function FooterNewsletterForm() {
       const data = await res.json();
       if (res.ok && data.success) {
         setStatus("success");
-        setMessage(data.message || "Check your inbox to confirm your subscription.");
+        setMessage(data.message || "You're subscribed.");
         setEmail("");
         trackEvent("newsletter_signup_requested", { method: "newsletter", placement });
       } else {
@@ -144,8 +144,8 @@ export function SubscribeButton({ placement = "header" }: { placement?: string }
       const data = await res.json();
       if (res.ok && data.success) {
         setStatus("success");
-        setMessage(data.message || "Check your inbox to confirm your subscription.");
-        setResultState(data.state || "confirmation_sent");
+        setMessage(data.message || "You're subscribed.");
+        setResultState(data.state || "subscribed");
         setEmail("");
         trackEvent("newsletter_signup_requested", { method: "newsletter", placement });
       } else {
@@ -193,7 +193,7 @@ export function SubscribeButton({ placement = "header" }: { placement?: string }
                 <div className="text-4xl mb-3">✓</div>
                 <p className="text-accent-green font-bold text-lg">{message}</p>
                 <p className="text-text-secondary text-sm mt-1">
-                  {resultState === "already_active" ? "No further action is needed." : "Use the link in that email to finish signing up."}
+                  {resultState === "already_active" ? "No further action is needed." : "The next daily digest will arrive in your inbox."}
                 </p>
               </div>
             ) : (
