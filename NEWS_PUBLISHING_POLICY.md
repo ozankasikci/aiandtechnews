@@ -50,7 +50,7 @@ Rewrite the source into an original, human-sounding article. Do not copy the sou
 - Write a short, direct, factual, non-clickbait headline.
 - Re-run the promotional-language check against the rewritten headline. A rewrite must never turn an accepted source headline into promotional copy.
 - Write one plain-sentence excerpt with no HTML and no more than 180 characters.
-- Target 150 to 300 words, generally in 5 to 8 paragraphs.
+- Target 150 to 800 words, generally in 5 to 12 paragraphs.
 - Start with a clear lede explaining what happened.
 - Include relevant context and background.
 - Explain industry implications without presenting speculation as fact.

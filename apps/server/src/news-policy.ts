@@ -246,11 +246,11 @@ export function validateRewrittenArticle(
   if (content.replace(blockPattern, "").trim()) errors.push("article HTML contains text outside p or h2 blocks");
 
   const paragraphs = [...content.matchAll(/<p>([\s\S]*?)<\/p>/gi)];
-  if (paragraphs.length < 5 || paragraphs.length > 8) errors.push("article must contain 5 to 8 paragraphs");
+  if (paragraphs.length < 5 || paragraphs.length > 12) errors.push("article must contain 5 to 12 paragraphs");
   if (paragraphs.some((paragraph) => !stripHtml(paragraph[1]))) errors.push("article contains an empty paragraph");
 
   const minWords = options.minWords ?? 150;
-  const maxWords = options.maxWords ?? 300;
+  const maxWords = options.maxWords ?? 800;
   const words = wordCount(content);
   if (words < minWords || words > maxWords) {
     errors.push(`article must contain ${minWords} to ${maxWords} words, found ${words}`);

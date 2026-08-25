@@ -370,6 +370,7 @@ async function rewriteArticle(
   item: FeedArticle,
   sourceText: string,
   minWords = 150,
+  maxWords = 800,
 ): Promise<RewrittenArticle | null> {
   const basePrompt = `You are TechNews Editorial. Rewrite the source reporting below as an original news article.
 
@@ -383,7 +384,7 @@ Requirements:
 - Never use "groundbreaking", "revolutionary", or "game-changing".
 - Write a short, direct, factual, non-clickbait headline, maximum 120 characters.
 - Write one plain-sentence excerpt, maximum 180 characters, with no HTML.
-- Write ${minWords} to 300 words in 5 to 8 paragraphs.
+- Write ${minWords} to ${maxWords} words in 5 to 12 paragraphs.
 - Open with a clear lede explaining what happened.
 - Include relevant context and background.
 - Include supported industry implications or analysis without presenting speculation as fact.
@@ -411,7 +412,7 @@ Return only JSON with this exact shape:
       correction = "\n\nYour previous response was not valid JSON. Return only the required JSON object.";
       continue;
     }
-    const validationErrors = validateRewrittenArticle(article, { minWords });
+    const validationErrors = validateRewrittenArticle(article, { minWords, maxWords });
     if (validationErrors.length === 0) return article;
     console.log(`Rewrite validation failed on attempt ${attempt}: ${validationErrors.join("; ")}`);
     correction = `\n\nYour previous draft failed these checks: ${validationErrors.join("; ")}. Rewrite it again from the same source reporting and satisfy every requirement.`;
@@ -501,7 +502,7 @@ function isStored(sourceUrl: string, slug: string): boolean {
   return Boolean(duplicate);
 }
 
-async function importFeedItem(item: FeedArticle, automaticOnly: boolean, minWords = 150): Promise<boolean> {
+async function importFeedItem(item: FeedArticle, automaticOnly: boolean, minWords = 150, maxWords = 800): Promise<boolean> {
   const initialRejection = automaticOnly
     ? getAutomaticItemRejectionReason(item.title, item.url, item.source)
     : getItemRejectionReason(item.title, item.url, item.source);
@@ -543,7 +544,7 @@ async function importFeedItem(item: FeedArticle, automaticOnly: boolean, minWord
     return false;
   }
 
-  const rewritten = await rewriteArticle({ ...item, url: canonicalUrl }, sourceText, minWords);
+  const rewritten = await rewriteArticle({ ...item, url: canonicalUrl }, sourceText, minWords, maxWords);
   if (!rewritten) {
     console.log(`Skipped because a compliant rewrite could not be produced: ${item.title}`);
     return false;
@@ -569,7 +570,7 @@ async function importFeedItem(item: FeedArticle, automaticOnly: boolean, minWord
     return false;
   }
 
-  const validationErrors = validateRewrittenArticle(rewritten, { minWords });
+  const validationErrors = validateRewrittenArticle(rewritten, { minWords, maxWords });
   if (validationErrors.length) {
     console.log(`Final validation failed: ${validationErrors.join("; ")}`);
     return false;

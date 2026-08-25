@@ -156,21 +156,41 @@ test("accepts an article that follows the writing contract", () => {
   assert.deepEqual(validateRewrittenArticle(validArticle()), []);
 });
 
-test("enforces the 150 to 300 word range", () => {
+test("enforces the 150 to 800 word range", () => {
   const article = validArticle();
   const paragraph = (count: number) => Array.from({ length: count }, (_, index) => `word${index}`).join(" ");
 
+  // 149 words: one under the floor.
   article.content = `<p>${paragraph(29)}</p>` + Array.from({ length: 4 }, () => `<p>${paragraph(30)}</p>`).join("");
-  assert.match(validateRewrittenArticle(article).join("\n"), /150 to 300 words/i);
+  assert.match(validateRewrittenArticle(article).join("\n"), /150 to 800 words/i);
 
+  // 150 words: exactly on the floor.
   article.content = Array.from({ length: 5 }, () => `<p>${paragraph(30)}</p>`).join("");
-  assert.doesNotMatch(validateRewrittenArticle(article).join("\n"), /150 to 300 words/i);
+  assert.doesNotMatch(validateRewrittenArticle(article).join("\n"), /150 to 800 words/i);
 
-  article.content = Array.from({ length: 5 }, () => `<p>${paragraph(60)}</p>`).join("");
-  assert.doesNotMatch(validateRewrittenArticle(article).join("\n"), /150 to 300 words/i);
+  // 800 words across 10 paragraphs: exactly on the raised ceiling.
+  article.content = Array.from({ length: 10 }, () => `<p>${paragraph(80)}</p>`).join("");
+  assert.doesNotMatch(validateRewrittenArticle(article).join("\n"), /150 to 800 words/i);
 
-  article.content = `<p>${paragraph(61)}</p>` + Array.from({ length: 4 }, () => `<p>${paragraph(60)}</p>`).join("");
-  assert.match(validateRewrittenArticle(article).join("\n"), /150 to 300 words/i);
+  // 801 words: one over the ceiling.
+  article.content = `<p>${paragraph(81)}</p>` + Array.from({ length: 9 }, () => `<p>${paragraph(80)}</p>`).join("");
+  assert.match(validateRewrittenArticle(article).join("\n"), /150 to 800 words/i);
+
+  // The old 300-word ceiling must no longer reject a mid-length article.
+  article.content = Array.from({ length: 8 }, () => `<p>${paragraph(60)}</p>`).join("");
+  assert.deepEqual(validateRewrittenArticle(article), []);
+});
+
+test("enforces the 5 to 12 paragraph range", () => {
+  const article = validArticle();
+  const paragraph = (count: number) => Array.from({ length: count }, (_, index) => `word${index}`).join(" ");
+
+  // 12 paragraphs is allowed; 13 is not.
+  article.content = Array.from({ length: 12 }, () => `<p>${paragraph(40)}</p>`).join("");
+  assert.doesNotMatch(validateRewrittenArticle(article).join("\n"), /paragraphs/i);
+
+  article.content = Array.from({ length: 13 }, () => `<p>${paragraph(40)}</p>`).join("");
+  assert.match(validateRewrittenArticle(article).join("\n"), /5 to 12 paragraphs/i);
 });
 
 test("rejects a promotional headline produced during rewriting", () => {
@@ -197,6 +217,6 @@ test("rejects invalid article HTML and length", () => {
   article.content = "<p>Too short.</p><h3>Unsupported</h3>";
   const errors = validateRewrittenArticle(article).join("\n");
   assert.match(errors, /other than p or h2/i);
-  assert.match(errors, /5 to 8 paragraphs/i);
-  assert.match(errors, /150 to 300 words/i);
+  assert.match(errors, /5 to 12 paragraphs/i);
+  assert.match(errors, /150 to 800 words/i);
 });
