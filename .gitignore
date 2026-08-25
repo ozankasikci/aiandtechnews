@@ -10,4 +10,5 @@ dist/
 *.log
 .claude/channels/
 .claude/settings.local.json
+memory/
 .vercel

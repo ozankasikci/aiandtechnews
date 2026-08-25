@@ -2,6 +2,10 @@ export const APPROVED_FEEDS = [
   { source: "TechCrunch", url: "https://techcrunch.com/feed/" },
   { source: "The Verge", url: "https://www.theverge.com/rss/index.xml" },
   { source: "Ars Technica", url: "https://feeds.arstechnica.com/arstechnica/index" },
+  { source: "WIRED", url: "https://www.wired.com/feed/rss" },
+  { source: "Engadget", url: "https://www.engadget.com/rss.xml" },
+  { source: "BleepingComputer", url: "https://www.bleepingcomputer.com/feed/" },
+  { source: "The Register", url: "https://www.theregister.com/headlines.atom" },
 ] as const;
 
 export const EDITORIAL_AUTHOR = {
@@ -18,24 +22,43 @@ export interface RewrittenArticle {
   content: string;
 }
 
+export interface ArticleValidationOptions {
+  minWords?: number;
+  maxWords?: number;
+}
+
 const SOURCE_HOSTS: Record<string, string[]> = {
   TechCrunch: ["techcrunch.com"],
   "The Verge": ["theverge.com"],
   "Ars Technica": ["arstechnica.com"],
+  WIRED: ["wired.com"],
+  Engadget: ["engadget.com"],
+  BleepingComputer: ["bleepingcomputer.com"],
+  "The Register": ["theregister.com"],
 };
+
+const PROMOTIONAL_PATTERNS = [
+  /\b(?:deals?|coupon|discount|sale|buying guide)\b/i,
+  /\b(?:lowest|best) price\b/i,
+  /\bprice (?:drop|cut)\b/i,
+  /\b(?:save \$?\d+|\d+% off|percent off)\b/i,
+  /\b(?:prime day|black friday|cyber monday)\b/i,
+  /\b(?:last chance|pre-?orders?|pre-?order bonuses?)\b/i,
+];
 
 const REJECTED_TITLE_PATTERNS: Array<[RegExp, string]> = [
   [/^show hn:/i, "Show HN item"],
   [/^state of show hn/i, "Show HN item"],
+  [/\b(?:review|hands-on|buying guide|roundup)\b/i, "review, guide, or roundup rather than news"],
   [/\[(?:pdf|video)\]/i, "PDF or video item"],
   [/\b(?:abstract|arxiv)\s*:/i, "abstract or arXiv-style item"],
   [/\barxiv\b/i, "arXiv-style item"],
-  [/\b(?:deals?|coupon|discount|sale|buying guide)\b/i, "deal or promotional item"],
-  [/\b(?:lowest|best) price\b/i, "deal or promotional item"],
-  [/\bprice (?:drop|cut)\b/i, "deal or promotional item"],
-  [/\b(?:save \$?\d+|\d+% off|percent off)\b/i, "deal or promotional item"],
-  [/\b(?:prime day|black friday|cyber monday)\b/i, "deal or promotional item"],
+  ...PROMOTIONAL_PATTERNS.map((pattern) => [pattern, "deal or promotional item"] as [RegExp, string]),
 ];
+
+function containsPromotionalLanguage(value: string): boolean {
+  return PROMOTIONAL_PATTERNS.some((pattern) => pattern.test(value));
+}
 
 const FORBIDDEN_COPY = [
   { pattern: /\u2014/, label: "em dash" },
@@ -46,7 +69,7 @@ const FORBIDDEN_COPY = [
   { pattern: /\bgame-changing\b/i, label: "game-changing" },
 ];
 
-const AUTOMATIC_TECH_TOPIC_PATTERNS = [
+const AUTOMATIC_TECH_TITLE_PATTERNS = [
   /\b(?:ai|artificial intelligence|machine learning|llm|chatgpt|chatbot|openai|anthropic|gemini|neural network|foundation model)\b/i,
   /\b(?:software|app|application|developer|api|code|coding|programming|open source|operating system|windows|macos|linux|ios|android)\b/i,
   /\b(?:cybersecurity|security update|data breach|malware|ransomware|hack(?:ed|ing)?|privacy|encryption|password|vulnerability)\b/i,
@@ -54,7 +77,15 @@ const AUTOMATIC_TECH_TOPIC_PATTERNS = [
   /\b(?:internet|web browser|browser|search engine|social network|social media|online platform|streaming technology)\b/i,
   /\b(?:robot|robotics|autonomous|self-driving|electric vehicle|ev battery|drone|satellite|spacex|rocket technology)\b/i,
   /\b(?:startup|venture capital|funding round|seed round|series [a-z]|fintech|healthtech|biotech|edtech)\b/i,
-  /\/(?:tech|technology|ai-artificial-intelligence|cybersecurity|gadgets|computing|mobile|apps|software|hardware|transportation)\//i,
+];
+
+const AUTOMATIC_TECH_SECTION_PATTERN =
+  /\/(?:ai-artificial-intelligence|cybersecurity|computing|mobile|apps|software|hardware|transportation|tech-policy)\//i;
+
+const AUTOMATIC_NON_TECH_TITLE_PATTERNS = [
+  /\bbox office\b/i,
+  /\bseason (?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i,
+  /\b(?:movie|film) trailer\b/i,
 ];
 
 export function slugify(title: string): string {
@@ -137,6 +168,11 @@ export function getItemRejectionReason(
 
   if (/\.(?:pdf|mp4|mov|webm)(?:$|[?#])/i.test(url.pathname)) return "PDF or video item";
   if (/\/(?:videos?|deals?)(?:\/|$)/i.test(url.pathname)) return "video, deal, or promotional item";
+  const urlWords = decodeURIComponent(url.pathname).replace(/[-_/]+/g, " ");
+  if (containsPromotionalLanguage(urlWords)) return "deal or promotional item";
+  if (/\b(?:review|hands on|buying guide|roundup|installer)\b/i.test(urlWords)) {
+    return "review, guide, or roundup rather than news";
+  }
 
   const oldTitleYear = title.match(/\(((?:19|20)\d{2})\)\s*$/)?.[1];
   const oldUrlYear = url.pathname.match(/\/((?:19|20)\d{2})\//)?.[1];
@@ -156,8 +192,14 @@ export function getAutomaticItemRejectionReason(
   const generalRejection = getItemRejectionReason(title, sourceUrl, expectedSource, now);
   if (generalRejection) return generalRejection;
 
-  const topicEvidence = `${title.trim()} ${sourceUrl}`;
-  if (!AUTOMATIC_TECH_TOPIC_PATTERNS.some((pattern) => pattern.test(topicEvidence))) {
+  const normalizedTitle = title.trim();
+  if (AUTOMATIC_NON_TECH_TITLE_PATTERNS.some((pattern) => pattern.test(normalizedTitle))) {
+    return "entertainment or general-interest story rather than technology news";
+  }
+
+  const hasTitleSignal = AUTOMATIC_TECH_TITLE_PATTERNS.some((pattern) => pattern.test(normalizedTitle));
+  const hasSpecificSectionSignal = AUTOMATIC_TECH_SECTION_PATTERN.test(sourceUrl);
+  if (!hasTitleSignal && !hasSpecificSectionSignal) {
     return "not clearly technology-related; non-tech stories require manual import";
   }
   return null;
@@ -167,7 +209,10 @@ function sentenceCount(text: string): number {
   return (text.match(/[.!?](?:["')\]]*)?(?=\s+[A-Z0-9]|$)/g) || []).length;
 }
 
-export function validateRewrittenArticle(article: RewrittenArticle): string[] {
+export function validateRewrittenArticle(
+  article: RewrittenArticle,
+  options: ArticleValidationOptions = {},
+): string[] {
   const errors: string[] = [];
   const title = typeof article.title === "string" ? article.title.trim() : "";
   const excerpt = typeof article.excerpt === "string" ? article.excerpt.trim() : "";
@@ -177,6 +222,7 @@ export function validateRewrittenArticle(article: RewrittenArticle): string[] {
   if (!title) errors.push("headline is missing");
   if (title.length > 120) errors.push("headline exceeds 120 characters");
   if (/!{1,}|\?{2,}/.test(title)) errors.push("headline appears clickbait-like");
+  if (containsPromotionalLanguage(title)) errors.push("headline is promotional");
 
   if (!excerpt) errors.push("excerpt is missing");
   if (excerpt.length > 180) errors.push("excerpt exceeds 180 characters");
@@ -203,8 +249,12 @@ export function validateRewrittenArticle(article: RewrittenArticle): string[] {
   if (paragraphs.length < 5 || paragraphs.length > 8) errors.push("article must contain 5 to 8 paragraphs");
   if (paragraphs.some((paragraph) => !stripHtml(paragraph[1]))) errors.push("article contains an empty paragraph");
 
+  const minWords = options.minWords ?? 150;
+  const maxWords = options.maxWords ?? 300;
   const words = wordCount(content);
-  if (words < 400 || words > 600) errors.push(`article must contain 400 to 600 words, found ${words}`);
+  if (words < minWords || words > maxWords) {
+    errors.push(`article must contain ${minWords} to ${maxWords} words, found ${words}`);
+  }
 
   const lastParagraph = paragraphs.at(-1);
   if (lastParagraph && /^(?:source|sources)\s*:/i.test(stripHtml(lastParagraph[1]))) {
