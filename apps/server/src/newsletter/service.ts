@@ -1,6 +1,5 @@
 import type Database from "better-sqlite3";
 import {
-  confirmationEmail,
   createResendSender,
   digestEmail,
   digestSubject,
@@ -46,7 +45,7 @@ export interface NewsletterEnvironment {
 }
 
 export interface SubscriptionResult {
-  state: "confirmation_sent" | "already_active" | "throttled";
+  state: "subscribed" | "already_active";
 }
 
 export interface ConfirmationResult {
@@ -124,49 +123,46 @@ export class NewsletterService {
     this.siteUrl = safeSiteUrl(environment.NEWSLETTER_SITE_URL);
   }
 
+  // Signup activates immediately. There is no confirmation email, so this
+  // path never touches the email provider and works even when delivery is
+  // unconfigured. Unsubscribe links are still signed, and the digest still
+  // sends only to active subscribers.
   async requestSubscription(rawEmail: string, placement = "unknown", now = new Date()): Promise<SubscriptionResult> {
     const email = normalizeEmail(rawEmail);
     if (!email) throw new TypeError("Valid email required");
 
-    const secret = requireTokenSecret(this.environment);
+    const timestamp = now.toISOString();
+    const source = placement.slice(0, 80);
     const existing = this.database
       .prepare("SELECT id, email, status, confirmation_sent_at FROM subscribers WHERE lower(email) = ?")
       .get(email) as SubscriberRow | undefined;
 
     if (existing?.status === "active") return { state: "already_active" };
 
-    const lastSent = existing?.confirmation_sent_at ? Date.parse(existing.confirmation_sent_at) : Number.NaN;
-    if (Number.isFinite(lastSent) && now.getTime() - lastSent < 10 * 60 * 1000) {
-      return { state: "throttled" };
-    }
-
-    const subscriber = existing || (this.database
-      .prepare(
-        `INSERT INTO subscribers (email, status, source_placement, created_at, updated_at)
-         VALUES (?, 'pending', ?, ?, ?)
-         RETURNING id, email, status, confirmation_sent_at`,
-      )
-      .get(email, placement.slice(0, 80), now.toISOString(), now.toISOString()) as SubscriberRow);
-
     if (existing) {
+      // Covers pending rows left by the old double opt-in flow and anyone
+      // resubscribing after unsubscribing.
       this.database
         .prepare(
           `UPDATE subscribers
-           SET status = 'pending', source_placement = ?, unsubscribed_at = NULL, updated_at = ?
+           SET status = 'active',
+               source_placement = ?,
+               confirmed_at = COALESCE(confirmed_at, ?),
+               unsubscribed_at = NULL,
+               updated_at = ?
            WHERE id = ?`,
         )
-        .run(placement.slice(0, 80), now.toISOString(), subscriber.id);
+        .run(source, timestamp, timestamp, existing.id);
+      return { state: "subscribed" };
     }
 
-    const expiresAt = new Date(now.getTime() + 48 * 60 * 60 * 1000);
-    const token = createNewsletterToken(subscriber.id, "confirm", secret, expiresAt);
-    const confirmUrl = `${this.siteUrl}/api/newsletter/confirm?token=${encodeURIComponent(token)}`;
-    await this.sendEmail(confirmationEmail(email, confirmUrl), `newsletter-confirm-${subscriber.id}-${Math.floor(now.getTime() / 600000)}`);
-
     this.database
-      .prepare("UPDATE subscribers SET confirmation_sent_at = ?, updated_at = ? WHERE id = ?")
-      .run(now.toISOString(), now.toISOString(), subscriber.id);
-    return { state: "confirmation_sent" };
+      .prepare(
+        `INSERT INTO subscribers (email, status, source_placement, confirmed_at, created_at, updated_at)
+         VALUES (?, 'active', ?, ?, ?, ?)`,
+      )
+      .run(email, source, timestamp, timestamp, timestamp);
+    return { state: "subscribed" };
   }
 
   async confirmSubscription(token: string, now = new Date()): Promise<ConfirmationResult> {

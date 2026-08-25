@@ -91,21 +91,6 @@ function button(label: string, url: string): string {
   return `<a href="${escapeHtml(url)}" style="display:inline-block;background:#7c5cff;color:#fff;text-decoration:none;font-weight:700;border-radius:5px;padding:13px 20px">${escapeHtml(label)}</a>`;
 }
 
-export function confirmationEmail(to: string, confirmUrl: string): NewsletterEmail {
-  const content = `
-    <h1 style="margin:0 0 14px;font-size:26px;line-height:1.2">Confirm your subscription</h1>
-    <p style="color:#c8c8d0;line-height:1.65;margin:0 0 22px">Confirm that you want the most useful AI and technology stories delivered to your inbox.</p>
-    ${button("Confirm subscription", confirmUrl)}
-    <p style="color:#8f8f9c;font-size:12px;line-height:1.5;margin:22px 0 0">This link expires in 48 hours. If you did not request this email, you can ignore it.</p>`;
-  return {
-    to,
-    subject: "Confirm your AI & Tech News subscription",
-    html: emailLayout(content, "You received this confirmation because someone entered this address at aiandtech.news."),
-    text: `Confirm your AI & Tech News subscription:\n${confirmUrl}\n\nThis link expires in 48 hours. If you did not request this email, ignore it.`,
-    tags: [{ name: "email_type", value: "confirmation" }],
-  };
-}
-
 export function welcomeEmail(to: string, siteUrl: string, unsubscribeUrl: string): NewsletterEmail {
   const content = `
     <h1 style="margin:0 0 14px;font-size:26px;line-height:1.2">Welcome to AI &amp; Tech News</h1>

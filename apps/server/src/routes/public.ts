@@ -198,7 +198,7 @@ router.post("/subscribe", async (req: Request, res: Response) => {
     const result = await newsletter.requestSubscription(email, placement);
     const message = result.state === "already_active"
       ? "You're already subscribed."
-      : "Check your inbox to confirm your subscription.";
+      : "You're subscribed. The next digest will arrive in your inbox.";
     res.json({ success: true, state: result.state, message });
   } catch (error) {
     if (error instanceof TypeError) {
@@ -210,7 +210,7 @@ router.post("/subscribe", async (req: Request, res: Response) => {
       return;
     }
     console.error("Newsletter signup failed", error);
-    res.status(502).json({ error: "We could not send the confirmation email. Please try again." });
+    res.status(502).json({ error: "We could not complete your signup. Please try again." });
   }
 });
 

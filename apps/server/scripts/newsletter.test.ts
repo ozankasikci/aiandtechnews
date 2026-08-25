@@ -69,7 +69,7 @@ test("newsletter tokens enforce purpose, signature, and expiry", () => {
   assert.equal(verifyNewsletterToken(token, "confirm", TOKEN_SECRET, new Date(now.getTime() + 61_000)), null);
 });
 
-test("subscription confirmation, digest, idempotency, and unsubscribe form a complete loop", async () => {
+test("signup activates immediately, and digest, idempotency, and unsubscribe form a complete loop", async () => {
   const database = createTestDatabase();
   const sent: { email: NewsletterEmail; idempotencyKey: string }[] = [];
   const sendEmail: EmailSender = async (email, idempotencyKey) => {
@@ -86,25 +86,19 @@ test("subscription confirmation, digest, idempotency, and unsubscribe form a com
   );
   const now = new Date("2026-08-09T08:00:00.000Z");
 
+  // Signup activates on the spot and sends nothing.
   const requested = await service.requestSubscription(" Reader@Example.com ", "inline", now);
-  assert.equal(requested.state, "confirmation_sent");
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].email.to, "reader@example.com");
-
-  const throttled = await service.requestSubscription("reader@example.com", "header", new Date(now.getTime() + 60_000));
-  assert.equal(throttled.state, "throttled");
-  assert.equal(sent.length, 1);
-
-  const confirmMatch = sent[0].email.text.match(/token=([^\s]+)/);
-  assert.ok(confirmMatch);
-  const confirmed = await service.confirmSubscription(decodeURIComponent(confirmMatch[1]), new Date(now.getTime() + 120_000));
-  assert.deepEqual(confirmed, { state: "confirmed", welcomeSent: true });
-  assert.equal(sent.length, 2);
+  assert.equal(requested.state, "subscribed");
+  assert.equal(sent.length, 0, "signup must not send any email");
+  assert.equal(database.prepare("SELECT email FROM subscribers WHERE id = 1").pluck().get(), "reader@example.com");
   assert.equal(database.prepare("SELECT status FROM subscribers WHERE id = 1").pluck().get(), "active");
+  assert.ok(database.prepare("SELECT confirmed_at FROM subscribers WHERE id = 1").pluck().get());
 
-  const confirmedAgain = await service.confirmSubscription(decodeURIComponent(confirmMatch[1]), new Date(now.getTime() + 180_000));
-  assert.deepEqual(confirmedAgain, { state: "already_confirmed", welcomeSent: false });
-  assert.equal(sent.length, 2);
+  // Resubmitting is idempotent: no duplicate row, no second activation.
+  const again = await service.requestSubscription("reader@example.com", "header", new Date(now.getTime() + 60_000));
+  assert.equal(again.state, "already_active");
+  assert.equal(sent.length, 0);
+  assert.equal(database.prepare("SELECT COUNT(*) FROM subscribers").pluck().get(), 1);
 
   database.prepare("INSERT INTO categories (id, name) VALUES (1, 'AI')").run();
   database
@@ -128,15 +122,15 @@ test("subscription confirmation, digest, idempotency, and unsubscribe form a com
     skipped: 0,
     failed: 0,
   });
-  assert.equal(sent.length, 3);
-  assert.match(sent[2].email.headers?.["List-Unsubscribe"] || "", /newsletter\/unsubscribe/);
-  assert.equal(sent[2].email.html.includes("—"), false);
+  assert.equal(sent.length, 1, "the digest is now the only email the flow sends");
+  assert.match(sent[0].email.headers?.["List-Unsubscribe"] || "", /newsletter\/unsubscribe/);
+  assert.equal(sent[0].email.html.includes("—"), false);
 
   // The digest carries a per-story read time and leads with the top story.
-  assert.equal(sent[2].email.subject, "A useful AI update");
-  assert.match(sent[2].email.html, /\(2 minute read\)/);
-  assert.match(sent[2].email.text, /A useful AI update \(2 minute read\)/);
-  assert.match(sent[2].email.html, />AI</);
+  assert.equal(sent[0].email.subject, "A useful AI update");
+  assert.match(sent[0].email.html, /\(2 minute read\)/);
+  assert.match(sent[0].email.text, /A useful AI update \(2 minute read\)/);
+  assert.match(sent[0].email.html, />AI</);
 
   const archived = service.getEdition("2026-08-09");
   assert.ok(archived);
@@ -155,9 +149,9 @@ test("subscription confirmation, digest, idempotency, and unsubscribe form a com
   const duplicateDigest = await service.sendDailyDigest(new Date(now.getTime() + 300_000));
   assert.equal(duplicateDigest.sent, 0);
   assert.equal(duplicateDigest.skipped, 1);
-  assert.equal(sent.length, 3);
+  assert.equal(sent.length, 1, "a skipped edition sends nothing further");
 
-  const unsubscribeMatch = sent[2].email.text.match(/unsubscribe\?token=([^\s]+)/);
+  const unsubscribeMatch = sent[0].email.text.match(/unsubscribe\?token=([^\s]+)/);
   assert.ok(unsubscribeMatch);
   assert.equal(service.unsubscribe(decodeURIComponent(unsubscribeMatch[1]), new Date(now.getTime() + 360_000)), "unsubscribed");
   assert.equal(service.unsubscribe(decodeURIComponent(unsubscribeMatch[1]), new Date(now.getTime() + 420_000)), "already_unsubscribed");
@@ -176,5 +170,37 @@ test("invalid addresses are rejected before they are stored", async () => {
 
   await assert.rejects(() => service.requestSubscription("not-an-email"), /Valid email required/);
   assert.equal(database.prepare("SELECT COUNT(*) FROM subscribers").pluck().get(), 0);
+  database.close();
+});
+
+test("signup works with no email provider configured and revives stale rows", async () => {
+  const database = createTestDatabase();
+  const sendEmail: EmailSender = async () => {
+    throw new Error("the signup path must never reach the email provider");
+  };
+  // No NEWSLETTER_TOKEN_SECRET: signup issues no tokens, so it must not need one.
+  const service = new NewsletterService(database, { NEWSLETTER_SITE_URL: "https://aiandtech.news" }, sendEmail);
+  const now = new Date("2026-08-09T08:00:00.000Z");
+
+  // A row left pending by the old double opt-in flow.
+  database
+    .prepare("INSERT INTO subscribers (id, email, status, created_at, updated_at) VALUES (1, ?, 'pending', ?, ?)")
+    .run("stale@example.com", now.toISOString(), now.toISOString());
+
+  const revived = await service.requestSubscription("Stale@Example.com", "inline", now);
+  assert.equal(revived.state, "subscribed");
+  assert.equal(database.prepare("SELECT status FROM subscribers WHERE id = 1").pluck().get(), "active");
+  assert.equal(database.prepare("SELECT COUNT(*) FROM subscribers").pluck().get(), 1);
+
+  // Someone who previously unsubscribed can subscribe again.
+  database
+    .prepare("INSERT INTO subscribers (id, email, status, unsubscribed_at, created_at, updated_at) VALUES (2, ?, 'unsubscribed', ?, ?, ?)")
+    .run("returning@example.com", now.toISOString(), now.toISOString(), now.toISOString());
+
+  const returned = await service.requestSubscription("returning@example.com", "header", now);
+  assert.equal(returned.state, "subscribed");
+  assert.equal(database.prepare("SELECT status FROM subscribers WHERE id = 2").pluck().get(), "active");
+  assert.equal(database.prepare("SELECT unsubscribed_at FROM subscribers WHERE id = 2").pluck().get(), null);
+
   database.close();
 });
