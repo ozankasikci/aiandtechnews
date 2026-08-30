@@ -39,6 +39,13 @@ export const metadata: Metadata = {
     template: "%s | AI and Tech News",
   },
   description: "Breaking AI and technology news, daily. Covering artificial intelligence, startups, big tech, and developer tools.",
+  robots: {
+    index: true,
+    follow: true,
+    "max-image-preview": "large",
+    "max-snippet": -1,
+    "max-video-preview": -1,
+  },
   openGraph: {
     siteName: "AI and Tech News",
     type: "website",
