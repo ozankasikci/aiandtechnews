@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import db, { initializeDatabase } from "../src/db";
+import { submitArticleSlugsToIndexNow } from "../src/indexnow";
 import {
   APPROVED_FEEDS,
   EDITORIAL_AUTHOR,
@@ -620,6 +621,12 @@ async function importFeedItem(item: FeedArticle, automaticOnly: boolean, minWord
     throw new Error("Post-insert readback did not match the publishing contract");
   }
   console.log(`Published: ${stored.title} (${stored.slug})`);
+  try {
+    const result = await submitArticleSlugsToIndexNow([stored.slug]);
+    console.log(`IndexNow accepted ${result.submitted} article URL(s) with status ${result.status}.`);
+  } catch (error) {
+    console.error("IndexNow notification failed:", error instanceof Error ? error.message : error);
+  }
   return true;
 }
 

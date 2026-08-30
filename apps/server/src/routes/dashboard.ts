@@ -11,8 +11,20 @@ import {
   sourceForUrl,
   validateRewrittenArticle,
 } from "../news-policy";
+import { submitArticleSlugsToIndexNow } from "../indexnow";
 
 const router: ReturnType<typeof Router> = Router();
+
+function queueIndexNowNotification(slugs: string[]): void {
+  if (slugs.length === 0) return;
+  void submitArticleSlugsToIndexNow(slugs)
+    .then((result) => {
+      console.log(`IndexNow accepted ${result.submitted} article URL(s) with status ${result.status}.`);
+    })
+    .catch((error) => {
+      console.error("IndexNow notification failed:", error instanceof Error ? error.message : error);
+    });
+}
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -276,6 +288,7 @@ router.post("/dashboard/articles", (req: Request, res: Response) => {
     .get(result.lastInsertRowid) as Record<string, unknown>;
 
   res.status(201).json({ article: formatArticleRow(article) });
+  if (articleStatus === "published") queueIndexNowNotification([slug]);
 });
 
 router.put("/dashboard/articles/:id", (req: Request, res: Response) => {
@@ -418,9 +431,16 @@ router.put("/dashboard/articles/:id", (req: Request, res: Response) => {
     .get(req.params.id) as Record<string, unknown>;
 
   res.json({ article: formatArticleRow(article) });
+  const changedPublicSlugs = new Set<string>();
+  if (existing.status === "published") changedPublicSlugs.add(existing.slug as string);
+  if (nextStatus === "published") changedPublicSlugs.add(nextSlug);
+  queueIndexNowNotification([...changedPublicSlugs]);
 });
 
 router.delete("/dashboard/articles/:id", (req: Request, res: Response) => {
+  const existing = db
+    .prepare("SELECT slug, status FROM articles WHERE id = ?")
+    .get(req.params.id) as { slug: string; status: string } | undefined;
   const result = db
     .prepare("DELETE FROM articles WHERE id = ?")
     .run(req.params.id);
@@ -431,6 +451,7 @@ router.delete("/dashboard/articles/:id", (req: Request, res: Response) => {
   }
 
   res.json({ success: true });
+  if (existing?.status === "published") queueIndexNowNotification([existing.slug]);
 });
 
 // ─── Dashboard Categories ────────────────────────────────────────────────────
