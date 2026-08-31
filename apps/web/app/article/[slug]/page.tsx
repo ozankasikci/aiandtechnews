@@ -7,7 +7,7 @@ import { ShareButtons } from "../../components/ShareButtons";
 import { AnalyticsLink } from "../../components/AnalyticsLink";
 import { ArticleReadTracker } from "../../components/ArticleReadTracker";
 import { NewsletterBanner } from "../../components/Newsletter";
-import { getArticle as fetchArticle, getArticles, mapArticle } from "../../lib/api";
+import { getArticleLookup, getArticles, mapArticle } from "../../lib/api";
 import { toAbsoluteUrl } from "../../lib/dates";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -18,9 +18,15 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: Props) {
   const { slug } = await params;
-  const apiData = await fetchArticle(slug);
-  const article = apiData?.article ? mapArticle(apiData.article) : null;
-  if (!article) return { title: "Article Not Found" };
+  const lookup = await getArticleLookup(slug);
+  if (lookup.state === "missing") return { title: "Article Not Found" };
+  if (lookup.state === "unavailable") {
+    return {
+      title: "Article temporarily unavailable",
+      description: "This article is temporarily unavailable. Please try again shortly.",
+    };
+  }
+  const article = mapArticle(lookup.article);
   const canonicalUrl = `${BASE_URL}/article/${article.slug}`;
   const imageUrl = toAbsoluteUrl(article.image, BASE_URL);
   const metaTitle = article.metaTitle || article.headline;
@@ -52,11 +58,12 @@ export async function generateMetadata({ params }: Props) {
 export default async function ArticlePage({ params }: Props) {
   const { slug } = await params;
 
-  // The offline snapshot carries no article bodies, so a story we cannot
-  // fetch is a 404 rather than a page with an empty body.
-  const apiData = await fetchArticle(slug);
-  const article = apiData?.article ? mapArticle(apiData.article) : null;
-  if (!article) notFound();
+  // The offline snapshot carries no article bodies. Distinguish a real missing
+  // slug from an API outage so temporary failures do not look like removals.
+  const lookup = await getArticleLookup(slug);
+  if (lookup.state === "missing") notFound();
+  if (lookup.state === "unavailable") throw new Error("Article backend unavailable");
+  const article = mapArticle(lookup.article);
 
   const body = article.body || "<p>Article content unavailable.</p>";
   const articleUrl = `${BASE_URL}/article/${article.slug}`;

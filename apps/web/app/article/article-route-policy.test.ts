@@ -12,6 +12,11 @@ test("article routes render dynamically so newly published slugs cannot cache a 
   assert.doesNotMatch(pageSource, /generateStaticParams/);
 });
 
+test("article routes distinguish missing stories from a temporary API outage", () => {
+  assert.match(pageSource, /lookup\.state === ["']missing["']\) notFound\(\)/);
+  assert.match(pageSource, /lookup\.state === ["']unavailable["']\) throw new Error/);
+});
+
 test("article metadata declares canonical URLs and normalized schema fields", () => {
   assert.match(pageSource, /alternates:\s*\{\s*canonical:/);
   assert.match(pageSource, /datePublished:\s*article\.publishedAt/);

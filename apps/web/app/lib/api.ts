@@ -161,8 +161,39 @@ export async function getTrendingArticles(limit = 5) {
   return apiFetch<{ articles: ApiArticle[] }>(`/api/articles/trending?limit=${limit}`);
 }
 
+export type ArticleLookupResult =
+  | { state: "found"; article: ApiArticle }
+  | { state: "missing" }
+  | { state: "unavailable" };
+
+export async function getArticleLookup(
+  slug: string,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<ArticleLookupResult> {
+  try {
+    const articleResponse = await fetchImplementation(`${API_URL}/api/articles/${encodeURIComponent(slug)}`, {
+      next: { revalidate: 60 },
+    });
+
+    if (articleResponse.ok) {
+      const data = await articleResponse.json() as { article?: ApiArticle };
+      return data.article ? { state: "found", article: data.article } : { state: "unavailable" };
+    }
+
+    if (articleResponse.status !== 404) return { state: "unavailable" };
+
+    const healthResponse = await fetchImplementation(`${API_URL}/api/health`, {
+      next: { revalidate: 30 },
+    });
+    return healthResponse.ok ? { state: "missing" } : { state: "unavailable" };
+  } catch {
+    return { state: "unavailable" };
+  }
+}
+
 export async function getArticle(slug: string) {
-  return apiFetch<{ article: ApiArticle }>(`/api/articles/${slug}`);
+  const result = await getArticleLookup(slug);
+  return result.state === "found" ? { article: result.article } : null;
 }
 
 export async function getCategories() {

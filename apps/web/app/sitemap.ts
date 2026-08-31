@@ -1,9 +1,19 @@
 import { MetadataRoute } from "next";
 import { getArticlesUpTo, getNewsletterEditions } from "./lib/api";
 import { parseApiDate } from "./lib/dates";
+import { fallbackArticles } from "./lib/fallback";
 import { CATEGORIES } from "./data/articles";
 
 const BASE_URL = "https://www.aiandtech.news";
+
+function snapshotArticlePages(): MetadataRoute.Sitemap {
+  return fallbackArticles().map((article) => ({
+    url: `${BASE_URL}/article/${article.slug}`,
+    lastModified: parseApiDate(article.publishedAt) || new Date(),
+    changeFrequency: "weekly" as const,
+    priority: 0.7,
+  }));
+}
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Static pages
@@ -45,9 +55,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         changeFrequency: "weekly" as const,
         priority: 0.7,
       }));
-    }
+    } else article_pages = snapshotArticlePages();
   } catch {
-    // fall through with empty articles
+    article_pages = snapshotArticlePages();
   }
 
   return [...static_pages, ...category_pages, ...edition_pages, ...article_pages];

@@ -9,3 +9,8 @@ test("the noindex search page is excluded from the sitemap", () => {
   assert.match(searchLayoutSource, /robots:\s*\{\s*index:\s*false,\s*follow:\s*true\s*\}/);
   assert.doesNotMatch(sitemapSource, /\$\{BASE_URL\}\/search/);
 });
+
+test("the sitemap keeps known article URLs during an API outage", () => {
+  assert.match(sitemapSource, /function snapshotArticlePages/);
+  assert.match(sitemapSource, /article_pages = snapshotArticlePages\(\)/);
+});
