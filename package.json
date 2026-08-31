@@ -6,7 +6,9 @@
     "dev": "turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
-    "test": "turbo test"
+    "test": "turbo test",
+    "test:smoke": "node --test scripts/production-smoke.test.mjs",
+    "smoke:production": "node scripts/production-smoke.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
