@@ -29,3 +29,10 @@ export function trackEvent(name: string, parameters: AnalyticsParameters = {}): 
 
   window.gtag("event", name, definedParameters);
 }
+
+export function trackNewsletterSignup(placement: string, state: string): void {
+  trackEvent("newsletter_signup_requested", { method: "newsletter", placement });
+  if (state === "subscribed") {
+    trackEvent("generate_lead", { method: "newsletter", placement });
+  }
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { trackEvent } from "../lib/analytics";
+import { trackEvent, trackNewsletterSignup } from "../lib/analytics";
 
 export function NewsletterBanner({ placement = "inline" }: { placement?: string }) {
   const [email, setEmail] = useState("");
@@ -23,7 +23,7 @@ export function NewsletterBanner({ placement = "inline" }: { placement?: string 
         setStatus("success");
         setMessage(data.message || "You're subscribed.");
         setEmail("");
-        trackEvent("newsletter_signup_requested", { method: "newsletter", placement });
+        trackNewsletterSignup(placement, data.state);
       } else {
         setStatus("error");
         setMessage(data.error || "Something went wrong");
@@ -87,7 +87,7 @@ export function FooterNewsletterForm() {
         setStatus("success");
         setMessage(data.message || "You're subscribed.");
         setEmail("");
-        trackEvent("newsletter_signup_requested", { method: "newsletter", placement });
+        trackNewsletterSignup(placement, data.state);
       } else {
         setStatus("error");
         setMessage(data.error || "Something went wrong");
@@ -147,7 +147,7 @@ export function SubscribeButton({ placement = "header" }: { placement?: string }
         setMessage(data.message || "You're subscribed.");
         setResultState(data.state || "subscribed");
         setEmail("");
-        trackEvent("newsletter_signup_requested", { method: "newsletter", placement });
+        trackNewsletterSignup(placement, data.state);
       } else {
         setStatus("error");
         setMessage(data.error || "Something went wrong");
