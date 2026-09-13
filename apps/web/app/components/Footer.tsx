@@ -44,6 +44,10 @@ export function Footer() {
             <Link href="/newsletter/archive" className="inline-block text-text-muted hover:text-white text-xs mt-3 transition-colors">
               Browse past editions
             </Link>
+            <div className="mt-5">
+              <p className="text-text-secondary text-xs mb-2">See more of our stories on Google</p>
+              <div {...{ "google-add-preferred-source-btn": "" }} data-theme="dark" />
+            </div>
           </div>
         </div>
         <div className="pt-6 border-t border-border text-text-muted text-xs">
