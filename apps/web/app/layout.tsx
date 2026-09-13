@@ -4,8 +4,8 @@ import "./globals.css";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
 import { Analytics } from "./components/Analytics";
+import { GA_ID, GA_INIT_SCRIPT } from "./lib/googleAnalytics";
 
-const GA_ID = "G-32SP4ZKM67";
 const BASE_URL = "https://www.aiandtech.news";
 
 const siteJsonLd = {
@@ -75,11 +75,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(siteJsonLd) }} />
+        <Script id="ga-init" strategy="beforeInteractive">
+          {GA_INIT_SCRIPT}
+        </Script>
         <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} strategy="afterInteractive" />
         <Script src="https://news.google.com/swg/js/v1/publisher.js" strategy="afterInteractive" />
-        <Script id="ga-init" strategy="afterInteractive">
-          {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{send_page_view:false});`}
-        </Script>
         <div className="min-h-screen bg-bg flex flex-col">
           <Header />
           <Analytics />
