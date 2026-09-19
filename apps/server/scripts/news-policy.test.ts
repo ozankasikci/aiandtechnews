@@ -9,6 +9,7 @@ import {
   sourceForUrl,
   validateRewrittenArticle,
 } from "./news-policy";
+import { extractSourceText } from "./news-importer";
 
 const validParagraph = "The company shared a detailed product update with customers and developers today. The release changes how teams use the service while keeping its existing tools available. Executives described the update without announcing new pricing or making unsupported performance claims. Customers can review the published documentation before deciding whether the changes fit their work.";
 
@@ -28,14 +29,42 @@ test("recognizes only approved publication domains", () => {
   assert.equal(sourceForUrl("https://www.engadget.com/example"), "Engadget");
   assert.equal(sourceForUrl("https://www.bleepingcomputer.com/news/security/example"), "BleepingComputer");
   assert.equal(sourceForUrl("https://www.theregister.com/2026/08/16/example"), "The Register");
+  assert.equal(sourceForUrl("https://www.technologyreview.com/2026/08/28/example"), "MIT Technology Review");
+  assert.equal(sourceForUrl("https://venturebeat.com/ai/example"), "VentureBeat");
+  assert.equal(sourceForUrl("https://www.404media.co/example"), "404 Media");
+  assert.equal(sourceForUrl("https://restofworld.org/2026/example"), "Rest of World");
+  assert.equal(sourceForUrl("https://decrypt.co/378101/example"), "Decrypt");
   assert.equal(sourceForUrl("https://news.ycombinator.com/item?id=1"), null);
 });
 
 test("includes the expanded approved RSS feed set", () => {
   assert.deepEqual(
     APPROVED_FEEDS.map((feed) => feed.source),
-    ["TechCrunch", "The Verge", "Ars Technica", "WIRED", "Engadget", "BleepingComputer", "The Register"],
+    [
+      "TechCrunch",
+      "The Verge",
+      "Ars Technica",
+      "WIRED",
+      "Engadget",
+      "BleepingComputer",
+      "The Register",
+      "MIT Technology Review",
+      "VentureBeat",
+      "404 Media",
+      "Rest of World",
+      "Decrypt",
+    ],
   );
+});
+
+test("extracts the richest article scope when a short article card precedes the real story", () => {
+  const storyParagraph = "OpenAI users reported a change in model behavior after the latest release, and developers shared detailed examples of outputs that no longer matched their earlier results. The company has not confirmed a deliberate capability reduction, so the evidence remains based on user reports and comparative testing.";
+  const html = `<html><body><article><p>Short card.</p></article><main>${Array.from({ length: 5 }, (_, index) => `<p>${storyParagraph} Reported example ${index + 1} describes a distinct test performed by a different user.</p>`).join("")}</main></body></html>`;
+
+  const extracted = extractSourceText(html);
+
+  assert.ok(extracted.length >= 800);
+  assert.match(extracted, /developers shared detailed examples/);
 });
 
 test("normalizes common tracking parameters without changing the article path", () => {
@@ -51,7 +80,7 @@ test("rejects low-quality, promotional, and old items", () => {
   assert.match(getItemRejectionReason("The best laptop deals", "https://www.theverge.com/deals/laptops", "The Verge", current) || "", /deal/i);
   assert.match(getItemRejectionReason("Research paper [PDF]", "https://arstechnica.com/science/paper", "Ars Technica", current) || "", /PDF/);
   assert.match(getItemRejectionReason("A classic operating system (2009)", "https://arstechnica.com/tech/os", "Ars Technica", current) || "", /old repost/);
-  assert.equal(getItemRejectionReason("Apple updates macOS", "https://www.theverge.com/tech/apple-macos", "The Verge", current), null);
+  assert.equal(getItemRejectionReason("OpenAI updates ChatGPT", "https://www.theverge.com/ai-artificial-intelligence/openai-chatgpt", "The Verge", current), null);
 });
 
 test("rejects the Samsung preorder promotion from its headline and canonical URL", () => {
@@ -61,42 +90,47 @@ test("rejects the Samsung preorder promotion from its headline and canonical URL
   assert.match(getItemRejectionReason(title, url, "The Verge") || "", /promotional/i);
 });
 
-test("automatic imports reject non-tech entertainment while manual policy still allows it", () => {
-  const title = "Spider-Man: Brand New Day Smashes Box Office Records With $1 Billion Worldwide Opening";
-  const url = "https://www.theverge.com/entertainment/975297/spider-man-brand-new-day-marvel-sony-xmen-doomsday";
+test("allows corporate agreements that use deal as a transaction term", () => {
+  const title = "Anthropic continues compute-gobbling streak in $45B deal with Nscale";
+  const url = "https://techcrunch.com/2026/08/26/anthropic-continues-compute-gobbling-streak-in-45-billion-deal-with-nscale/";
 
-  assert.equal(getItemRejectionReason(title, url, "The Verge"), null);
-  assert.match(getAutomaticItemRejectionReason(title, url, "The Verge") || "", /entertainment|not clearly technology-related/i);
+  assert.equal(getItemRejectionReason(title, url, "TechCrunch"), null);
 });
 
-test("automatic imports accept clearly technology-related stories", () => {
+test("all publishing paths reject non-AI stories, including otherwise valid technology news", () => {
+  const entertainmentTitle = "Spider-Man: Brand New Day Smashes Box Office Records With $1 Billion Worldwide Opening";
+  const entertainmentUrl = "https://www.theverge.com/entertainment/975297/spider-man-brand-new-day-marvel-sony-xmen-doomsday";
+  const techTitle = "Apple releases a macOS security update";
+  const techUrl = "https://www.theverge.com/tech/975300/apple-macos-security-update";
+
+  assert.match(getItemRejectionReason(entertainmentTitle, entertainmentUrl, "The Verge") || "", /not clearly AI-related/i);
+  assert.match(getAutomaticItemRejectionReason(entertainmentTitle, entertainmentUrl, "The Verge") || "", /not clearly AI-related/i);
+  assert.match(getItemRejectionReason(techTitle, techUrl, "The Verge") || "", /not clearly AI-related/i);
+  assert.match(getAutomaticItemRejectionReason(techTitle, techUrl, "The Verge") || "", /not clearly AI-related/i);
+});
+
+test("all publishing paths accept clearly AI-related stories", () => {
+  const title = "OpenAI launches a new model for developers";
+  const url = "https://techcrunch.com/2026/08/05/openai-launches-a-new-model-for-developers/";
+
+  assert.equal(getItemRejectionReason(title, url, "TechCrunch"), null);
+  assert.equal(getAutomaticItemRejectionReason(title, url, "TechCrunch"), null);
   assert.equal(
-    getAutomaticItemRejectionReason(
-      "Apple releases a macOS security update",
-      "https://www.theverge.com/tech/975300/apple-macos-security-update",
-      "The Verge",
+    getItemRejectionReason(
+      "New safeguards arrive for frontier models",
+      "https://www.technologyreview.com/ai/2026/09/11/frontier-model-safeguards/",
+      "MIT Technology Review",
     ),
     null,
   );
-  assert.equal(
-    getAutomaticItemRejectionReason(
-      "OpenAI launches a new model for developers",
-      "https://techcrunch.com/2026/08/05/openai-launches-a-new-model-for-developers/",
-      "TechCrunch",
-    ),
-    null,
-  );
 });
 
-test("automatic imports fail closed when a general-feed story has no technology signal", () => {
-  assert.match(
-    getAutomaticItemRejectionReason(
-      "Summer travel destinations attracting record crowds",
-      "https://techcrunch.com/2026/08/05/summer-travel-destinations/",
-      "TechCrunch",
-    ) || "",
-    /not clearly technology-related/i,
-  );
+test("all publishing paths fail closed when a story has no AI signal", () => {
+  const title = "Summer travel destinations attracting record crowds";
+  const url = "https://techcrunch.com/2026/08/05/summer-travel-destinations/";
+
+  assert.match(getItemRejectionReason(title, url, "TechCrunch") || "", /not clearly AI-related/i);
+  assert.match(getAutomaticItemRejectionReason(title, url, "TechCrunch") || "", /not clearly AI-related/i);
 });
 
 test("automatic imports reject weak stories that escaped through generic URL or title signals", () => {
@@ -114,7 +148,7 @@ test("automatic imports reject weak stories that escaped through generic URL or 
       "https://arstechnica.com/space/2026/08/the-first-self-driving-vehicle-on-mars-has-proven-to-be-a-smashing-success",
       "Ars Technica",
     ) || "",
-    /not clearly technology-related/i,
+    /not clearly AI-related/i,
   );
 });
 
@@ -125,7 +159,7 @@ test("automatic imports reject entertainment even when a generic technology word
       "https://www.theverge.com/tech/975297/spider-man-season-four-mobile-app",
       "The Verge",
     ) || "",
-    /entertainment/i,
+    /not clearly AI-related/i,
   );
 });
 

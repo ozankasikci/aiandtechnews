@@ -6,12 +6,17 @@ export const APPROVED_FEEDS = [
   { source: "Engadget", url: "https://www.engadget.com/rss.xml" },
   { source: "BleepingComputer", url: "https://www.bleepingcomputer.com/feed/" },
   { source: "The Register", url: "https://www.theregister.com/headlines.atom" },
+  { source: "MIT Technology Review", url: "https://www.technologyreview.com/feed/" },
+  { source: "VentureBeat", url: "https://venturebeat.com/category/ai/feed" },
+  { source: "404 Media", url: "https://www.404media.co/rss/" },
+  { source: "Rest of World", url: "https://restofworld.org/feed/" },
+  { source: "Decrypt", url: "https://decrypt.co/feed" },
 ] as const;
 
 export const EDITORIAL_AUTHOR = {
   name: "TechNews Editorial",
   email: "editorial@technews.dev",
-  bio: "The TechNews editorial team covers artificial intelligence and technology.",
+  bio: "The TechNews editorial team covers artificial intelligence.",
 } as const;
 
 export const MAX_ARTICLES_PER_RUN = 1;
@@ -35,10 +40,17 @@ const SOURCE_HOSTS: Record<string, string[]> = {
   Engadget: ["engadget.com"],
   BleepingComputer: ["bleepingcomputer.com"],
   "The Register": ["theregister.com"],
+  "MIT Technology Review": ["technologyreview.com"],
+  VentureBeat: ["venturebeat.com"],
+  "404 Media": ["404media.co"],
+  "Rest of World": ["restofworld.org"],
+  Decrypt: ["decrypt.co"],
 };
 
 const PROMOTIONAL_PATTERNS = [
-  /\b(?:deals?|coupon|discount|sale|buying guide)\b/i,
+  /\b(?:coupon|discount|sale|buying guide)\b/i,
+  /\b(?:best|top|latest|today'?s|daily|weekly)\b(?:\s+\S+){0,5}\s+deals?\b/i,
+  /\bdeals?\b.{0,40}\b(?:save|\d+% off|under \$)\b/i,
   /\b(?:lowest|best) price\b/i,
   /\bprice (?:drop|cut)\b/i,
   /\b(?:save \$?\d+|\d+% off|percent off)\b/i,
@@ -69,24 +81,11 @@ const FORBIDDEN_COPY = [
   { pattern: /\bgame-changing\b/i, label: "game-changing" },
 ];
 
-const AUTOMATIC_TECH_TITLE_PATTERNS = [
-  /\b(?:ai|artificial intelligence|machine learning|llm|chatgpt|chatbot|openai|anthropic|gemini|neural network|foundation model)\b/i,
-  /\b(?:software|app|application|developer|api|code|coding|programming|open source|operating system|windows|macos|linux|ios|android)\b/i,
-  /\b(?:cybersecurity|security update|data breach|malware|ransomware|hack(?:ed|ing)?|privacy|encryption|password|vulnerability)\b/i,
-  /\b(?:chip|semiconductor|processor|cpu|gpu|computer|laptop|smartphone|tablet|server|data center|cloud computing|database)\b/i,
-  /\b(?:internet|web browser|browser|search engine|social network|social media|online platform|streaming technology)\b/i,
-  /\b(?:robot|robotics|autonomous|self-driving|electric vehicle|ev battery|drone|satellite|spacex|rocket technology)\b/i,
-  /\b(?:startup|venture capital|funding round|seed round|series [a-z]|fintech|healthtech|biotech|edtech)\b/i,
+const AI_TITLE_PATTERNS = [
+  /\b(?:ai|artificial intelligence|generative ai|machine learning|deep learning|llm|large language model|chatgpt|chatbot|openai|anthropic|gemini|claude|neural network|foundation model|frontier model|apple intelligence|microsoft copilot)\b/i,
 ];
 
-const AUTOMATIC_TECH_SECTION_PATTERN =
-  /\/(?:ai-artificial-intelligence|cybersecurity|computing|mobile|apps|software|hardware|transportation|tech-policy)\//i;
-
-const AUTOMATIC_NON_TECH_TITLE_PATTERNS = [
-  /\bbox office\b/i,
-  /\bseason (?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i,
-  /\b(?:movie|film) trailer\b/i,
-];
+const AI_SECTION_PATTERN = /\/(?:ai|category\/ai|ai-artificial-intelligence|artificial-intelligence)(?:\/|$)/i;
 
 export function slugify(title: string): string {
   return title
@@ -180,6 +179,12 @@ export function getItemRejectionReason(
   if (oldTitleYear && Number(oldTitleYear) < cutoffYear) return "obviously old repost";
   if (oldUrlYear && Number(oldUrlYear) < cutoffYear) return "obviously old repost";
 
+  const hasTitleSignal = AI_TITLE_PATTERNS.some((pattern) => pattern.test(title.trim()));
+  const hasAiSectionSignal = AI_SECTION_PATTERN.test(url.pathname);
+  if (!hasTitleSignal && !hasAiSectionSignal) {
+    return "not clearly AI-related; only AI news may be published";
+  }
+
   return null;
 }
 
@@ -191,17 +196,6 @@ export function getAutomaticItemRejectionReason(
 ): string | null {
   const generalRejection = getItemRejectionReason(title, sourceUrl, expectedSource, now);
   if (generalRejection) return generalRejection;
-
-  const normalizedTitle = title.trim();
-  if (AUTOMATIC_NON_TECH_TITLE_PATTERNS.some((pattern) => pattern.test(normalizedTitle))) {
-    return "entertainment or general-interest story rather than technology news";
-  }
-
-  const hasTitleSignal = AUTOMATIC_TECH_TITLE_PATTERNS.some((pattern) => pattern.test(normalizedTitle));
-  const hasSpecificSectionSignal = AUTOMATIC_TECH_SECTION_PATTERN.test(sourceUrl);
-  if (!hasTitleSignal && !hasSpecificSectionSignal) {
-    return "not clearly technology-related; non-tech stories require manual import";
-  }
   return null;
 }
 

@@ -15,18 +15,22 @@ Use RSS items from these publications only:
 | Engadget | `https://www.engadget.com/rss.xml` |
 | BleepingComputer | `https://www.bleepingcomputer.com/feed/` |
 | The Register | `https://www.theregister.com/headlines.atom` |
+| MIT Technology Review | `https://www.technologyreview.com/feed/` |
+| VentureBeat | `https://venturebeat.com/category/ai/feed` |
+| 404 Media | `https://www.404media.co/rss/` |
+| Rest of World | `https://restofworld.org/feed/` |
+| Decrypt | `https://decrypt.co/feed` |
 
 - Never use Hacker News as a source or discovery feed.
 - Do not create or publish a Deals category.
-- Reject deals, coupons, sales roundups, buying guides based on discounts, preorder offers, bonus offers, "last chance" pitches, and other promotional items. Apply this check to both the RSS headline and normalized canonical URL words.
+- Reject retail deals, coupons, sales roundups, buying guides based on discounts, preorder offers, bonus offers, "last chance" pitches, and other promotional items. Do not reject a business transaction merely because its headline uses `deal` to describe an investment, acquisition, partnership, or infrastructure agreement. Apply promotional checks to both the RSS headline and normalized canonical URL words.
 - Reject product reviews, hands-on pieces, buying guides, editorial roundups, and recurring mixed-topic columns such as Installer. The site publishes news, not review or recommendation content.
 - Reject Show HN posts, PDFs, videos presented as the item itself, abstracts, arXiv-style entries, and obviously old reposts.
 - A manual article must also originate from one of the approved RSS feeds. A permitted domain by itself is not enough.
-- **Automatic imports must be clearly technology-related.** They must have an explicit technology signal in the RSS headline or a specific technology section in the canonical URL, such as AI, software, cybersecurity, computing, hardware, internet platforms, robotics, autonomous systems, or technology startups. A generic `/tech/` or `/gadgets/` URL is not sufficient by itself.
-- General-interest, entertainment, film, television, celebrity, sports, travel, culture, and other non-tech stories must be rejected by automation even when they appear in an approved publication's RSS feed.
-- Science and space stories must center on a concrete technology development to qualify automatically. Exploration milestones, records, and general science coverage are not enough.
-- Non-tech news may be added only through the manual importer. Manual publication still requires an approved current RSS item and every other editorial quality check in this policy.
-- Automatic topic classification must fail closed: if technology relevance is unclear, skip the story rather than using it to fill a scheduled slot.
+- **Every publication path is AI-only.** Both automatic and manual imports must have an explicit AI signal in the RSS headline or a specific AI section in the canonical URL. Accepted signals include AI, artificial intelligence, machine learning, LLMs, major AI labs or assistants, neural networks, and foundation or frontier models.
+- Generic technology signals such as software, cybersecurity, chips, apps, startups, robotics, or a `/tech/` section are not sufficient unless the story is clearly about AI.
+- General technology, science, space, entertainment, business, and other non-AI stories must be rejected even when they appear in an approved publication's RSS feed.
+- AI classification must fail closed: if AI relevance is unclear, skip the story rather than using it to fill a scheduled slot or allowing a manual bypass.
 - Preserve the canonical source URL. Do not replace it with a search result, aggregator, tracking URL, or home page.
 
 Before writing, confirm both of these are new:
@@ -87,7 +91,7 @@ Do not replace a usable source image merely to make the article look more consis
 - An import-only run must not trigger bulk cleanup, rewriting or enhancement of older articles, or image backfills.
 - Importer and scheduler locks must prevent overlapping runs.
 - A rejected candidate is skipped. It must not be replaced with unverified or lower-quality material merely to fill a slot.
-- Automatic candidates must pass the technology-topic gate before fetching, rewriting, or insertion. The daily scheduler must never use the manual-import path to bypass this gate.
+- Every candidate must pass the AI-only topic gate before fetching, rewriting, or insertion. The daily scheduler and manual importer must enforce the same boundary.
 - A failed rewrite, failed validation, missing database field, or other unsafe state must make the run fail or skip the candidate. It must never silently publish fallback text.
 - After insertion, verify the exact article through the public API and canonical public page. A verification warning does not permit a second insertion for the same slot.
 
@@ -97,7 +101,7 @@ The scheduler is external to this repository. Its operational status is a snapsh
 
 Before publishing manually:
 
-1. Confirm the item came from a current approved RSS feed and is not a rejected item type.
+1. Confirm the item is clearly AI-related, came from a current approved RSS feed, and is not a rejected item type.
 2. Confirm it is news, not a deal or promotion.
 3. Check the canonical `source_url` and proposed slug for duplicates.
 4. Verify every factual claim and quotation against the source.

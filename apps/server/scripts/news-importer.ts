@@ -265,33 +265,38 @@ function extractJsonLdArticleBody(html: string): string {
   return "";
 }
 
-function extractSourceText(html: string): string {
+export function extractSourceText(html: string): string {
   const jsonLdBody = extractJsonLdArticleBody(html);
   if (jsonLdBody.length >= 800) return jsonLdBody.slice(0, 14_000);
 
   const cleaned = html
     .replace(/<!--([\s\S]*?)-->/g, " ")
     .replace(/<(?:script|style|nav|header|footer|aside|form|iframe|svg|noscript)\b[^>]*>[\s\S]*?<\/(?:script|style|nav|header|footer|aside|form|iframe|svg|noscript)>/gi, " ");
-  const articleMatch = cleaned.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i);
+  const articleScopes = Array.from(cleaned.matchAll(/<article\b[^>]*>([\s\S]*?)<\/article>/gi), (match) => match[1]);
   const mainMatch = cleaned.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
-  const scope = articleMatch?.[1] || mainMatch?.[1] || cleaned;
-  const paragraphBlocks = scope.match(/<p\b[^>]*>[\s\S]*?<\/p>/gi) || [];
-  const seen = new Set<string>();
-  const paragraphs: string[] = [];
+  const scopes = [...articleScopes, ...(mainMatch ? [mainMatch[1]] : []), cleaned];
 
-  for (const block of paragraphBlocks) {
-    const text = decodeHtmlEntities(stripHtml(block));
-    if (text.length < 60) continue;
-    if (/^(?:advertisement|subscribe|sign up|read more|all rights reserved)\b/i.test(text)) continue;
-    if (/cookie|newsletter preferences|privacy policy/i.test(text) && text.length < 250) continue;
-    const key = text.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    paragraphs.push(text);
-    if (paragraphs.join("\n\n").length >= 14_000) break;
-  }
+  const extractParagraphs = (scope: string): string => {
+    const paragraphBlocks = scope.match(/<p\b[^>]*>[\s\S]*?<\/p>/gi) || [];
+    const seen = new Set<string>();
+    const paragraphs: string[] = [];
 
-  return paragraphs.join("\n\n").slice(0, 14_000);
+    for (const block of paragraphBlocks) {
+      const text = decodeHtmlEntities(stripHtml(block));
+      if (text.length < 60) continue;
+      if (/^(?:advertisement|subscribe|sign up|read more|all rights reserved)\b/i.test(text)) continue;
+      if (/cookie|newsletter preferences|privacy policy/i.test(text) && text.length < 250) continue;
+      const key = text.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      paragraphs.push(text);
+      if (paragraphs.join("\n\n").length >= 14_000) break;
+    }
+
+    return paragraphs.join("\n\n").slice(0, 14_000);
+  };
+
+  return scopes.map(extractParagraphs).sort((left, right) => right.length - left.length)[0] || "";
 }
 
 async function isUsableRemoteImage(imageUrl: string): Promise<boolean> {
@@ -425,7 +430,7 @@ async function generateFallbackImage(article: RewrittenArticle, slug: string): P
   const apiKey = getGeminiApiKey();
   if (!apiKey) return null;
   const model = process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image-preview";
-  const prompt = `Create a factual editorial image for this technology news article. Headline: ${article.title}. Summary: ${article.excerpt}. Match the specific subject and neutral news tone. Use a 16:9 composition. Do not add text, captions, logos, watermarks, or dramatic effects.`;
+  const prompt = `Create a factual editorial image for this artificial intelligence news article. Headline: ${article.title}. Summary: ${article.excerpt}. Match the specific subject and neutral news tone. Use a 16:9 composition. Do not add text, captions, logos, watermarks, or dramatic effects.`;
 
   try {
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
