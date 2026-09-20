@@ -17,7 +17,7 @@ The production override is a cutover guard, not a development convenience. Do no
 
 `OPTIONS` responses match Express in status (`204`), CORS headers and `Vary`, and empty-body semantics. They deliberately omit Express's wire-level `Content-Length: 0`: [RFC 9110 section 8.6](https://www.rfc-editor.org/rfc/rfc9110#section-8.6) forbids servers from sending `Content-Length` on a `204` response, and Go's `net/http` strips it accordingly.
 
-The reviewed compatibility authority is the synthetic Node fixture at `apps/server/contracts/node/contracts.json`. `contracts/fixtures/node-contracts.json` is a generated Go-side mirror, not a separately editable fixture. Capture uses an isolated temporary SQLite database and uploads directory; it never copies or opens a production database.
+The reviewed compatibility authority is the synthetic Node fixture at `apps/server/contracts/node/contracts.json`. Its 32 canonical operations capture reviewed primary success responses only. Negative and error scenarios, including the typed 401 observation and multipart errors, remain tracked but deferred; each must be added by a future vertical slice before error parity is claimed. `contracts/fixtures/node-contracts.json` is a generated Go-side mirror, not a separately editable fixture. Capture uses an isolated temporary SQLite database and uploads directory; it never copies or opens a production database.
 
 Review contract changes in this order:
 

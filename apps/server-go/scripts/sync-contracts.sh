@@ -32,6 +32,7 @@ case "$mode" in
     temporary=$(mktemp "${mirror}.tmp.XXXXXX")
     trap 'rm -f "$temporary"' 0 HUP INT TERM
     cp "$canonical" "$temporary"
+    chmod 0644 "$temporary"
     mv -f "$temporary" "$mirror"
     trap - 0 HUP INT TERM
     printf '%s\n' 'accepted reviewed canonical Node fixture into Go mirror'

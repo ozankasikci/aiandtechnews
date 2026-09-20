@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
 	"net/url"
-	"reflect"
 	"sort"
 	"strings"
 )
@@ -102,10 +102,56 @@ func Replay(handler http.Handler, operation Operation) error {
 	if err != nil {
 		return fmt.Errorf("replay %s actual JSON body: %w", operation.OperationID, err)
 	}
-	if !reflect.DeepEqual(got, want) {
+	if !semanticJSONEqual(got, want) {
 		return fmt.Errorf("replay %s: JSON body = %s, want %s", operation.OperationID, response.Body.Bytes(), operation.Response.Body)
 	}
 	return nil
+}
+
+func semanticJSONEqual(left, right any) bool {
+	switch left := left.(type) {
+	case json.Number:
+		right, ok := right.(json.Number)
+		if !ok {
+			return false
+		}
+		leftValue, leftOK := new(big.Rat).SetString(left.String())
+		rightValue, rightOK := new(big.Rat).SetString(right.String())
+		return leftOK && rightOK && leftValue.Cmp(rightValue) == 0
+	case map[string]any:
+		right, ok := right.(map[string]any)
+		if !ok || len(left) != len(right) {
+			return false
+		}
+		for key, value := range left {
+			other, exists := right[key]
+			if !exists || !semanticJSONEqual(value, other) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		right, ok := right.([]any)
+		if !ok || len(left) != len(right) {
+			return false
+		}
+		for index := range left {
+			if !semanticJSONEqual(left[index], right[index]) {
+				return false
+			}
+		}
+		return true
+	case string:
+		right, ok := right.(string)
+		return ok && left == right
+	case bool:
+		right, ok := right.(bool)
+		return ok && left == right
+	case nil:
+		return right == nil
+	default:
+		return false
+	}
 }
 
 type mapValues map[string]string

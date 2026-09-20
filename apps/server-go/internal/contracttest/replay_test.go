@@ -42,6 +42,26 @@ func TestReplayReportsJSONTypeDifference(t *testing.T) {
 	}
 }
 
+func TestReplayComparesJSONNumbersByExactValue(t *testing.T) {
+	op := Operation{OperationID: "numbers", Request: Request{Method: "GET", Path: "/x"}, Response: Response{Status: 200, Body: []byte(`{"integer":1,"decimal":0.1,"large":9007199254740993}`)}}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"large":9007199254740993.0,"decimal":1e-1,"integer":1.0}`))
+	})
+	if err := Replay(handler, op); err != nil {
+		t.Fatalf("Replay() error = %v", err)
+	}
+}
+
+func TestReplayKeepsJSONScalarTypesDistinct(t *testing.T) {
+	for _, actual := range []string{`{"value":"1"}`, `{"value":true}`, `{"value":null}`} {
+		op := Operation{OperationID: "types", Request: Request{Method: "GET", Path: "/x"}, Response: Response{Status: 200, Body: []byte(`{"value":1}`)}}
+		err := Replay(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(actual)) }), op)
+		if err == nil || !strings.Contains(err.Error(), "JSON body") {
+			t.Fatalf("Replay() actual %s error = %v", actual, err)
+		}
+	}
+}
+
 func TestReplayRejectsTrailingJSON(t *testing.T) {
 	op := Operation{OperationID: "trailing", Request: Request{Method: "GET", Path: "/x"}, Response: Response{Status: 200, Body: []byte(`{}`)}}
 	err := Replay(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{} {}`)) }), op)

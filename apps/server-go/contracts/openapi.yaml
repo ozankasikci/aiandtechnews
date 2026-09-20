@@ -3,9 +3,13 @@ info:
   title: Technews HTTP API compatibility manifest
   version: 2.0.0
   description: >-
-    Reviewed description of the schema-v2 synthetic Node contract capture. The
-    generated fixture remains the compatibility authority for concrete values,
-    optionality, and nullability.
+    Success-only description of the 32 canonical operations in the reviewed
+    schema-v2 synthetic Node contract capture. These operations capture reviewed
+    primary success responses only. The generated fixture remains the compatibility
+    authority for concrete values, optionality, and nullability. Negative and error
+    scenarios, including the typed 401 observation and multipart errors, are tracked
+    but deferred; each must be added by a future vertical slice before error parity
+    is claimed.
 servers:
   - url: /
 paths:
@@ -104,6 +108,7 @@ paths:
     post:
       operationId: newsletter.subscribe
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -172,6 +177,7 @@ paths:
     post:
       operationId: auth.login
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -212,6 +218,7 @@ paths:
       operationId: dashboard.articles.create
       security: *userSecurity
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -240,6 +247,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ID'
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -263,6 +271,7 @@ paths:
       operationId: dashboard.categories.create
       security: *userSecurity
       requestBody: &categoryRequest
+        required: true
         content:
           application/json:
             schema:
@@ -322,6 +331,7 @@ paths:
       operationId: dashboard.media.upload
       security: *userSecurity
       requestBody:
+        required: true
         content:
           multipart/form-data:
             schema:
@@ -364,6 +374,7 @@ paths:
       operationId: dashboard.settings.update
       security: *userSecurity
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -401,6 +412,7 @@ components:
     Token:
       name: token
       in: query
+      required: true
       schema: {type: string}
   schemas:
     Error:
