@@ -13,6 +13,10 @@ Development configuration is deliberately isolated:
 
 The production override is a cutover guard, not a development convenience. Do not set `APP_ENV=production` without explicit cutover approval.
 
+## HTTP compatibility
+
+`OPTIONS` responses match Express in status (`204`), CORS headers and `Vary`, and empty-body semantics. They deliberately omit Express's wire-level `Content-Length: 0`: [RFC 9110 section 8.6](https://www.rfc-editor.org/rfc/rfc9110#section-8.6) forbids servers from sending `Content-Length` on a `204` response, and Go's `net/http` strips it accordingly.
+
 ## Configuration
 
 | Variable | Default | Purpose |

@@ -1,13 +1,19 @@
 package httpserver
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -234,6 +240,89 @@ func TestRouterHTTPFoundation(t *testing.T) {
 			t.Errorf("Content-Length = %d, want 0", got)
 		}
 	})
+}
+
+func TestOptionsWireResponseOmitsContentLength(t *testing.T) {
+	router := NewRouter(discardLogger(), func(api chi.Router) {
+		api.Get("/echo-id", func(http.ResponseWriter, *http.Request) {})
+	})
+	listener := localListener(t)
+	server := &http.Server{Handler: router}
+	serveResult := make(chan error, 1)
+	go func() { serveResult <- server.Serve(listener) }()
+	t.Cleanup(func() {
+		if err := server.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+		select {
+		case err := <-serveResult:
+			if err != nil && err != http.ErrServerClosed {
+				t.Errorf("Serve() error = %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Error("Serve() did not return after Close")
+		}
+	})
+
+	connection, err := net.DialTimeout("tcp", listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	defer connection.Close()
+	if err := connection.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("SetDeadline() error = %v", err)
+	}
+	_, err = io.WriteString(connection, "OPTIONS /api/echo-id HTTP/1.1\r\n"+
+		"Host: example.test\r\n"+
+		"Origin: https://example.test\r\n"+
+		"Access-Control-Request-Method: GET\r\n"+
+		"Access-Control-Request-Headers: Authorization, Content-Type\r\n"+
+		"Connection: close\r\n\r\n")
+	if err != nil {
+		t.Fatalf("write OPTIONS request error = %v", err)
+	}
+
+	buffered := bufio.NewReader(connection)
+	wireResponse := textproto.NewReader(buffered)
+	statusLine, err := wireResponse.ReadLine()
+	if err != nil {
+		t.Fatalf("read status line error = %v", err)
+	}
+	if statusLine != "HTTP/1.1 204 No Content" {
+		t.Errorf("status line = %q, want HTTP/1.1 204 No Content", statusLine)
+	}
+	headers, err := wireResponse.ReadMIMEHeader()
+	if err != nil {
+		t.Fatalf("read response headers error = %v", err)
+	}
+	wantHeaders := map[string][]string{
+		"Access-Control-Allow-Origin":  {"*"},
+		"Access-Control-Allow-Methods": {"GET,HEAD,PUT,PATCH,POST,DELETE"},
+		"Access-Control-Allow-Headers": {"Authorization, Content-Type"},
+		"Vary":                         {"Access-Control-Request-Headers"},
+	}
+	for name, want := range wantHeaders {
+		if got := headers.Values(name); !slices.Equal(got, want) {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	for name := range headers {
+		if strings.HasPrefix(name, "Access-Control-") {
+			if _, expected := wantHeaders[name]; !expected {
+				t.Errorf("unexpected CORS response header %s = %q", name, headers.Values(name))
+			}
+		}
+	}
+	if got := headers.Values("Content-Length"); len(got) != 0 {
+		t.Errorf("wire Content-Length = %q, want absent for 204", got)
+	}
+	body, err := io.ReadAll(buffered)
+	if err != nil {
+		t.Fatalf("read wire body error = %v", err)
+	}
+	if len(body) != 0 {
+		t.Errorf("wire body = %q, want empty", body)
+	}
 }
 
 func decodeJSONLogs(t *testing.T, output []byte) []map[string]any {
