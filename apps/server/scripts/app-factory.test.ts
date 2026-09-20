@@ -306,3 +306,67 @@ test("app instances isolate database and signup limiter state", async () => {
     second.database.close();
   }
 });
+
+test("the injected clock reaches every newsletter operation", async () => {
+  const root = temporaryRoot();
+  const uploadRoot = path.join(root, "uploads");
+  mkdirSync(uploadRoot);
+  const database = openDatabase(path.join(root, "newsletter-clock.db"));
+  initializeDatabase(database, { seedDefaults: false });
+  const fixedNow = Date.parse("2026-09-20T12:00:00.000Z");
+  const calls: Array<[string, Date | undefined]> = [];
+  const newsletter = {
+    async requestSubscription(_email: string, _placement: string, now?: Date) {
+      calls.push(["request", now]);
+      return { state: "subscribed" as const };
+    },
+    async confirmSubscription(_token: string, now?: Date) {
+      calls.push(["confirm", now]);
+      return { state: "confirmed" as const, welcomeSent: false };
+    },
+    unsubscribe(_token: string, now?: Date) {
+      calls.push(["unsubscribe", now]);
+      return "unsubscribed" as const;
+    },
+    listEditions() { return []; },
+    getEdition() { return null; },
+    async sendDailyDigest(now?: Date) {
+      calls.push(["digest", now]);
+      return { edition: "2026-09-20", recipients: 0, sent: 0, failed: 0 };
+    },
+  };
+  const app = createApp({
+    db: database,
+    newsletter,
+    auth: createAuth("test-secret"),
+    upload: createUpload(uploadRoot),
+    uploadRoot,
+    fileOperations: { existsSync, unlinkSync },
+    newsletterCronSecret: "test-cron-secret",
+    now: () => fixedNow,
+    notifyIndexNow: async () => ({ status: 202, submitted: 0 }),
+  });
+
+  try {
+    await withServer(app, async (origin) => {
+      assert.equal((await fetch(`${origin}/api/subscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "clock@example.test", placement: "clock-test" }),
+      })).status, 200);
+      assert.equal((await fetch(`${origin}/api/newsletter/confirm?token=clock-token`)).status, 200);
+      assert.equal((await fetch(`${origin}/api/newsletter/unsubscribe?token=clock-token`)).status, 200);
+      assert.equal((await fetch(`${origin}/api/newsletter/digest`, {
+        headers: { authorization: "Bearer test-cron-secret" },
+      })).status, 200);
+    });
+    assert.deepEqual(calls.map(([operation, now]) => [operation, now?.toISOString()]), [
+      ["request", "2026-09-20T12:00:00.000Z"],
+      ["confirm", "2026-09-20T12:00:00.000Z"],
+      ["unsubscribe", "2026-09-20T12:00:00.000Z"],
+      ["digest", "2026-09-20T12:00:00.000Z"],
+    ]);
+  } finally {
+    database.close();
+  }
+});

@@ -26,6 +26,14 @@ const app = createApp({
   fileOperations: { existsSync: fs.existsSync, unlinkSync: fs.unlinkSync },
   newsletterCronSecret: process.env.NEWSLETTER_CRON_SECRET || process.env.CRON_SECRET || "",
   notifyIndexNow: submitArticleSlugsToIndexNow,
+  indexNowLogger: {
+    accepted(result) {
+      console.log(`IndexNow accepted ${result.submitted} article URL(s) with status ${result.status}.`);
+    },
+    failed(error) {
+      console.error("IndexNow notification failed:", error instanceof Error ? error.message : error);
+    },
+  },
 });
 
 app.listen(port, () => {

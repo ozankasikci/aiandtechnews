@@ -21,10 +21,14 @@ export interface DashboardRouterDependencies {
     unlinkSync(filePath: string): void;
   };
   notifyIndexNow(slugs: string[]): Promise<IndexNowResult>;
+  indexNowLogger: {
+    accepted(result: IndexNowResult): void;
+    failed(error: unknown): void;
+  };
 }
 
 export function createDashboardRouter(dependencies: DashboardRouterDependencies): ReturnType<typeof Router> {
-const { db, auth, upload, uploadRoot, fileOperations, notifyIndexNow } = dependencies;
+const { db, auth, upload, uploadRoot, fileOperations, notifyIndexNow, indexNowLogger } = dependencies;
 const requireAuth: RequestHandler = (req, res, next) => auth.requireAuth(req, res, next);
 const router: ReturnType<typeof Router> = Router();
 
@@ -32,10 +36,10 @@ function queueIndexNowNotification(slugs: string[]): void {
   if (slugs.length === 0) return;
   void notifyIndexNow(slugs)
     .then((result) => {
-      console.log(`IndexNow accepted ${result.submitted} article URL(s) with status ${result.status}.`);
+      indexNowLogger.accepted(result);
     })
     .catch((error) => {
-      console.error("IndexNow notification failed:", error instanceof Error ? error.message : error);
+      indexNowLogger.failed(error);
     });
 }
 

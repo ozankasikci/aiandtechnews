@@ -17,6 +17,7 @@ export interface AppDependencies {
   signupAttempts?: number[];
   fileOperations: DashboardRouterDependencies["fileOperations"];
   notifyIndexNow(slugs: string[]): Promise<IndexNowResult>;
+  indexNowLogger?: DashboardRouterDependencies["indexNowLogger"];
 }
 
 /** Constructs an isolated Express application without opening resources or reading process state. */
@@ -46,6 +47,14 @@ export function createApp(dependencies: AppDependencies): Express {
     uploadRoot: dependencies.uploadRoot,
     fileOperations: dependencies.fileOperations,
     notifyIndexNow: dependencies.notifyIndexNow,
+    indexNowLogger: dependencies.indexNowLogger ?? {
+      accepted(result) {
+        console.log(`IndexNow accepted ${result.submitted} article URL(s) with status ${result.status}.`);
+      },
+      failed(error) {
+        console.error("IndexNow notification failed:", error instanceof Error ? error.message : error);
+      },
+    },
   }));
 
   return app;

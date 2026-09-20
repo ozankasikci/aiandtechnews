@@ -205,7 +205,7 @@ router.post("/subscribe", async (req: Request, res: Response) => {
   const email = typeof req.body?.email === "string" ? req.body.email : "";
   const placement = typeof req.body?.placement === "string" ? req.body.placement : "unknown";
   try {
-    const result = await newsletter.requestSubscription(email, placement);
+    const result = await newsletter.requestSubscription(email, placement, new Date(timestamp));
     const message = result.state === "already_active"
       ? "You're already subscribed."
       : "You're subscribed. The next digest will arrive in your inbox.";
@@ -228,7 +228,7 @@ router.post("/subscribe", async (req: Request, res: Response) => {
 router.get("/newsletter/confirm", async (req: Request, res: Response) => {
   const token = typeof req.query.token === "string" ? req.query.token : "";
   try {
-    const result = await newsletter.confirmSubscription(token);
+    const result = await newsletter.confirmSubscription(token, new Date(now()));
     res.json(result);
   } catch (error) {
     if (error instanceof NewsletterConfigurationError) {
@@ -247,7 +247,7 @@ async function unsubscribe(req: Request, res: Response) {
       ? req.body.token
       : "";
   try {
-    const state = newsletter.unsubscribe(token);
+    const state = newsletter.unsubscribe(token, new Date(now()));
     res.json({ state });
   } catch (error) {
     if (error instanceof NewsletterConfigurationError) {
@@ -286,7 +286,7 @@ async function sendDigest(req: Request, res: Response) {
   }
 
   try {
-    const result = await newsletter.sendDailyDigest();
+    const result = await newsletter.sendDailyDigest(new Date(now()));
     res.json({ success: result.failed === 0, ...result });
   } catch (error) {
     if (error instanceof NewsletterConfigurationError) {
