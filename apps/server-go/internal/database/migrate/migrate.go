@@ -1,9 +1,10 @@
 // Package migrate applies a deterministic, append-only SQLite migration history.
 //
 // Migration SQL is immutable: checksums cover its exact bytes. A migration must
-// not contain transaction-control statements (BEGIN, COMMIT, ROLLBACK, or
-// SAVEPOINT) or operations SQLite forbids in a transaction, such as VACUUM.
-// The runner owns the single transaction around the complete migration batch.
+// not contain transaction-control statements (BEGIN, COMMIT, ROLLBACK,
+// SAVEPOINT, RELEASE, or END) or operations SQLite forbids in a transaction,
+// such as VACUUM. The runner owns the single transaction around the complete
+// migration batch.
 package migrate
 
 import (
@@ -165,11 +166,111 @@ func validateDescriptors(descriptors []Descriptor) error {
 		if i > 0 && descriptor.Version <= previous {
 			return fmt.Errorf("%w: version %d is not strictly after %d", ErrInvalidDescriptors, descriptor.Version, previous)
 		}
+		if err := validateDescriptorSQL(descriptor.SQL); err != nil {
+			return fmt.Errorf("%w: descriptor version %d (%q): %v", ErrInvalidDescriptors, descriptor.Version, descriptor.Name, err)
+		}
 		versions[descriptor.Version] = struct{}{}
 		names[descriptor.Name] = struct{}{}
 		previous = descriptor.Version
 	}
 	return nil
+}
+
+var transactionUnsafeStatements = map[string]struct{}{
+	"BEGIN":     {},
+	"COMMIT":    {},
+	"ROLLBACK":  {},
+	"SAVEPOINT": {},
+	"RELEASE":   {},
+	"END":       {},
+	"VACUUM":    {},
+}
+
+// validateDescriptorSQL identifies the first token of every semicolon-delimited
+// statement without interpreting tokens inside comments or SQLite's quoted
+// strings and identifiers. The migration runner, rather than descriptors, owns
+// the transaction, so transaction control and statements that cannot run in a
+// transaction are rejected.
+func validateDescriptorSQL(sqlText string) error {
+	statementStart := true
+	for i := 0; i < len(sqlText); {
+		switch sqlText[i] {
+		case ' ', '	', '\n', '\r', '\v', '\f':
+			i++
+		case ';':
+			statementStart = true
+			i++
+		case '-':
+			if i+1 < len(sqlText) && sqlText[i+1] == '-' {
+				i += 2
+				for i < len(sqlText) && sqlText[i] != '\n' && sqlText[i] != '\r' {
+					i++
+				}
+				continue
+			}
+			statementStart = false
+			i++
+		case '/':
+			if i+1 < len(sqlText) && sqlText[i+1] == '*' {
+				end := strings.Index(sqlText[i+2:], "*/")
+				if end < 0 {
+					return errors.New("unterminated block comment")
+				}
+				i += end + 4
+				continue
+			}
+			statementStart = false
+			i++
+		case '\'', '"', '`', '[':
+			close := sqlText[i]
+			if close == '[' {
+				close = ']'
+			}
+			var err error
+			i, err = scanQuotedSQL(sqlText, i+1, close)
+			if err != nil {
+				return err
+			}
+			statementStart = false
+		default:
+			if !isSQLWordByte(sqlText[i]) {
+				statementStart = false
+				i++
+				continue
+			}
+			start := i
+			for i < len(sqlText) && isSQLWordByte(sqlText[i]) {
+				i++
+			}
+			if statementStart {
+				keyword := strings.ToUpper(sqlText[start:i])
+				if _, unsafe := transactionUnsafeStatements[keyword]; unsafe {
+					return fmt.Errorf("statement starts with transaction-unsafe keyword %s", keyword)
+				}
+			}
+			statementStart = false
+		}
+	}
+	return nil
+}
+
+func scanQuotedSQL(sqlText string, start int, close byte) (int, error) {
+	for i := start; i < len(sqlText); i++ {
+		if sqlText[i] != close {
+			continue
+		}
+		if i+1 < len(sqlText) && sqlText[i+1] == close {
+			i++
+			continue
+		}
+		return i + 1, nil
+	}
+	return 0, fmt.Errorf("unterminated %q quoted content", close)
+}
+
+func isSQLWordByte(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' ||
+		value >= '0' && value <= '9' || value == '_'
 }
 
 type queryer interface {

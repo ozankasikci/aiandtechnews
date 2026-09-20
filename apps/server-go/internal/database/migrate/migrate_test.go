@@ -90,6 +90,79 @@ func TestRunRollsBackAllMigrationsOnFailure(t *testing.T) {
 	assertObjectAbsent(t, db, "schema_migrations")
 }
 
+func TestRunRejectsTransactionControlBeforeDatabaseTouch(t *testing.T) {
+	descriptor := migrate.Descriptor{
+		Version: 7,
+		Name:    "atomicity escape",
+		SQL:     `CREATE TABLE leaked(id INTEGER); COMMIT; INSERT INTO leaked VALUES (1); INSERT INTO missing_table VALUES (1);`,
+	}
+
+	err := migrate.Run(nil, nil, []migrate.Descriptor{descriptor})
+	if !errors.Is(err, migrate.ErrInvalidDescriptors) {
+		t.Fatalf("Run(nil, nil) error = %v, want descriptor validation before dependencies", err)
+	}
+	if !strings.Contains(err.Error(), "version 7") || !strings.Contains(err.Error(), `"atomicity escape"`) {
+		t.Fatalf("Run(nil, nil) error = %q, want descriptor version and name", err)
+	}
+
+	db, _ := openDB(t)
+	err = migrate.Run(context.Background(), db, []migrate.Descriptor{descriptor})
+	if !errors.Is(err, migrate.ErrInvalidDescriptors) {
+		t.Fatalf("Run() error = %v, want ErrInvalidDescriptors", err)
+	}
+	assertObjectAbsent(t, db, "schema_migrations")
+	assertObjectAbsent(t, db, "leaked")
+}
+
+func TestRunValidatesDescriptorSQLStatementStarts(t *testing.T) {
+	rejected := map[string]string{
+		"begin":                 `BEGIN`,
+		"commit mixed case":     `cOmMiT TRANSACTION`,
+		"rollback after SQL":    `CREATE TABLE ok(id INTEGER); ROLLBACK`,
+		"savepoint comments":    "CREATE TABLE ok(id INTEGER); -- explain\n /* more */ SAVEPOINT x",
+		"release semicolons":    `;;; RELEASE x`,
+		"end":                   `END`,
+		"vacuum":                ` VACUUM main`,
+		"unterminated comment":  `CREATE TABLE ok(id INTEGER); /* never closed`,
+		"unterminated string":   `INSERT INTO ok VALUES ('never closed)`,
+		"unterminated double":   `CREATE TABLE "never closed (id INTEGER)`,
+		"unterminated backtick": "CREATE TABLE `never closed (id INTEGER)",
+		"unterminated bracket":  `CREATE TABLE [never closed (id INTEGER)`,
+	}
+	for name, sqlText := range rejected {
+		t.Run("reject "+name, func(t *testing.T) {
+			descriptor := migrate.Descriptor{Version: 42, Name: "scanner case", SQL: sqlText}
+			err := migrate.Run(nil, nil, []migrate.Descriptor{descriptor})
+			if !errors.Is(err, migrate.ErrInvalidDescriptors) {
+				t.Fatalf("Run(nil, nil) error = %v, want ErrInvalidDescriptors", err)
+			}
+			if !strings.Contains(err.Error(), "version 42") || !strings.Contains(err.Error(), `"scanner case"`) {
+				t.Fatalf("Run(nil, nil) error = %q, want descriptor version and name", err)
+			}
+		})
+	}
+
+	accepted := map[string]string{
+		"ordinary multi statement": `CREATE TABLE ordinary(id INTEGER); INSERT INTO ordinary VALUES (1);`,
+		"keywords in literals":     `SELECT 'COMMIT; ROLLBACK', 'it''s BEGIN'; SELECT 1;`,
+		"keywords in comments":     "-- COMMIT;\n/* ROLLBACK; SAVEPOINT */ SELECT 1;",
+		"keywords as identifiers":  `CREATE TABLE commit_log(begin_value TEXT, rollback_reason TEXT);`,
+		"quoted identifiers":       "CREATE TABLE \"COMMIT\" (`ROLLBACK` TEXT, [BEGIN] TEXT);",
+		"escaped quoted content":   "SELECT \"a\"\"; COMMIT\", `b``; ROLLBACK`, [c]]; VACUUM]; SELECT 1;",
+	}
+	for name, sqlText := range accepted {
+		t.Run("accept "+name, func(t *testing.T) {
+			err := migrate.Run(nil, nil, []migrate.Descriptor{{Version: 1, Name: "safe", SQL: sqlText}})
+			if errors.Is(err, migrate.ErrInvalidDescriptors) {
+				t.Fatalf("Run(nil, nil) error = %v, did not want ErrInvalidDescriptors", err)
+			}
+			if err == nil || !strings.Contains(err.Error(), "nil context") {
+				t.Fatalf("Run(nil, nil) error = %v, want validation to pass before nil context error", err)
+			}
+		})
+	}
+}
+
 func TestRunValidatesAllDescriptorsBeforeDatabaseTouch(t *testing.T) {
 	cases := map[string][]migrate.Descriptor{
 		"negative version":  {{Version: -1, Name: "a", SQL: "SELECT 1"}},
