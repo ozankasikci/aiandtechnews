@@ -27,8 +27,9 @@ apps/server-go/
 │   ├── database/
 │   │   ├── sqlite.go
 │   │   ├── sqlite_test.go
-│   │   ├── migrate.go
-│   │   └── migrate_test.go
+│   │   └── migrate/
+│   │       ├── migrate.go
+│   │       └── migrate_test.go
 │   ├── httpserver/
 │   │   ├── router.go
 │   │   ├── router_test.go
@@ -41,8 +42,8 @@ apps/server-go/
 │   ├── media/           # media metadata, file storage, migrations/*.sql
 │   ├── settings/        # settings behavior and migrations/*.sql
 │   ├── newsletter/      # newsletter behavior and migrations/*.sql
-│   └── indexnow/
-├── testutil/
+│   ├── indexnow/
+│   └── testutil/        # internal-only shared test infrastructure
 ├── Makefile
 ├── README.md
 ├── go.mod
@@ -125,11 +126,10 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 **Files:**
 - Create: `apps/server-go/internal/database/sqlite_test.go`
 - Create: `apps/server-go/internal/database/sqlite.go`
-- Create: `apps/server-go/internal/database/migrate_test.go`
-- Create: `apps/server-go/internal/database/migrate.go`
-- Extend: `apps/server-go/internal/app/app_test.go`
-- Extend: `apps/server-go/internal/app/app.go`
-- Create: `apps/server-go/testutil/database.go`
+- Create: `apps/server-go/internal/database/migrate/migrate_test.go`
+- Create: `apps/server-go/internal/database/migrate/migrate.go`
+- Create: `apps/server-go/internal/testutil/database_test.go`
+- Create: `apps/server-go/internal/testutil/database.go`
 
 **TDD cycle:**
 1. Test WAL, foreign keys, busy timeout, connection limits, and ping.
