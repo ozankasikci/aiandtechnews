@@ -31,7 +31,7 @@ func TestPublicReadsMatchApprovedNodeContractsInCanonicalOperationOrder(t *testi
 		t.Fatal(err)
 	}
 	// Preserve canonical stateful order: slug increments the view count before ID.
-	for _, id := range []string{"articles.list", "articles.trending", "articles.getBySlug", "categories.list", "authors.list", "articles.getById"} {
+	for _, id := range []string{"articles.list", "articles.trending", "articles.getBySlug", "articles.getById", "categories.list", "authors.list"} {
 		op, ok := contract.Operation(id)
 		if !ok {
 			t.Fatalf("%s missing", id)
