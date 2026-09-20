@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/app"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/config"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/database"
 )
 
 func main() {
@@ -63,17 +65,40 @@ func contextCanceledOnSignal(parent context.Context, notifications <-chan os.Sig
 	}
 }
 
-func run(ctx context.Context) error {
+func run(ctx context.Context) (err error) {
 	root, err := runtimeWorktreeRoot()
 	if err != nil {
 		return err
 	}
-	cfg, err := config.Load(os.Getenv, root)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	return runConfigured(ctx, root, os.Getenv, database.Open, func(cfg config.Config, logger *slog.Logger, db *sql.DB) (apiApplication, error) {
+		return app.NewWithDatabase(cfg, logger, db)
+	}, logger)
+}
+
+type apiApplication interface {
+	Address() string
+	Run(context.Context) error
+}
+
+func runConfigured(
+	ctx context.Context,
+	root string,
+	getenv func(string) string,
+	openDatabase func(context.Context, string) (*sql.DB, error),
+	compose func(config.Config, *slog.Logger, *sql.DB) (apiApplication, error),
+	logger *slog.Logger,
+) (err error) {
+	cfg, err := config.Load(getenv, root)
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	application, err := app.New(cfg, logger)
+	db, err := openDatabase(ctx, cfg.DatabasePath)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer func() { err = errors.Join(err, db.Close()) }()
+	application, err := compose(cfg, logger, db)
 	if err != nil {
 		return fmt.Errorf("compose application: %w", err)
 	}

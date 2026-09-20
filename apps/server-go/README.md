@@ -2,6 +2,8 @@
 
 This directory is an isolated Go module for the API migration. It does not share a Go module or developer commands with the existing Node server.
 
+Task 5 currently provides the four public article read operations. This is a migration slice, not a claim of production or cutover readiness; the remaining capabilities and cutover verification are still pending.
+
 ## Safety defaults
 
 Development configuration is deliberately isolated:
@@ -17,7 +19,7 @@ The production override is a cutover guard, not a development convenience. Do no
 
 `OPTIONS` responses match Express in status (`204`), CORS headers and `Vary`, and empty-body semantics. They deliberately omit Express's wire-level `Content-Length: 0`: [RFC 9110 section 8.6](https://www.rfc-editor.org/rfc/rfc9110#section-8.6) forbids servers from sending `Content-Length` on a `204` response, and Go's `net/http` strips it accordingly.
 
-The reviewed compatibility authority is the synthetic Node fixture at `apps/server/contracts/node/contracts.json`. Its 32 canonical operations capture reviewed primary success responses only. Negative and error scenarios, including the typed 401 observation and multipart errors, remain tracked but deferred; each must be added by a future vertical slice before error parity is claimed. `contracts/fixtures/node-contracts.json` is a generated Go-side mirror, not a separately editable fixture. Capture uses an isolated temporary SQLite database and uploads directory; it never copies or opens a production database.
+The reviewed compatibility authority is the synthetic Node fixture at `apps/server/contracts/node/contracts.json`. Its 32 canonical operations capture reviewed primary success responses. The article slice additionally tests unknown and malformed identifiers, draft visibility, query clamping/filtering/pagination, pre-increment view responses, persistence, cancellation, and database failures. Negative scenarios for capabilities not yet ported remain deferred. `contracts/fixtures/node-contracts.json` is a generated Go-side mirror, not a separately editable fixture. Capture uses an isolated temporary SQLite database and uploads directory; it never copies or opens a production database.
 
 Review contract changes in this order:
 
@@ -48,15 +50,21 @@ make check      # tests and static checks
 make fmt        # format Go sources
 make contracts-check   # verify mirror drift and focused executable contract tests
 make contracts-accept  # explicitly accept the reviewed canonical Node fixture
+go run ./cmd/migrate   # explicitly migrate the guarded configured database
 ```
+
+`cmd/api` opens and closes its configured database but never migrates or seeds it. Run `cmd/migrate` as an explicit deployment step first. `app.New` remains a no-I/O health-only composition; `app.NewWithDatabase` mounts article routes around a caller-owned database.
+
+The migration runner supports fresh databases and databases already managed by its ledger. It intentionally cannot stamp or adopt an existing unmanaged database initialized by the Node server, although `cmd/api` can read that compatible schema. Cutover requires a future explicit full-schema verifier/adoption command; do not weaken `migrate.Run` or partially stamp an unmanaged database.
 
 ## Architecture
 
 The service is a single binary with a `cmd` plus `internal` layout:
 
-- `cmd/api` is the executable entry point and imports only configuration and the application composition root.
+- `cmd/api` loads guarded configuration, opens and owns the SQLite pool, injects it into the application, and closes it after shutdown. `cmd/migrate` is the only schema deployment entry point.
 - `internal/app` wires modules and infrastructure, including gathering capability-owned migration descriptors in execution order.
-- Cohesive capability packages such as `content`, `editorial`, `newsletter`, `media`, and `settings` own their domain, repository, service, HTTP handlers, relative route mounting, and migration SQL.
+- `editorial` owns the foundational v1 authors schema/read shape, while `content` owns the v2 categories/articles schema and the public article model, store, service, handlers, and route manifest. Category and author HTTP endpoints are intentionally not implemented yet.
+- Future cohesive capabilities such as `newsletter`, `media`, and `settings` own their domain, repository, service, HTTP handlers, relative route mounting, and migration SQL.
 - `internal/database/migrate` owns only the migration ledger and runner; it does not own capability schema SQL. The runner owns migration transaction boundaries, so descriptors must not contain transaction control, `VACUUM`, `ATTACH`, `DETACH`, or `PRAGMA` statements. `ATTACH`, `DETACH`, and `PRAGMA` are rejected because their file, attachment, or connection effects can survive a rollback.
 - Narrow infrastructure packages live under `internal` and are named for their purpose.
 - Interfaces are declared by the consuming package at the point of use. Constructors return concrete types unless a consumer needs an interface.

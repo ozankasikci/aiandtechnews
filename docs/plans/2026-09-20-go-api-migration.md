@@ -165,6 +165,7 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 **Objective:** Port article list, trending, slug lookup, and ID lookup with exact response compatibility.
 
 **Files:**
+- Create: `apps/server-go/internal/editorial/migrations/*.sql` for the v1 authors table required by the article author foreign key
 - Create: `apps/server-go/internal/content/migrations/*.sql`
 - Create: `apps/server-go/internal/content/model.go`
 - Create: `apps/server-go/internal/content/sqlite_test.go`
@@ -175,7 +176,7 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 - Create: `apps/server-go/internal/content/http_public.go`
 - Extend: `apps/server-go/internal/app` to add the content migration descriptor in order
 
-**TDD cycle:** Test pagination boundaries, search/category filtering, sort order, nested category/author JSON, missing articles, mixed date formats, and the view-count side effect before implementation. Run contract tests after every endpoint.
+**TDD cycle:** Replay the four reviewed success-only article contracts in their captured database order. Separately test pagination boundaries, parseInt/clamping prefixes and overflow signs, search/category filtering (including preserved whitespace and SQL wildcard behavior), empty arrays, sort order, nested category/author JSON, missing and malformed identifiers, draft visibility, mixed date formats, CORS/content type/no-newline responses, and the pre-increment view-count response plus persisted side effect. Verify the exact fresh-database v1/v2 schema, constraints, defaults, foreign keys, and index. The API must never migrate; migration remains an explicit command. Existing unmanaged Node databases can be read but cannot be stamped by `migrate.Run`; cutover needs a future explicit full-schema verifier/adoption command.
 
 ### Task 6: Implement categories and authors public reads
 
@@ -183,10 +184,10 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 
 **Files:**
 - Extend `internal/content`, including capability-owned migration SQL, for category reads
-- Create module files/tests and `internal/editorial/migrations/*.sql` for author reads
-- Extend `internal/app` to add the editorial migration descriptor in order
+- Extend `internal/editorial` with module files/tests for author reads; its foundational v1 authors migration was introduced in Task 5 because the v2 articles table references it
+- Reuse the Task 5 editorial/content migration descriptor order
 
-**TDD cycle:** Test ordering, empty results, field names, and privacy behavior matching the compatibility decision. Implement, run contracts, commit.
+**TDD cycle:** Test ordering, empty results, field names, negative scenarios, and privacy behavior matching the compatibility decision. Implement, run contracts, commit. Do not infer production readiness from success-contract parity.
 
 ### Task 7: Implement authentication
 
