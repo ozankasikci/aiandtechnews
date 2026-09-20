@@ -14,6 +14,7 @@ import type { IndexNowResult } from "../indexnow";
 export interface DashboardRouterDependencies {
   db: DatabaseConnection;
   auth: AuthService;
+  now: () => number;
   upload: { single(fieldName: string): RequestHandler };
   uploadRoot: string;
   fileOperations: {
@@ -28,7 +29,7 @@ export interface DashboardRouterDependencies {
 }
 
 export function createDashboardRouter(dependencies: DashboardRouterDependencies): ReturnType<typeof Router> {
-const { db, auth, upload, uploadRoot, fileOperations, notifyIndexNow, indexNowLogger } = dependencies;
+const { db, auth, now, upload, uploadRoot, fileOperations, notifyIndexNow, indexNowLogger } = dependencies;
 const requireAuth: RequestHandler = (req, res, next) => auth.requireAuth(req, res, next);
 const router: ReturnType<typeof Router> = Router();
 
@@ -268,14 +269,16 @@ router.post("/dashboard/articles", (req: Request, res: Response) => {
     return;
   }
 
-  const publishedAt = articleStatus === "published" ? (published_at || new Date().toISOString()) : published_at || null;
+  const timestamp = now();
+  const publishedAt = articleStatus === "published" ? (published_at || new Date(timestamp).toISOString()) : published_at || null;
+  const databaseTimestamp = formatSqliteTimestamp(timestamp);
 
   const result = db
     .prepare(
       `INSERT INTO articles (
         title, slug, excerpt, content, featured_image, category_id, author_id, status,
-        published_at, meta_title, meta_description, source, source_url
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        published_at, meta_title, meta_description, source, source_url, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       title,
@@ -290,7 +293,9 @@ router.post("/dashboard/articles", (req: Request, res: Response) => {
       meta_title || null,
       meta_description || null,
       source || null,
-      normalizedSourceUrl
+      normalizedSourceUrl,
+      databaseTimestamp,
+      databaseTimestamp
     );
 
   const article = db
@@ -391,9 +396,10 @@ router.put("/dashboard/articles/:id", (req: Request, res: Response) => {
     return;
   }
 
+  const timestamp = now();
   const publishedAt =
     status === "published" && !published_at
-      ? new Date().toISOString()
+      ? new Date(timestamp).toISOString()
       : published_at !== undefined
       ? published_at
       : undefined;
@@ -429,7 +435,8 @@ router.put("/dashboard/articles/:id", (req: Request, res: Response) => {
     return;
   }
 
-  fields.push("updated_at = datetime('now')");
+  fields.push("updated_at = ?");
+  values.push(formatSqliteTimestamp(timestamp));
 
   db.prepare(`UPDATE articles SET ${fields.join(", ")} WHERE id = ?`).run(
     ...values,
@@ -587,9 +594,9 @@ router.post(
 
     const result = db
       .prepare(
-        "INSERT INTO media (filename, url, mime_type, size) VALUES (?, ?, ?, ?)"
+        "INSERT INTO media (filename, url, mime_type, size, uploaded_at) VALUES (?, ?, ?, ?, ?)"
       )
-      .run(req.file.originalname, url, req.file.mimetype, req.file.size);
+      .run(req.file.originalname, url, req.file.mimetype, req.file.size, formatSqliteTimestamp(now()));
 
     const media = db
       .prepare("SELECT * FROM media WHERE id = ?")
@@ -689,6 +696,10 @@ router.put("/dashboard/settings", (req: Request, res: Response) => {
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatSqliteTimestamp(timestamp: number): string {
+  return new Date(timestamp).toISOString().replace("T", " ").slice(0, 19);
+}
 
 function formatArticleRow(row: Record<string, unknown>) {
   return {

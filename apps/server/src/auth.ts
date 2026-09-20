@@ -22,11 +22,12 @@ export interface AuthService {
   requireAuth(req: Request, res: Response, next: NextFunction): void;
 }
 
-export function createAuth(secret: string): AuthService {
+export function createAuth(secret: string, now: () => number = Date.now): AuthService {
   if (!secret) throw new Error("JWT secret is required");
   return {
     generateToken(payload: JwtPayload): string {
-      return jwt.sign(payload, secret, { expiresIn: JWT_EXPIRES_IN });
+      const iat = Math.floor(now() / 1_000);
+      return jwt.sign({ ...payload, iat }, secret, { expiresIn: JWT_EXPIRES_IN });
     },
     requireAuth(req: Request, res: Response, next: NextFunction): void {
       const header = req.headers.authorization;
@@ -37,7 +38,9 @@ export function createAuth(secret: string): AuthService {
 
       const token = header.slice(7);
       try {
-        const decoded = jwt.verify(token, secret) as JwtPayload;
+        const decoded = jwt.verify(token, secret, {
+          clockTimestamp: Math.floor(now() / 1_000),
+        }) as JwtPayload;
         req.user = decoded;
         next();
       } catch {

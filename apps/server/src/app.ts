@@ -43,6 +43,7 @@ export function createApp(dependencies: AppDependencies): Express {
   app.use("/api", createDashboardRouter({
     db: dependencies.db,
     auth: dependencies.auth,
+    now: dependencies.now ?? Date.now,
     upload: dependencies.upload,
     uploadRoot: dependencies.uploadRoot,
     fileOperations: dependencies.fileOperations,

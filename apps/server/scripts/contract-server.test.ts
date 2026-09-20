@@ -18,6 +18,7 @@ import test from "node:test";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import {
   createContractComposition,
   installContractFetchGuard,
@@ -90,6 +91,40 @@ function httpJson(origin: string, pathname: string, options: {
     });
     req.on("error", reject);
     if (body) req.end(body); else req.end();
+  });
+}
+
+function httpImageUpload(origin: string, token: string): Promise<{ status: number; body: unknown }> {
+  const boundary = "technews-contract-boundary";
+  const body = Buffer.from([
+    `--${boundary}\r\n`,
+    `Content-Disposition: form-data; name="file"; filename="clock.png"\r\n`,
+    "Content-Type: image/png\r\n\r\n",
+    "synthetic image bytes\r\n",
+    `--${boundary}--\r\n`,
+  ].join(""));
+  const url = new URL("/api/dashboard/media/upload", origin);
+  return new Promise((resolve, reject) => {
+    const req = request(url, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+        "content-length": String(body.length),
+      },
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on("end", () => {
+        try {
+          resolve({ status: response.statusCode!, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) });
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+    req.on("error", reject);
+    req.end(body);
   });
 }
 
@@ -214,6 +249,43 @@ test("synthetic composition seeds the contract breadth and denies network adapte
     });
     const token = (login.body as { token: string }).token;
     assert.equal(login.status, 200);
+    const fixedNow = Date.parse("2026-09-20T12:00:00.000Z");
+    const decoded = jwt.decode(token) as { iat: number; exp: number };
+    assert.equal(decoded.iat, Math.floor(fixedNow / 1_000));
+    assert.equal(decoded.exp - decoded.iat, 7 * 24 * 60 * 60);
+    assert.equal((await httpJson(`http://127.0.0.1:${port}`, "/api/auth/me", {
+      headers: { authorization: `Bearer ${token}` },
+    })).status, 200);
+
+    const created = await httpJson(`http://127.0.0.1:${port}`, "/api/dashboard/articles", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        title: "Clocked Draft",
+        slug: "clocked-draft",
+        excerpt: "Synthetic clock regression",
+        content: "Synthetic body",
+        category_id: 101,
+        status: "draft",
+      },
+    });
+    assert.equal(created.status, 201);
+    const createdArticle = (created.body as { article: { id: number; created_at: string; updated_at: string } }).article;
+    assert.equal(createdArticle.created_at, "2026-09-20 12:00:00");
+    assert.equal(createdArticle.updated_at, "2026-09-20 12:00:00");
+
+    const updated = await httpJson(`http://127.0.0.1:${port}`, `/api/dashboard/articles/${createdArticle.id}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${token}` },
+      body: { title: "Clocked Draft Updated" },
+    });
+    assert.equal(updated.status, 200);
+    assert.equal((updated.body as { article: { updated_at: string } }).article.updated_at, "2026-09-20 12:00:00");
+
+    const uploaded = await httpImageUpload(`http://127.0.0.1:${port}`, token);
+    assert.equal(uploaded.status, 201);
+    assert.equal((uploaded.body as { media: { uploaded_at: string } }).media.uploaded_at, "2026-09-20 12:00:00");
+
     assert.deepEqual(await httpJson(`http://127.0.0.1:${port}`, "/api/dashboard/articles/301", {
       method: "DELETE",
       headers: { authorization: `Bearer ${token}` },

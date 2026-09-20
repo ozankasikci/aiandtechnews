@@ -151,7 +151,7 @@ export function createContractComposition(paths: ContractPaths): ContractComposi
     const app = createApp({
       db,
       newsletter,
-      auth: createAuth(FIXED_AUTH_SECRET),
+      auth: createAuth(FIXED_AUTH_SECRET, () => FIXED_NOW),
       upload: createUpload(paths.uploadDir),
       uploadRoot: paths.uploadDir,
       fileOperations: { existsSync: fs.existsSync, unlinkSync: fs.unlinkSync },

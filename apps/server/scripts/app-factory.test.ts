@@ -18,6 +18,7 @@ import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import type { Express } from "express";
 import { createApp } from "../src/app";
 import { createAuth, type AuthService } from "../src/auth";
@@ -117,6 +118,37 @@ function makeApp(root: string, now = () => 1_000_000) {
   });
   return { app, database, newsletter, getIndexNowCalls: () => indexNowCalls };
 }
+
+test("auth uses its injected clock for deterministic tokens and verification", () => {
+  const fixedNow = Date.parse("2000-01-02T03:04:05.678Z");
+  const auth = createAuth("fixed-clock-secret", () => fixedNow);
+  const token = auth.generateToken({ id: 7, email: "clock@example.test", role: "admin" });
+  const decoded = jwt.decode(token) as { iat: number; exp: number };
+
+  assert.equal(decoded.iat, Math.floor(fixedNow / 1_000));
+  assert.equal(decoded.exp - decoded.iat, 7 * 24 * 60 * 60);
+
+  const request = { headers: { authorization: `Bearer ${token}` } } as Parameters<AuthService["requireAuth"]>[0];
+  let responseStatus: number | undefined;
+  let responseBody: unknown;
+  const response = {
+    status(status: number) { responseStatus = status; return this; },
+    json(body: unknown) { responseBody = body; return this; },
+  } as unknown as Parameters<AuthService["requireAuth"]>[1];
+  let nextCalled = false;
+  auth.requireAuth(request, response, () => { nextCalled = true; });
+
+  assert.equal(nextCalled, true, "a fixed historical token remains valid against the same injected clock");
+  assert.equal(responseStatus, undefined);
+  assert.equal(responseBody, undefined);
+  assert.deepEqual(request.user, {
+    id: 7,
+    email: "clock@example.test",
+    role: "admin",
+    iat: Math.floor(fixedNow / 1_000),
+    exp: Math.floor(fixedNow / 1_000) + 7 * 24 * 60 * 60,
+  });
+});
 
 async function withServer<T>(app: Express, run: (origin: string) => Promise<T>): Promise<T> {
   const server = app.listen(0, "127.0.0.1");
