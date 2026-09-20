@@ -31,7 +31,7 @@ const roots: string[] = [];
 const serverRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 function tempRoot(): string {
-  const root = mkdtempSync(path.join(tmpdir(), "technews-contract-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "technews-contract-")));
   roots.push(root);
   return root;
 }
@@ -62,6 +62,30 @@ test("contract fetch guard denies unexpected fetch and restores the parent proce
     restore();
   }
   assert.equal(globalThis.fetch, originalFetch);
+});
+
+test("contract fetch guards restore only while they own global fetch", () => {
+  const originalFetch = globalThis.fetch;
+  const restoreOuter = installContractFetchGuard();
+  const outerGuard = globalThis.fetch;
+  const restoreInner = installContractFetchGuard();
+  const innerGuard = globalThis.fetch;
+  try {
+    restoreOuter();
+    assert.equal(globalThis.fetch, innerGuard, "an outer guard must not replace an active inner guard");
+    restoreInner();
+    assert.equal(globalThis.fetch, outerGuard);
+    restoreOuter();
+    assert.equal(globalThis.fetch, originalFetch);
+
+    const restoreReplaced = installContractFetchGuard();
+    const replacement = (async () => new Response()) as typeof fetch;
+    globalThis.fetch = replacement;
+    restoreReplaced();
+    assert.equal(globalThis.fetch, replacement, "a guard must not overwrite a third-party replacement");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 function httpJson(origin: string, pathname: string, options: {
@@ -188,6 +212,63 @@ test("path validation rejects missing/non-directory roots, symlink escapes, exis
   assert.throws(() => validateContractPaths({ ...environment(root), UPLOAD_DIR: uploadDir }), /empty/i);
 });
 
+test("path validation rejects canonical database and upload aliases before composition", async () => {
+  const forbidden = tempRoot();
+  const root = tempRoot();
+  const alias = path.join(root, "forbidden-link");
+  symlinkSync(forbidden, alias);
+  const policy = { forbiddenAliases: [forbidden] };
+
+  for (const [name, env] of [
+    ["DATABASE_PATH", { ...environment(root), DATABASE_PATH: path.join(alias, "contract.db") }],
+    ["UPLOAD_DIR", { ...environment(root), UPLOAD_DIR: path.join(alias, "uploads") }],
+  ] as const) {
+    assert.throws(() => validateContractPaths(env, policy), new RegExp(`${name}.*known production alias`, "i"));
+    await assert.rejects(startContractServer(env, policy), new RegExp(`${name}.*known production alias`, "i"));
+    assert.equal(existsSync(path.join(forbidden, name === "DATABASE_PATH" ? "contract.db" : "uploads")), false);
+  }
+});
+
+test("path validation rejects a canonical root alias and accepts a '..contract' directory component", () => {
+  const forbidden = tempRoot();
+  const parent = tempRoot();
+  const alias = path.join(parent, "forbidden-link");
+  symlinkSync(forbidden, alias);
+  const aliasedRoot = path.join(alias, "contract-root");
+  mkdirSync(aliasedRoot);
+  assert.throws(
+    () => validateContractPaths(environment(aliasedRoot), { forbiddenAliases: [forbidden] }),
+    /CONTRACT_TEMP_ROOT.*known production alias/i,
+  );
+
+  const root = tempRoot();
+  const dotPrefixed = path.join(root, "..contract");
+  const validated = validateContractPaths({
+    CONTRACT_TEMP_ROOT: root,
+    DATABASE_PATH: path.join(dotPrefixed, "contract.db"),
+    UPLOAD_DIR: path.join(dotPrefixed, "uploads"),
+  }, { forbiddenAliases: [path.join(root, "..contract-forbidden")] });
+  assert.equal(validated.databasePath, path.join(validated.root, "..contract", "contract.db"));
+  assert.equal(validated.uploadDir, path.join(validated.root, "..contract", "uploads"));
+});
+
+test("path validation rejects canonical case variants on case-insensitive filesystems", (t) => {
+  const parent = tempRoot();
+  const forbidden = path.join(parent, "MixedCaseForbidden");
+  mkdirSync(forbidden);
+  const variant = path.join(parent, "mixedcaseforbidden");
+  if (!existsSync(variant) || variant === forbidden) {
+    t.skip("filesystem is case-sensitive");
+    return;
+  }
+  const rootInput = path.join(variant, "contract-root");
+  mkdirSync(rootInput);
+  assert.throws(
+    () => validateContractPaths(environment(rootInput), { forbiddenAliases: [forbidden] }),
+    /CONTRACT_TEMP_ROOT.*known production alias/i,
+  );
+});
+
 test("synthetic composition seeds the contract breadth and denies network adapters", async () => {
   const root = tempRoot();
   const paths = validateContractPaths(environment(root));
@@ -308,8 +389,12 @@ test("executable harness announces one safe ready line, serves representative re
     env: { PATH: process.env.PATH, ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  t.after(() => {
+  const childExit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  t.after(async () => {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await childExit;
   });
   let stdout = "";
   let stderr = "";
@@ -368,11 +453,8 @@ test("executable harness announces one safe ready line, serves representative re
   }), { status: 200, body: { success: true } });
   assert.equal((await httpJson(origin, "/api/articles/synthetic-published-newer")).status, 404);
 
-  const exitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-    child.once("exit", (code, signal) => resolve({ code, signal }));
-  });
   child.kill("SIGTERM");
-  const exit = await exitPromise;
+  const exit = await childExit;
   assert.deepEqual(exit, { code: 0, signal: null }, stderr);
   assert.equal(stdout.trim().split("\n").length, 1, "only one machine-readable stdout line is allowed");
 

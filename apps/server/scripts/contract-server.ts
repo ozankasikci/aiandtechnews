@@ -25,6 +25,10 @@ export interface ContractPaths {
   uploadDir: string;
 }
 
+export interface ContractPathValidationPolicy {
+  readonly forbiddenAliases: readonly string[];
+}
+
 export interface ContractEffects {
   email: Array<{ to: string; subject: string; idempotencyKey: string }>;
   indexNow: string[][];
@@ -49,6 +53,9 @@ const KNOWN_PRODUCTION_ALIASES = [
   path.join(serverRoot, "data", "technews.db"),
   path.join(serverRoot, "uploads"),
 ].map((candidate) => path.resolve(candidate));
+const DEFAULT_PATH_VALIDATION_POLICY: ContractPathValidationPolicy = {
+  forbiddenAliases: KNOWN_PRODUCTION_ALIASES,
+};
 
 function requireAbsolute(environment: NodeJS.ProcessEnv, name: "CONTRACT_TEMP_ROOT" | "DATABASE_PATH" | "UPLOAD_DIR"): string {
   const value = environment[name];
@@ -58,10 +65,22 @@ function requireAbsolute(environment: NodeJS.ProcessEnv, name: "CONTRACT_TEMP_RO
   return path.normalize(value);
 }
 
-function assertNotKnownProductionAlias(candidate: string, name: string): void {
-  for (const forbidden of KNOWN_PRODUCTION_ALIASES) {
-    const relative = path.relative(forbidden, candidate);
-    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+function isSameOrDescendant(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (
+    relative !== ".."
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative)
+  );
+}
+
+function assertNotKnownProductionAlias(
+  candidate: string,
+  name: string,
+  forbiddenAliases: readonly string[],
+): void {
+  for (const forbidden of forbiddenAliases) {
+    if (isSameOrDescendant(forbidden, candidate)) {
       throw new Error(`${name} is a known production alias`);
     }
   }
@@ -83,26 +102,30 @@ function canonicalProspectivePath(candidate: string): string {
       existing = parent;
     }
   }
-  return path.join(fs.realpathSync(existing), ...missing);
+  return path.join(fs.realpathSync.native(existing), ...missing);
 }
 
 function assertStrictlyBeneath(root: string, candidate: string, name: string): void {
   const relative = path.relative(root, candidate);
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+  if (relative === "" || !isSameOrDescendant(root, candidate)) {
     throw new Error(`${name} must resolve strictly beneath CONTRACT_TEMP_ROOT (symlink escape denied)`);
   }
 }
 
 /** Purely validates caller-owned locations. It never creates the root or artifacts. */
-export function validateContractPaths(environment: NodeJS.ProcessEnv): ContractPaths {
+export function validateContractPaths(
+  environment: NodeJS.ProcessEnv,
+  policy: ContractPathValidationPolicy = DEFAULT_PATH_VALIDATION_POLICY,
+): ContractPaths {
   const rootInput = requireAbsolute(environment, "CONTRACT_TEMP_ROOT");
   const databaseInput = requireAbsolute(environment, "DATABASE_PATH");
   const uploadInput = requireAbsolute(environment, "UPLOAD_DIR");
+  const forbiddenAliases = policy.forbiddenAliases.map((candidate) => path.resolve(candidate));
 
   // Reject dangerous names before any filesystem lookup of those candidates.
-  assertNotKnownProductionAlias(rootInput, "CONTRACT_TEMP_ROOT");
-  assertNotKnownProductionAlias(databaseInput, "DATABASE_PATH");
-  assertNotKnownProductionAlias(uploadInput, "UPLOAD_DIR");
+  assertNotKnownProductionAlias(rootInput, "CONTRACT_TEMP_ROOT", forbiddenAliases);
+  assertNotKnownProductionAlias(databaseInput, "DATABASE_PATH", forbiddenAliases);
+  assertNotKnownProductionAlias(uploadInput, "UPLOAD_DIR", forbiddenAliases);
 
   let rootStats: fs.Stats;
   try {
@@ -114,9 +137,12 @@ export function validateContractPaths(environment: NodeJS.ProcessEnv): ContractP
   if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) {
     throw new Error("CONTRACT_TEMP_ROOT must be a real directory, not a file or symlink");
   }
-  const root = fs.realpathSync(rootInput);
+  const root = fs.realpathSync.native(rootInput);
   const databasePath = canonicalProspectivePath(databaseInput);
   const uploadDir = canonicalProspectivePath(uploadInput);
+  assertNotKnownProductionAlias(root, "CONTRACT_TEMP_ROOT", forbiddenAliases);
+  assertNotKnownProductionAlias(databasePath, "DATABASE_PATH", forbiddenAliases);
+  assertNotKnownProductionAlias(uploadDir, "UPLOAD_DIR", forbiddenAliases);
   assertStrictlyBeneath(root, databasePath, "DATABASE_PATH");
   assertStrictlyBeneath(root, uploadDir, "UPLOAD_DIR");
 
@@ -186,8 +212,11 @@ function listen(app: ContractComposition["app"]): Promise<Server> {
   });
 }
 
-export async function startContractServer(environment: NodeJS.ProcessEnv = process.env): Promise<RunningContractServer> {
-  const paths = validateContractPaths(environment);
+export async function startContractServer(
+  environment: NodeJS.ProcessEnv = process.env,
+  validationPolicy: ContractPathValidationPolicy = DEFAULT_PATH_VALIDATION_POLICY,
+): Promise<RunningContractServer> {
+  const paths = validateContractPaths(environment, validationPolicy);
   const composition = createContractComposition(paths);
   let listener: Server | undefined;
   try {
@@ -229,7 +258,7 @@ export function installContractFetchGuard(): () => void {
   globalThis.fetch = guardedFetch;
   let restored = false;
   return () => {
-    if (restored) return;
+    if (restored || globalThis.fetch !== guardedFetch) return;
     restored = true;
     globalThis.fetch = originalFetch;
   };
