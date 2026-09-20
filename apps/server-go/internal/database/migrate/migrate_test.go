@@ -43,6 +43,26 @@ func TestChecksumHashesExactSQLBytes(t *testing.T) {
 	}
 }
 
+func TestRunAppliesBOMPrefixedMigrationAndRecordsExactChecksum(t *testing.T) {
+	db, _ := openDB(t)
+	sqlText := "\xef\xbb\xbfCREATE TABLE bom_table (id INTEGER PRIMARY KEY);"
+	descriptor := migrate.Descriptor{Version: 1, Name: "bom migration", SQL: sqlText}
+	wantChecksum := fmt.Sprintf("%x", sha256.Sum256([]byte(sqlText)))
+
+	if err := migrate.Run(context.Background(), db, []migrate.Descriptor{descriptor}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	var checksum string
+	if err := db.QueryRow(`SELECT checksum FROM schema_migrations WHERE version = 1`).Scan(&checksum); err != nil {
+		t.Fatalf("query ledger checksum: %v", err)
+	}
+	if checksum != wantChecksum || descriptor.Checksum() != wantChecksum {
+		t.Fatalf("checksums = ledger %q, descriptor %q; want exact-byte checksum %q", checksum, descriptor.Checksum(), wantChecksum)
+	}
+	assertObjectPresent(t, db, "bom_table")
+}
+
 func TestRunAppliesInOrderRecordsLedgerAndIsIdempotent(t *testing.T) {
 	db, _ := openDB(t)
 	migrations := descriptors()
@@ -113,6 +133,27 @@ func TestRunRejectsAttachBeforeItCanLeakOutsideRollback(t *testing.T) {
 	assertObjectAbsent(t, db, "leaked")
 }
 
+func TestRunRejectsBOMPrefixedAttachBeforeItCanLeakOutsideRollback(t *testing.T) {
+	db, _ := openDB(t)
+	auxPath := filepath.Join(t.TempDir(), "bom-auxiliary.db")
+	descriptor := migrate.Descriptor{
+		Version: 1,
+		Name:    "bom attach escape",
+		SQL:     fmt.Sprintf("\xef\xbb\xbfATTACH DATABASE '%s' AS aux; CREATE TABLE leaked(id INTEGER); INSERT INTO missing_table VALUES (1);", strings.ReplaceAll(auxPath, "'", "''")),
+	}
+
+	err := migrate.Run(context.Background(), db, []migrate.Descriptor{descriptor})
+	if !errors.Is(err, migrate.ErrInvalidDescriptors) {
+		t.Errorf("Run() error = %v, want ErrInvalidDescriptors", err)
+	}
+	if _, err := os.Stat(auxPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("auxiliary database Stat() error = %v, want not exist", err)
+	}
+	assertDatabaseNames(t, db, "main")
+	assertObjectAbsent(t, db, "schema_migrations")
+	assertObjectAbsent(t, db, "leaked")
+}
+
 func TestRunRejectsPragmaBeforeItCanLeakOutsideRollback(t *testing.T) {
 	db, _ := openDB(t)
 	descriptor := migrate.Descriptor{
@@ -134,6 +175,57 @@ func TestRunRejectsPragmaBeforeItCanLeakOutsideRollback(t *testing.T) {
 	}
 	assertObjectAbsent(t, db, "schema_migrations")
 	assertObjectAbsent(t, db, "leaked")
+}
+
+func TestRunRejectsBOMPrefixedPragmaAfterSemicolonBeforeItCanLeak(t *testing.T) {
+	db, _ := openDB(t)
+	descriptor := migrate.Descriptor{
+		Version: 1,
+		Name:    "bom pragma escape",
+		SQL:     "; \n\t\xef\xbb\xbfPRAGMA ignore_check_constraints=ON; CREATE TABLE leaked(id INTEGER); INSERT INTO missing_table VALUES (1);",
+	}
+
+	err := migrate.Run(context.Background(), db, []migrate.Descriptor{descriptor})
+	if !errors.Is(err, migrate.ErrInvalidDescriptors) {
+		t.Errorf("Run() error = %v, want ErrInvalidDescriptors", err)
+	}
+	var ignoreCheckConstraints int
+	if err := db.QueryRow(`PRAGMA ignore_check_constraints`).Scan(&ignoreCheckConstraints); err != nil {
+		t.Fatalf("read ignore_check_constraints: %v", err)
+	}
+	if ignoreCheckConstraints != 0 {
+		t.Errorf("ignore_check_constraints = %d, want 0", ignoreCheckConstraints)
+	}
+	assertDatabaseNames(t, db, "main")
+	assertObjectAbsent(t, db, "schema_migrations")
+	assertObjectAbsent(t, db, "leaked")
+}
+
+func TestRunRollsBackMalformedPartialBOM(t *testing.T) {
+	for name, partial := range map[string]string{
+		"first byte":      "\xef",
+		"first two bytes": "\xef\xbb",
+	} {
+		t.Run(name, func(t *testing.T) {
+			db, _ := openDB(t)
+			descriptor := migrate.Descriptor{
+				Version: 1,
+				Name:    "malformed bom",
+				SQL:     "CREATE TABLE leaked(id INTEGER); " + partial + "CREATE TABLE never_created(id INTEGER);",
+			}
+
+			err := migrate.Run(context.Background(), db, []migrate.Descriptor{descriptor})
+			if err == nil {
+				t.Fatal("Run() error = nil, want SQLite syntax error")
+			}
+			if errors.Is(err, migrate.ErrInvalidDescriptors) {
+				t.Fatalf("Run() error = %v, want malformed BOM to reach SQLite", err)
+			}
+			assertObjectAbsent(t, db, "schema_migrations")
+			assertObjectAbsent(t, db, "leaked")
+			assertObjectAbsent(t, db, "never_created")
+		})
+	}
 }
 
 func TestRunAppliesTriggerMigrationAndRecordsLedger(t *testing.T) {
@@ -530,5 +622,16 @@ func assertObjectAbsent(t *testing.T, db *sql.DB, name string) {
 	}
 	if count != 0 {
 		t.Errorf("object %q exists", name)
+	}
+}
+
+func assertObjectPresent(t *testing.T, db *sql.DB, name string) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name = ?`, name).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("object %q count = %d, want 1", name, count)
 	}
 }

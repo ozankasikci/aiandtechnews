@@ -215,6 +215,23 @@ func validateDescriptorSQL(sqlText string) error {
 	statementStart := true
 	triggerState := triggerNone
 	for i := 0; i < len(sqlText); {
+		if strings.HasPrefix(sqlText[i:], "\xef\xbb\xbf") {
+			// SQLite treats U+FEFF as whitespace. Preserve statementStart so a BOM
+			// cannot hide a statement-leading unsafe keyword. The original SQL is
+			// left untouched so migration checksums continue to cover exact bytes.
+			i += 3
+			continue
+		}
+		if sqlText[i] == '\xef' {
+			// Preserve the boundary across a malformed, truncated BOM prefix too.
+			// SQLite will reject the invalid UTF-8 during execution, while an
+			// unsafe keyword following it remains visible to this scanner.
+			i++
+			if i < len(sqlText) && sqlText[i] == '\xbb' {
+				i++
+			}
+			continue
+		}
 		switch sqlText[i] {
 		case ' ', '	', '\n', '\r', '\v', '\f':
 			i++
