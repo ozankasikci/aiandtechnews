@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/app"
@@ -15,12 +16,50 @@ import (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := notifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if err := run(ctx); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "api: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func notifyContext(parent context.Context, signals ...os.Signal) (context.Context, context.CancelFunc) {
+	notifications := make(chan os.Signal, 1)
+	signal.Notify(notifications, signals...)
+	return contextCanceledOnSignal(parent, notifications, func() {
+		signal.Stop(notifications)
+	})
+}
+
+// contextCanceledOnSignal restores the process's default signal handling
+// before cancellation starts graceful shutdown. A second signal can therefore
+// terminate a server that is taking too long to drain.
+func contextCanceledOnSignal(parent context.Context, notifications <-chan os.Signal, restore func()) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	finished := make(chan struct{})
+	var cleanupOnce sync.Once
+	cleanup := func() {
+		cleanupOnce.Do(func() {
+			restore()
+			cancel()
+		})
+	}
+
+	go func() {
+		defer close(finished)
+		select {
+		case <-notifications:
+			cleanup()
+		case <-ctx.Done():
+			cleanup()
+		}
+	}()
+
+	return ctx, func() {
+		cleanup()
+		<-finished
 	}
 }
 

@@ -40,10 +40,6 @@ func (a *App) Handler() http.Handler {
 	return a.handler
 }
 
-func (a *App) Server() *httpserver.Server {
-	return a.server
-}
-
 func (a *App) Run(ctx context.Context) error {
 	return a.server.Run(ctx)
 }

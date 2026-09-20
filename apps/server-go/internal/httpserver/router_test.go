@@ -28,7 +28,11 @@ func TestRouterHTTPFoundation(t *testing.T) {
 			_, _ = w.Write([]byte(`{"requestId":"` + chimiddleware.GetReqID(r.Context()) + `"}`))
 		})
 		api.Get("/panic", func(http.ResponseWriter, *http.Request) { panic("secret panic") })
+		api.Get("/abort", func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) })
+		api.Get("/silent", func(http.ResponseWriter, *http.Request) {})
 		api.Get("/only-get", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+		api.Get("/discoverable", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+		api.Options("/discoverable", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	})
 
 	t.Run("request ID is accepted, propagated, and logged", func(t *testing.T) {
@@ -103,6 +107,18 @@ func TestRouterHTTPFoundation(t *testing.T) {
 		}
 	})
 
+	t.Run("method discovery includes registered OPTIONS routes", func(t *testing.T) {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/discoverable", nil))
+		if response.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("status = %d, want 405", response.Code)
+		}
+		allowed := response.Header().Values("Allow")
+		if !slices.Contains(allowed, http.MethodGet) || !slices.Contains(allowed, http.MethodOptions) {
+			t.Errorf("Allow = %q, want GET and OPTIONS", allowed)
+		}
+	})
+
 	t.Run("panic recovery logs request ID and access status without leaking panic", func(t *testing.T) {
 		logs.Reset()
 		response := httptest.NewRecorder()
@@ -123,6 +139,36 @@ func TestRouterHTTPFoundation(t *testing.T) {
 		}
 		if entries[1]["msg"] != "http request" || entries[1]["request_id"] != id || entries[1]["status"] != float64(http.StatusInternalServerError) {
 			t.Errorf("access log = %#v, want request ID %q and status 500", entries[1], id)
+		}
+	})
+
+	t.Run("abort-handler panic is left to net/http", func(t *testing.T) {
+		logs.Reset()
+		server := httptest.NewServer(router)
+		defer server.Close()
+		client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+		response, err := client.Get(server.URL + "/api/abort")
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		if err == nil {
+			t.Fatal("request error = nil, want net/http to abort the response")
+		}
+		if entries := decodeJSONLogs(t, logs.Bytes()); len(entries) != 0 {
+			t.Errorf("logs = %#v, want no panic or completed-request log for ErrAbortHandler", entries)
+		}
+	})
+
+	t.Run("silent handlers are logged as successful responses", func(t *testing.T) {
+		logs.Reset()
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/silent", nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", response.Code)
+		}
+		entries := decodeJSONLogs(t, logs.Bytes())
+		if len(entries) != 1 || entries[0]["status"] != float64(http.StatusOK) {
+			t.Errorf("access logs = %#v, want status 200", entries)
 		}
 	})
 

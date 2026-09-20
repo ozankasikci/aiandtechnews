@@ -36,9 +36,6 @@ func TestNewComposesHealthAPIWithoutOpeningDatabase(t *testing.T) {
 	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 		t.Errorf("Access-Control-Allow-Origin = %q", got)
 	}
-	if application.Server().HTTPServer().Addr != cfg.Address {
-		t.Errorf("server address = %q, want %q", application.Server().HTTPServer().Addr, cfg.Address)
-	}
 }
 
 func TestNewRejectsInvalidCompositionInputs(t *testing.T) {

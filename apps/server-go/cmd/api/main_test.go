@@ -1,10 +1,49 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 )
+
+func TestContextCanceledOnSignalRestoresDefaultHandlingFirst(t *testing.T) {
+	notifications := make(chan os.Signal, 1)
+	restored := make(chan struct{})
+	ctx, stop := contextCanceledOnSignal(context.Background(), notifications, func() {
+		close(restored)
+	})
+	defer stop()
+
+	notifications <- syscall.SIGTERM
+	select {
+	case <-ctx.Done():
+		select {
+		case <-restored:
+		default:
+			t.Fatal("context canceled before default signal handling was restored")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("context was not canceled after signal")
+	}
+}
+
+func TestContextCanceledOnSignalStopCleansUpWithoutSignal(t *testing.T) {
+	notifications := make(chan os.Signal)
+	restored := false
+	ctx, stop := contextCanceledOnSignal(context.Background(), notifications, func() {
+		restored = true
+	})
+	stop()
+	if !restored {
+		t.Fatal("stop did not restore signal handling")
+	}
+	if ctx.Err() != context.Canceled {
+		t.Fatalf("context error = %v, want context canceled", ctx.Err())
+	}
+}
 
 func TestFindWorktreeRootFromRepositoryAndModuleDirectories(t *testing.T) {
 	root := t.TempDir()

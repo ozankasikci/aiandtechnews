@@ -17,8 +17,6 @@ import (
 
 const MaxRequestIDLength = 64
 
-const expressAllowedMethods = "GET,HEAD,PUT,PATCH,POST,DELETE"
-
 // NewRouter creates the shared HTTP transport and mounts public capability
 // routes beneath /api.
 func NewRouter(logger *slog.Logger, mountAPI func(chi.Router)) http.Handler {
@@ -37,7 +35,10 @@ func NewRouter(logger *slog.Logger, mountAPI func(chi.Router)) http.Handler {
 	router.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
 		// Chi's custom 405 hook replaces its default Allow-header writer, so
 		// discover the methods that match this path before writing our JSON body.
-		for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		// Chi does not expose the methods registered for a path. Check the
+		// standard methods supported by this service; custom extension methods
+		// therefore cannot be advertised automatically.
+		for _, method := range supportedMethods(true) {
 			matchContext := chi.NewRouteContext()
 			if router.Match(matchContext, method, r.URL.Path) {
 				w.Header().Add("Allow", method)
@@ -53,13 +54,31 @@ func NewRouter(logger *slog.Logger, mountAPI func(chi.Router)) http.Handler {
 	return router
 }
 
+// supportedMethods keeps method discovery and the Express-compatible CORS
+// list in one place. OPTIONS is deliberately excluded from the latter.
+func supportedMethods(includeOptions bool) []string {
+	methods := []string{
+		http.MethodGet,
+		http.MethodHead,
+		http.MethodPut,
+		http.MethodPatch,
+		http.MethodPost,
+		http.MethodDelete,
+		http.MethodOptions,
+	}
+	if !includeOptions {
+		return methods[:len(methods)-1]
+	}
+	return methods
+}
+
 func expressCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Match the default Express cors() contract rather than a browser-equivalent
 		// approximation. In particular, wildcard origins do not require Vary: Origin.
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Methods", expressAllowedMethods)
+			w.Header().Set("Access-Control-Allow-Methods", strings.Join(supportedMethods(false), ","))
 			mergeVary(w.Header(), "Access-Control-Request-Headers")
 			if requestedHeaders := r.Header.Get("Access-Control-Request-Headers"); requestedHeaders != "" {
 				w.Header().Set("Access-Control-Allow-Headers", requestedHeaders)
@@ -125,6 +144,9 @@ func recoverPanics(logger *slog.Logger) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if recovered := recover(); recovered != nil {
+					if recovered == http.ErrAbortHandler {
+						panic(recovered)
+					}
 					logger.ErrorContext(r.Context(), "http request panic",
 						"request_id", middleware.GetReqID(r.Context()),
 						"method", r.Method,
@@ -146,11 +168,15 @@ func accessLog(logger *slog.Logger) func(http.Handler) http.Handler {
 			wrapped := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			started := time.Now()
 			next.ServeHTTP(wrapped, r)
+			status := wrapped.Status()
+			if status == 0 {
+				status = http.StatusOK
+			}
 			logger.InfoContext(r.Context(), "http request",
 				"request_id", middleware.GetReqID(r.Context()),
 				"method", r.Method,
 				"path", r.URL.Path,
-				"status", wrapped.Status(),
+				"status", status,
 				"bytes", wrapped.BytesWritten(),
 				"duration_ms", time.Since(started).Milliseconds(),
 			)

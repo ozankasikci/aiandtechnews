@@ -54,13 +54,12 @@ func NewServer(address string, handler http.Handler, logger *slog.Logger, option
 	return server
 }
 
-func (s *Server) HTTPServer() *http.Server {
-	return s.httpServer
-}
-
 // Run listens on the configured address and serves until cancellation or an
 // HTTP serving error. The listener is created only when Run is called.
 func (s *Server) Run(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("run context is required")
+	}
 	listener, err := net.Listen("tcp", s.httpServer.Addr)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", s.httpServer.Addr, err)

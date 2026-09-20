@@ -17,7 +17,7 @@ func TestNewServerHasHardenedTimeouts(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	server := NewServer("127.0.0.1:0", http.NewServeMux(), logger)
-	httpServer := server.HTTPServer()
+	httpServer := server.httpServer
 
 	if httpServer.Addr != "127.0.0.1:0" {
 		t.Errorf("Addr = %q", httpServer.Addr)
@@ -34,6 +34,28 @@ func TestNewServerHasHardenedTimeouts(t *testing.T) {
 	httpServer.ErrorLog.Print("transport failure")
 	if got := logs.String(); !strings.Contains(got, `"level":"ERROR"`) || !strings.Contains(got, "transport failure") {
 		t.Errorf("ErrorLog output = %q, want slog error output", got)
+	}
+}
+
+func TestRunRejectsNilContextBeforeListening(t *testing.T) {
+	reserved := localListener(t)
+	address := reserved.Addr().String()
+	if err := reserved.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	server := NewServer(address, http.NewServeMux(), discardLogger())
+	err := server.Run(nil)
+	if err == nil || err.Error() != "run context is required" {
+		t.Fatalf("Run(nil) error = %v, want run context is required", err)
+	}
+
+	rebound, err := net.Listen("tcp", address)
+	if err != nil {
+		t.Fatalf("Run(nil) leaked a listener on %s: %v", address, err)
+	}
+	if err := rebound.Close(); err != nil {
+		t.Fatalf("Close() rebound listener error = %v", err)
 	}
 }
 
