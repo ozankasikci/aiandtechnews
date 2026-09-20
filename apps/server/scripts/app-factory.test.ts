@@ -1,17 +1,31 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, unlinkSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import bcrypt from "bcryptjs";
 import type { Express } from "express";
 import { createApp } from "../src/app";
-import { createAuth } from "../src/auth";
+import { createAuth, type AuthService } from "../src/auth";
 import { initializeDatabase, openDatabase } from "../src/db";
 import { createUpload } from "../src/upload";
 
 const temporaryRoots: string[] = [];
+const serverRoot = fileURLToPath(new URL("..", import.meta.url));
 
 test.afterEach(() => {
   while (temporaryRoots.length) rmSync(temporaryRoots.pop()!, { recursive: true, force: true });
@@ -21,6 +35,53 @@ function temporaryRoot(): string {
   const root = mkdtempSync(path.join(tmpdir(), "technews-app-factory-"));
   temporaryRoots.push(root);
   return root;
+}
+
+function importSandbox(): string {
+  const root = mkdtempSync(path.join(serverRoot, ".app-factory-import-"));
+  temporaryRoots.push(root);
+  cpSync(path.join(serverRoot, "src"), path.join(root, "src"), { recursive: true });
+  return root;
+}
+
+function recursiveSnapshot(root: string): string[] {
+  const entries: string[] = [];
+  function visit(directory: string): void {
+    for (const name of readdirSync(directory).sort()) {
+      const absolutePath = path.join(directory, name);
+      const relativePath = path.relative(root, absolutePath);
+      const stats = statSync(absolutePath);
+      if (stats.isDirectory()) {
+        entries.push(`directory:${relativePath}`);
+        visit(absolutePath);
+      } else {
+        entries.push(`file:${relativePath}:${readFileSync(absolutePath).toString("base64")}`);
+      }
+    }
+  }
+  visit(root);
+  return entries;
+}
+
+function importInFreshProcess(modulePaths: string[]): ReturnType<typeof spawnSync> {
+  const importScript = `
+    globalThis.fetch = () => { throw new Error("network effect denied during import"); };
+    await Promise.all(${JSON.stringify(modulePaths.map((modulePath) => pathToFileURL(modulePath).href))}.map((url) => import(url)));
+  `;
+  return spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", importScript], {
+    cwd: serverRoot,
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+}
+
+function assertFreshImportsArePure(root: string, modulePaths: string[]): void {
+  const before = recursiveSnapshot(root);
+  const result = importInFreshProcess(modulePaths);
+  assert.ifError(result.error);
+  assert.equal(result.signal, null, `import subprocess was terminated by ${result.signal}`);
+  assert.equal(result.status, 0, `import subprocess failed:\n${result.stderr}`);
+  assert.deepEqual(recursiveSnapshot(root), before, "uncached imports changed the sandbox filesystem");
 }
 
 function newsletterDenyFake() {
@@ -71,24 +132,85 @@ async function withServer<T>(app: Express, run: (origin: string) => Promise<T>):
   }
 }
 
-test("app, database, router, auth, and upload modules are import-side-effect free", async () => {
+test("fresh app, database, router, auth, and upload imports have no side effects", () => {
+  const root = importSandbox();
+  assertFreshImportsArePure(root, [
+    "app.ts",
+    "db.ts",
+    path.join("routes", "public.ts"),
+    path.join("routes", "dashboard.ts"),
+    "auth.ts",
+    "upload.ts",
+  ].map((relativePath) => path.join(root, "src", relativePath)));
+});
+
+test("fresh-import harness detects a deliberately side-effectful uncached module", () => {
+  const root = importSandbox();
+  const fixturePath = path.join(root, "src", "import-side-effect-fixture.ts");
+  writeFileSync(fixturePath, `import { writeFileSync } from "node:fs";\nwriteFileSync(new URL("../created-during-import", import.meta.url), "effect");\n`);
+  assert.throws(
+    () => assertFreshImportsArePure(root, [fixturePath]),
+    /uncached imports changed the sandbox filesystem/,
+  );
+});
+
+test("dashboard preserves the receiver of an injected auth service", async () => {
   const root = temporaryRoot();
-  const before = readdirSync(root);
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (() => { throw new Error("network effect denied during import"); }) as typeof fetch;
+  const uploadRoot = path.join(root, "uploads");
+  mkdirSync(uploadRoot);
+  const database = openDatabase(path.join(root, "receiver.db"));
+  initializeDatabase(database, { seedDefaults: false });
+  database.prepare("INSERT INTO authors (name, email, password_hash, role) VALUES (?, ?, ?, ?)")
+    .run("Receiver", "receiver@example.test", bcrypt.hashSync("password", 4), "admin");
+
+  const receiverAuth: AuthService & { token: string } = {
+    token: "receiver-token",
+    generateToken() {
+      assert.equal(this, receiverAuth);
+      return this.token;
+    },
+    requireAuth(req, res, next) {
+      assert.equal(this, receiverAuth);
+      if (req.headers.authorization !== `Bearer ${this.token}`) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+      req.user = { id: 1, email: "receiver@example.test", role: "admin" };
+      next();
+    },
+  };
+  const app = createApp({
+    db: database,
+    newsletter: newsletterDenyFake(),
+    auth: receiverAuth,
+    upload: createUpload(uploadRoot),
+    uploadRoot,
+    fileOperations: { existsSync, unlinkSync },
+    newsletterCronSecret: "test-cron-secret",
+    notifyIndexNow: async () => ({ status: 202, submitted: 0 }),
+  });
+
   try {
-    await Promise.all([
-      import("../src/app"),
-      import("../src/db"),
-      import("../src/routes/public"),
-      import("../src/routes/dashboard"),
-      import("../src/auth"),
-      import("../src/upload"),
-    ]);
+    await withServer(app, async (origin) => {
+      const login = await fetch(`${origin}/api/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "receiver@example.test", password: "password" }),
+      });
+      assert.equal(login.status, 200);
+      assert.equal((await login.json() as { token: string }).token, receiverAuth.token);
+
+      const me = await fetch(`${origin}/api/auth/me`, {
+        headers: { authorization: `Bearer ${receiverAuth.token}` },
+      });
+      assert.equal(me.status, 200);
+      assert.deepEqual(await me.json(), {
+        user: { id: 1, email: "receiver@example.test", role: "admin" },
+      });
+    });
   } finally {
-    globalThis.fetch = originalFetch;
+    database.close();
   }
-  assert.deepEqual(readdirSync(root), before);
 });
 
 test("schema initialization without defaults creates empty production tables", () => {

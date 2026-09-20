@@ -25,7 +25,7 @@ export interface DashboardRouterDependencies {
 
 export function createDashboardRouter(dependencies: DashboardRouterDependencies): ReturnType<typeof Router> {
 const { db, auth, upload, uploadRoot, fileOperations, notifyIndexNow } = dependencies;
-const { generateToken, requireAuth } = auth;
+const requireAuth: RequestHandler = (req, res, next) => auth.requireAuth(req, res, next);
 const router: ReturnType<typeof Router> = Router();
 
 function queueIndexNowNotification(slugs: string[]): void {
@@ -57,7 +57,7 @@ router.post("/auth/login", (req: Request, res: Response) => {
     return;
   }
 
-  const token = generateToken({
+  const token = auth.generateToken({
     id: user.id as number,
     email: user.email as string,
     role: user.role as string,
