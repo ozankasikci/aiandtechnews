@@ -17,6 +17,15 @@ The production override is a cutover guard, not a development convenience. Do no
 
 `OPTIONS` responses match Express in status (`204`), CORS headers and `Vary`, and empty-body semantics. They deliberately omit Express's wire-level `Content-Length: 0`: [RFC 9110 section 8.6](https://www.rfc-editor.org/rfc/rfc9110#section-8.6) forbids servers from sending `Content-Length` on a `204` response, and Go's `net/http` strips it accordingly.
 
+The reviewed compatibility authority is the synthetic Node fixture at `apps/server/contracts/node/contracts.json`. `contracts/fixtures/node-contracts.json` is a generated Go-side mirror, not a separately editable fixture. Capture uses an isolated temporary SQLite database and uploads directory; it never copies or opens a production database.
+
+Review contract changes in this order:
+
+1. From the repository root, run `pnpm --filter @technews/server contract:check` to reproduce and compare the canonical Node fixture.
+2. Review the canonical fixture diff for behavior, secrets, and PII.
+3. From `apps/server-go`, run `make contracts-accept` only after that review to atomically update the Go mirror.
+4. Run `make contracts-check`. Normal checks never rewrite either fixture.
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -37,6 +46,8 @@ make test-race  # all tests with the race detector
 make vet        # static checks
 make check      # tests and static checks
 make fmt        # format Go sources
+make contracts-check   # verify mirror drift and focused executable contract tests
+make contracts-accept  # explicitly accept the reviewed canonical Node fixture
 ```
 
 ## Architecture

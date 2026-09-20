@@ -1,0 +1,509 @@
+openapi: 3.1.0
+info:
+  title: Technews HTTP API compatibility manifest
+  version: 2.0.0
+  description: >-
+    Reviewed description of the schema-v2 synthetic Node contract capture. The
+    generated fixture remains the compatibility authority for concrete values,
+    optionality, and nullability.
+servers:
+  - url: /
+paths:
+  /api/health:
+    get:
+      operationId: health.get
+      responses:
+        '200': &okResponse
+          description: Successful JSON response observed in the approved fixture
+          content:
+            application/json:
+              schema: {}
+  /api/articles:
+    get:
+      operationId: articles.list
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Paginated articles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticlePage'
+  /api/articles/trending:
+    get:
+      operationId: articles.trending
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Trending articles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  articles:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Article'
+  /api/articles/{slug}:
+    get:
+      operationId: articles.getBySlug
+      parameters:
+        - $ref: '#/components/parameters/Slug'
+      responses:
+        '200': &articleResponse
+          description: Article
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  article:
+                    $ref: '#/components/schemas/Article'
+  /api/articles/id/{id}:
+    get:
+      operationId: articles.getById
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200': *articleResponse
+  /api/categories:
+    get:
+      operationId: categories.list
+      responses:
+        '200': &categoriesResponse
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+  /api/authors:
+    get:
+      operationId: authors.list
+      responses:
+        '200':
+          description: Authors
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authors:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Author'
+  /api/subscribe:
+    post:
+      operationId: newsletter.subscribe
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: {type: string, format: email}
+                placement: {type: string}
+      responses:
+        '200': *okResponse
+  /api/newsletter/confirm:
+    get:
+      operationId: newsletter.confirm
+      parameters:
+        - $ref: '#/components/parameters/Token'
+      responses:
+        '200': *okResponse
+  /api/newsletter/unsubscribe:
+    get:
+      operationId: newsletter.unsubscribeGet
+      parameters:
+        - $ref: '#/components/parameters/Token'
+      responses:
+        '200': *okResponse
+    post:
+      operationId: newsletter.unsubscribePost
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token: {type: string}
+      responses:
+        '200': *okResponse
+  /api/newsletter/editions:
+    get:
+      operationId: newsletter.editions
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': *okResponse
+  /api/newsletter/editions/{edition}:
+    get:
+      operationId: newsletter.edition
+      parameters:
+        - name: edition
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200': *okResponse
+  /api/newsletter/digest:
+    get:
+      operationId: newsletter.digestGet
+      security:
+        - cronBearer: []
+      responses:
+        '200': *okResponse
+    post:
+      operationId: newsletter.digestPost
+      security:
+        - cronBearer: []
+      responses:
+        '200': *okResponse
+  /api/auth/login:
+    post:
+      operationId: auth.login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: {type: string, format: email}
+                password: {type: string, format: password}
+      responses:
+        '200': *okResponse
+  /api/auth/me:
+    get:
+      operationId: auth.me
+      security: &userSecurity
+        - bearerAuth: []
+      responses:
+        '200': *okResponse
+  /api/auth/logout:
+    post:
+      operationId: auth.logout
+      security: *userSecurity
+      responses:
+        '200': *okResponse
+  /api/dashboard/articles:
+    get:
+      operationId: dashboard.articles.list
+      security: *userSecurity
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Paginated dashboard articles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticlePage'
+    post:
+      operationId: dashboard.articles.create
+      security: *userSecurity
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArticleWrite'
+      responses:
+        '201':
+          description: Created article
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  article:
+                    $ref: '#/components/schemas/Article'
+  /api/dashboard/articles/{id}:
+    get:
+      operationId: dashboard.articles.get
+      security: *userSecurity
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200': *articleResponse
+    put:
+      operationId: dashboard.articles.update
+      security: *userSecurity
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArticleWrite'
+      responses:
+        '200': *articleResponse
+    delete:
+      operationId: dashboard.articles.delete
+      security: *userSecurity
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200': *okResponse
+  /api/dashboard/categories:
+    get:
+      operationId: dashboard.categories.list
+      security: *userSecurity
+      responses:
+        '200': *categoriesResponse
+    post:
+      operationId: dashboard.categories.create
+      security: *userSecurity
+      requestBody: &categoryRequest
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryWrite'
+      responses:
+        '201': &createdCategoryResponse
+          description: Created category
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  category:
+                    $ref: '#/components/schemas/Category'
+  /api/dashboard/categories/{id}:
+    put:
+      operationId: dashboard.categories.update
+      security: *userSecurity
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody: *categoryRequest
+      responses:
+        '200':
+          description: Updated category
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  category:
+                    $ref: '#/components/schemas/Category'
+    delete:
+      operationId: dashboard.categories.delete
+      security: *userSecurity
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200': *okResponse
+  /api/dashboard/media:
+    get:
+      operationId: dashboard.media.list
+      security: *userSecurity
+      responses:
+        '200':
+          description: Media list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  media:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Media'
+  /api/dashboard/media/upload:
+    post:
+      operationId: dashboard.media.upload
+      security: *userSecurity
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        '201':
+          description: Uploaded media
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  media:
+                    $ref: '#/components/schemas/Media'
+  /api/dashboard/media/{id}:
+    delete:
+      operationId: dashboard.media.delete
+      security: *userSecurity
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200': *okResponse
+  /api/dashboard/settings:
+    get:
+      operationId: dashboard.settings.get
+      security: *userSecurity
+      responses:
+        '200': &settingsResponse
+          description: Settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  settings:
+                    $ref: '#/components/schemas/Settings'
+    put:
+      operationId: dashboard.settings.update
+      security: *userSecurity
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Settings'
+      responses:
+        '200': *settingsResponse
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    cronBearer:
+      type: http
+      scheme: bearer
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: {type: integer}
+    Slug:
+      name: slug
+      in: path
+      required: true
+      schema: {type: string}
+    Page:
+      name: page
+      in: query
+      schema: {type: integer}
+    Limit:
+      name: limit
+      in: query
+      schema: {type: integer}
+    Token:
+      name: token
+      in: query
+      schema: {type: string}
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: {type: string}
+        message: {type: string}
+    Pagination:
+      type: object
+      properties:
+        total: {type: integer}
+        page: {type: integer}
+        totalPages: {type: integer}
+    Category:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        slug: {type: string}
+        description: {type: string}
+        color: {type: string}
+        article_count: {type: integer}
+    CategoryWrite:
+      type: object
+      properties:
+        name: {type: string}
+        slug: {type: string}
+        description: {type: string}
+        color: {type: string}
+    Author:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        email: {type: string, format: email}
+        avatar: {type: [string, 'null']}
+        bio: {type: [string, 'null']}
+        role: {type: string}
+    Article:
+      type: object
+      properties:
+        id: {type: integer}
+        title: {type: string}
+        slug: {type: string}
+        excerpt: {type: string}
+        content: {type: string}
+        featured_image: {type: [string, 'null']}
+        category_id: {type: integer}
+        author_id: {type: integer}
+        status: {type: string}
+        published_at: {type: [string, 'null']}
+        meta_title: {type: [string, 'null']}
+        meta_description: {type: [string, 'null']}
+        source: {type: [string, 'null']}
+        source_url: {type: [string, 'null']}
+        view_count: {type: integer}
+        created_at: {type: string}
+        updated_at: {type: string}
+        category:
+          $ref: '#/components/schemas/Category'
+        author:
+          $ref: '#/components/schemas/Author'
+    ArticleWrite:
+      type: object
+      properties:
+        title: {type: string}
+        slug: {type: string}
+        excerpt: {type: string}
+        content: {type: string}
+        featured_image: {type: [string, 'null']}
+        category_id: {type: integer}
+        status: {type: string}
+        published_at: {type: [string, 'null']}
+        meta_title: {type: [string, 'null']}
+        meta_description: {type: [string, 'null']}
+        source: {type: [string, 'null']}
+        source_url: {type: [string, 'null']}
+    ArticlePage:
+      allOf:
+        - $ref: '#/components/schemas/Pagination'
+        - type: object
+          properties:
+            articles:
+              type: array
+              items:
+                $ref: '#/components/schemas/Article'
+    Media:
+      type: object
+      properties:
+        id: {type: integer}
+        filename: {type: string}
+        url: {type: string}
+        mime_type: {type: string}
+        size: {type: integer}
+        uploaded_at: {type: string}
+    Settings:
+      type: object
+      properties:
+        site_name: {type: string}
+        site_description: {type: string}
+        social_twitter: {type: string}
+        social_linkedin: {type: string}
+        social_github: {type: string}
+        newsletter_enabled: {type: boolean}
+        newsletter_provider: {type: string}
+        newsletter_webhook_url: {type: string}

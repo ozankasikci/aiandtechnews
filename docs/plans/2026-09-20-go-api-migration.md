@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.25, `net/http`, `github.com/go-chi/chi/v5`, `database/sql`, `modernc.org/sqlite`, `golang-jwt/jwt/v5`, `golang.org/x/crypto/bcrypt`, embedded SQL migrations, standard `testing`/`httptest`.
 
-**Safety boundary:** All development and tests run in `/Users/ozan/Projects/technews-server-go` on branch `feat/go-api-migration`. Never start the Go API on ports 4001, 3001, or 3002. Never point it at `/Users/ozan/Projects/technews/apps/server/data/technews.db`. Tests use temporary databases; manual runs use port 4401 and a copied database under the worktree.
+**Safety boundary:** All development and tests run in `/Users/ozan/Projects/technews-server-go` on branch `feat/go-api-migration`. Never start the Go API on ports 4001, 3001, or 3002. Never point it at `/Users/ozan/Projects/technews/apps/server/data/technews.db`. Tests and contract capture use synthetic temporary databases and uploads directories; no production database is copied or opened. Manual runs use port 4401 with synthetic worktree-local data.
 
 ---
 
@@ -147,16 +147,18 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 
 **Files:**
 - Create: `apps/server-go/contracts/openapi.yaml`
-- Create: `apps/server-go/contracts/fixtures/*.json`
-- Create: `apps/server-go/internal/contracttest/contract_test.go`
-- Create: `apps/server-go/scripts/capture-contract.sh`
+- Generate mirror: `apps/server-go/contracts/fixtures/node-contracts.json`
+- Create: `apps/server-go/internal/contracttest/*.go`
+- Create: `apps/server-go/scripts/sync-contracts.sh`
+- Extend: `apps/server-go/Makefile` and `apps/server-go/README.md`
+- Canonical capture source: `apps/server/contracts/node/contracts.json` and `apps/server/scripts/capture-contracts.ts`
 
 **TDD cycle:**
-1. Add contract cases for all public and authenticated routes.
-2. Assert status code, content type, field names, nullability, pagination, and error shape.
-3. Run against an isolated Node server and copied DB, never production.
-4. Record fixtures only after manual review for secrets/PII.
-5. Commit.
+1. Capture all 32 public and authenticated operations against the isolated Node contract server using a synthetic temporary SQLite database and uploads directory, never a copied production database.
+2. Treat `apps/server/contracts/node/contracts.json` as canonical and validate status, JSON content type, field names, nullability, pagination, dependencies, placeholders, and error shape.
+3. From the repository root, run `pnpm --filter @technews/server contract:check`; review any canonical diff for behavior, secrets, and PII before acceptance.
+4. From `apps/server-go`, run `make contracts-accept` only after review to atomically update the generated Go mirror, then run `make contracts-check`. Checks must fail on drift and never silently skip.
+5. Verify the OpenAPI 3.1 manifest has exact operation identity/method/path parity, observed JSON statuses, and required path parameters; run full Go tests, race tests, vet, and build before committing.
 
 ### Task 5: Implement public article reads
 
@@ -261,7 +263,7 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 3. `go vet ./...`
 4. `govulncheck ./...`
 5. Build the binary.
-6. Run on `127.0.0.1:4401` with a copied database.
+6. Run on `127.0.0.1:4401` with a synthetic worktree-local database.
 7. Diff safe GET responses against an isolated Node instance.
 8. Verify production PID, port 4001 listener, database mtime, and live health were unchanged.
 9. Request explicit approval before editing launchd scripts, binding port 4001, or touching production data.
