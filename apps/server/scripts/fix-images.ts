@@ -1,4 +1,10 @@
-import db from "../src/db";
+import fs from "node:fs";
+import path from "node:path";
+import { openDatabase } from "../src/db";
+
+const databasePath = path.join(__dirname, "..", "data", "technews.db");
+fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+const db = openDatabase(databasePath);
 
 const images: Record<string, string> = {
   "rise-of-ai-agents-reshaping-software-development": "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=1200&h=630&fit=crop",

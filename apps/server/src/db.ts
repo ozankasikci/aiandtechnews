@@ -1,20 +1,19 @@
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
-import path from "path";
 
-const DB_PATH = path.join(__dirname, "..", "data", "technews.db");
+export type DatabaseConnection = InstanceType<typeof Database>;
 
-// Ensure data directory exists
-import fs from "fs";
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+export function openDatabase(databasePath: string): DatabaseConnection {
+  const database = new Database(databasePath);
+  database.pragma("journal_mode = WAL");
+  database.pragma("foreign_keys = ON");
+  return database;
+}
 
-const db: InstanceType<typeof Database> = new Database(DB_PATH);
-
-// Enable WAL mode for better concurrent read performance
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
-
-export function initializeDatabase() {
+export function initializeDatabase(
+  db: DatabaseConnection,
+  options: { seedDefaults?: boolean } = {},
+): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,10 +138,10 @@ export function initializeDatabase() {
   db.exec("CREATE INDEX IF NOT EXISTS idx_subscribers_status ON subscribers(status)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_newsletter_deliveries_edition ON newsletter_deliveries(edition_key, status)");
 
-  seed();
+  if (options.seedDefaults) seed(db);
 }
 
-function seed() {
+function seed(db: DatabaseConnection): void {
   const categoryCount = db
     .prepare("SELECT COUNT(*) as count FROM categories")
     .get() as { count: number };
@@ -198,5 +197,3 @@ function seed() {
   insertSetting.run("newsletter_provider", "none");
   insertSetting.run("newsletter_webhook_url", "");
 }
-
-export default db;

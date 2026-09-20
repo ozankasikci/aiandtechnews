@@ -1,9 +1,7 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, type RequestHandler } from "express";
 import bcrypt from "bcryptjs";
-import db from "../db";
-import { generateToken, requireAuth } from "../auth";
-import { upload } from "../upload";
-import fs from "fs";
+import type { DatabaseConnection } from "../db";
+import type { AuthService } from "../auth";
 import path from "path";
 import {
   EDITORIAL_AUTHOR,
@@ -11,13 +9,28 @@ import {
   sourceForUrl,
   validateRewrittenArticle,
 } from "../news-policy";
-import { submitArticleSlugsToIndexNow } from "../indexnow";
+import type { IndexNowResult } from "../indexnow";
 
+export interface DashboardRouterDependencies {
+  db: DatabaseConnection;
+  auth: AuthService;
+  upload: { single(fieldName: string): RequestHandler };
+  uploadRoot: string;
+  fileOperations: {
+    existsSync(filePath: string): boolean;
+    unlinkSync(filePath: string): void;
+  };
+  notifyIndexNow(slugs: string[]): Promise<IndexNowResult>;
+}
+
+export function createDashboardRouter(dependencies: DashboardRouterDependencies): ReturnType<typeof Router> {
+const { db, auth, upload, uploadRoot, fileOperations, notifyIndexNow } = dependencies;
+const { generateToken, requireAuth } = auth;
 const router: ReturnType<typeof Router> = Router();
 
 function queueIndexNowNotification(slugs: string[]): void {
   if (slugs.length === 0) return;
-  void submitArticleSlugsToIndexNow(slugs)
+  void notifyIndexNow(slugs)
     .then((result) => {
       console.log(`IndexNow accepted ${result.submitted} article URL(s) with status ${result.status}.`);
     })
@@ -593,9 +606,9 @@ router.delete("/dashboard/media/:id", (req: Request, res: Response) => {
   }
 
   // Delete file from disk
-  const filePath = path.join(__dirname, "..", media.url);
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
+  const filePath = path.join(uploadRoot, path.basename(media.url));
+  if (fileOperations.existsSync(filePath)) {
+    fileOperations.unlinkSync(filePath);
   }
 
   db.prepare("DELETE FROM media WHERE id = ?").run(req.params.id);
@@ -710,4 +723,5 @@ function formatArticleRow(row: Record<string, unknown>) {
   };
 }
 
-export default router;
+return router;
+}

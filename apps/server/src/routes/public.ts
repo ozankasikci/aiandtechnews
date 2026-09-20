@@ -1,12 +1,22 @@
 import { Router, Request, Response } from "express";
 import { timingSafeEqual } from "crypto";
-import db from "../db";
+import type { DatabaseConnection } from "../db";
 import { NewsletterConfigurationError } from "../newsletter/email";
-import { NewsletterService } from "../newsletter/service";
+import type { NewsletterService } from "../newsletter/service";
 
+export interface PublicRouterDependencies {
+  db: DatabaseConnection;
+  newsletter: Pick<NewsletterService,
+    "requestSubscription" | "confirmSubscription" | "unsubscribe" |
+    "listEditions" | "getEdition" | "sendDailyDigest">;
+  newsletterCronSecret: string;
+  now: () => number;
+  signupAttempts: number[];
+}
+
+export function createPublicRouter(dependencies: PublicRouterDependencies): ReturnType<typeof Router> {
+const { db, newsletter, newsletterCronSecret, now, signupAttempts } = dependencies;
 const router: ReturnType<typeof Router> = Router();
-const newsletter = new NewsletterService(db);
-const signupAttempts: number[] = [];
 
 // GET /api/articles — list published articles
 router.get("/articles", (req: Request, res: Response) => {
@@ -184,13 +194,13 @@ function secretsMatch(supplied: string | undefined, expected: string): boolean {
 
 // POST /api/subscribe
 router.post("/subscribe", async (req: Request, res: Response) => {
-  const now = Date.now();
-  while (signupAttempts.length && signupAttempts[0] < now - 60_000) signupAttempts.shift();
+  const timestamp = now();
+  while (signupAttempts.length && signupAttempts[0] < timestamp - 60_000) signupAttempts.shift();
   if (signupAttempts.length >= 30) {
     res.status(429).json({ error: "Too many signup attempts. Please try again shortly." });
     return;
   }
-  signupAttempts.push(now);
+  signupAttempts.push(timestamp);
 
   const email = typeof req.body?.email === "string" ? req.body.email : "";
   const placement = typeof req.body?.placement === "string" ? req.body.placement : "unknown";
@@ -268,7 +278,7 @@ router.get("/newsletter/editions/:edition", (req: Request, res: Response) => {
 });
 
 async function sendDigest(req: Request, res: Response) {
-  const expectedSecret = (process.env.NEWSLETTER_CRON_SECRET || process.env.CRON_SECRET || "").trim();
+  const expectedSecret = newsletterCronSecret.trim();
   const suppliedSecret = req.header("authorization")?.replace(/^Bearer\s+/i, "");
   if (!expectedSecret || !secretsMatch(suppliedSecret, expectedSecret)) {
     res.status(401).json({ error: "Unauthorized" });
@@ -292,4 +302,5 @@ async function sendDigest(req: Request, res: Response) {
 router.get("/newsletter/digest", sendDigest);
 router.post("/newsletter/digest", sendDigest);
 
-export default router;
+return router;
+}

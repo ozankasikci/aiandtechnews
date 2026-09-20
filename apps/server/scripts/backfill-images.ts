@@ -2,9 +2,14 @@
  * Backfill missing featured_image by fetching og:image from original article URLs.
  * For seed articles without URLs, assign relevant Unsplash images.
  */
-import db, { initializeDatabase } from "../src/db";
+import fs from "node:fs";
+import path from "node:path";
+import { initializeDatabase, openDatabase } from "../src/db";
 
-initializeDatabase();
+const databasePath = path.join(__dirname, "..", "data", "technews.db");
+fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+const db = openDatabase(databasePath);
+initializeDatabase(db, { seedDefaults: true });
 
 async function safeFetch(url: string): Promise<string | null> {
   try {

@@ -1,5 +1,10 @@
-import db, { initializeDatabase } from "../src/db";
-initializeDatabase();
+import fs from "node:fs";
+import path from "node:path";
+import { initializeDatabase, openDatabase } from "../src/db";
+const databasePath = path.join(__dirname, "..", "data", "technews.db");
+fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+const db = openDatabase(databasePath);
+initializeDatabase(db, { seedDefaults: true });
 
 const CATEGORY_IMAGES: Record<string, string[]> = {
   ai: [

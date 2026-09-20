@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import db, { initializeDatabase } from "../src/db";
+import { initializeDatabase, openDatabase, type DatabaseConnection } from "../src/db";
 import { submitArticleSlugsToIndexNow } from "../src/indexnow";
 import {
   APPROVED_FEEDS,
@@ -48,6 +48,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const LOCK_PATH = process.env.NEWS_IMPORT_LOCK_PATH || path.join(os.tmpdir(), "technews-news-import.lock");
 const LOCK_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
+let db: DatabaseConnection;
 
 function decodeHtmlEntities(value: string): string {
   return value
@@ -638,10 +639,14 @@ async function importFeedItem(item: FeedArticle, automaticOnly: boolean, minWord
 async function runWithLock(operation: () => Promise<number>): Promise<number> {
   const releaseLock = acquireImporterLock();
   try {
-    initializeDatabase();
+    const databasePath = path.join(__dirname, "..", "data", "technews.db");
+    fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+    db = openDatabase(databasePath);
+    initializeDatabase(db, { seedDefaults: true });
     ensureCategories();
     return await operation();
   } finally {
+    db?.close();
     releaseLock();
   }
 }

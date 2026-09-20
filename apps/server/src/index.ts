@@ -1,34 +1,35 @@
-import express from "express";
-import cors from "cors";
-import path from "path";
-import { initializeDatabase } from "./db";
-import publicRoutes from "./routes/public";
-import dashboardRoutes from "./routes/dashboard";
+import fs from "node:fs";
+import path from "node:path";
+import { createApp } from "./app";
+import { createAuth } from "./auth";
+import { initializeDatabase, openDatabase } from "./db";
+import { submitArticleSlugsToIndexNow } from "./indexnow";
+import { NewsletterService } from "./newsletter/service";
+import { createUpload } from "./upload";
 
-const app: ReturnType<typeof express> = express();
-const PORT = process.env.PORT || 4001;
+const port = process.env.PORT || 4001;
+const databasePath = path.join(__dirname, "..", "data", "technews.db");
+const uploadRoot = path.join(__dirname, "..", "uploads");
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+fs.mkdirSync(uploadRoot, { recursive: true });
 
-// Serve uploaded files
-app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
+const db = openDatabase(databasePath);
+initializeDatabase(db, { seedDefaults: true });
 
-// Health check
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok" });
+const app = createApp({
+  db,
+  newsletter: new NewsletterService(db),
+  auth: createAuth(process.env.JWT_SECRET || "technews-dev-secret-change-in-production"),
+  upload: createUpload(uploadRoot),
+  uploadRoot,
+  fileOperations: { existsSync: fs.existsSync, unlinkSync: fs.unlinkSync },
+  newsletterCronSecret: process.env.NEWSLETTER_CRON_SECRET || process.env.CRON_SECRET || "",
+  notifyIndexNow: submitArticleSlugsToIndexNow,
 });
 
-// Routes
-app.use("/api", publicRoutes);
-app.use("/api", dashboardRoutes);
-
-// Initialize database and start server
-initializeDatabase();
-
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+app.listen(port, () => {
+  console.log(`Server running on http://localhost:${port}`);
 });
 
 export default app;

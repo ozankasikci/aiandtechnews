@@ -2,19 +2,6 @@ import multer from "multer";
 import path from "path";
 import crypto from "crypto";
 
-const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, UPLOAD_DIR);
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const name = crypto.randomBytes(16).toString("hex");
-    cb(null, `${name}${ext}`);
-  },
-});
-
 const fileFilter = (
   _req: Express.Request,
   file: Express.Multer.File,
@@ -28,8 +15,18 @@ const fileFilter = (
   }
 };
 
-export const upload = multer({
-  storage,
-  fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-});
+export function createUpload(directory: string): ReturnType<typeof multer> {
+  const storage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, directory),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      const name = crypto.randomBytes(16).toString("hex");
+      cb(null, `${name}${ext}`);
+    },
+  });
+  return multer({
+    storage,
+    fileFilter,
+    limits: { fileSize: 5 * 1024 * 1024 },
+  });
+}
