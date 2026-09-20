@@ -162,9 +162,12 @@ func TestRouterHTTPFoundation(t *testing.T) {
 		if got := response.Body.String(); got != "" {
 			t.Errorf("preflight body = %q, want empty", got)
 		}
+		if got := response.Result().ContentLength; got != 0 {
+			t.Errorf("Content-Length = %d, want 0", got)
+		}
 	})
 
-	t.Run("CORS preflight without requested headers has no Vary", func(t *testing.T) {
+	t.Run("CORS preflight without requested headers still varies on request headers", func(t *testing.T) {
 		request := httptest.NewRequest(http.MethodOptions, "/api/echo-id", nil)
 		request.Header.Set("Origin", "https://example.test")
 		request.Header.Set("Access-Control-Request-Method", http.MethodGet)
@@ -182,8 +185,53 @@ func TestRouterHTTPFoundation(t *testing.T) {
 		if got := response.Header().Values("Access-Control-Allow-Headers"); len(got) != 0 {
 			t.Errorf("Access-Control-Allow-Headers = %q, want absent", got)
 		}
-		if got := response.Header().Values("Vary"); len(got) != 0 {
-			t.Errorf("Vary = %q, want absent", got)
+		if got := response.Header().Values("Vary"); len(got) != 1 || got[0] != "Access-Control-Request-Headers" {
+			t.Errorf("Vary = %q, want only Access-Control-Request-Headers", got)
+		}
+		if got := response.Body.String(); got != "" {
+			t.Errorf("preflight body = %q, want empty", got)
+		}
+		if got := response.Result().ContentLength; got != 0 {
+			t.Errorf("Content-Length = %d, want 0", got)
+		}
+	})
+
+	t.Run("plain OPTIONS merges the request-header Vary field", func(t *testing.T) {
+		response := httptest.NewRecorder()
+		response.Header().Set("Vary", "Accept-Encoding")
+		expressCORS(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Error("OPTIONS request reached next handler")
+		})).ServeHTTP(response, httptest.NewRequest(http.MethodOptions, "/", nil))
+
+		if got := response.Header().Values("Vary"); len(got) != 1 || got[0] != "Accept-Encoding, Access-Control-Request-Headers" {
+			t.Errorf("Vary = %q, want merged Express-compatible value", got)
+		}
+	})
+
+	t.Run("plain OPTIONS short-circuits exactly like Express CORS", func(t *testing.T) {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodOptions, "/api/echo-id", nil))
+
+		if response.Code != http.StatusNoContent {
+			t.Errorf("status = %d, want 204", response.Code)
+		}
+		if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+			t.Errorf("Access-Control-Allow-Origin = %q", got)
+		}
+		if got := response.Header().Get("Access-Control-Allow-Methods"); got != "GET,HEAD,PUT,PATCH,POST,DELETE" {
+			t.Errorf("Access-Control-Allow-Methods = %q", got)
+		}
+		if got := response.Header().Values("Access-Control-Allow-Headers"); len(got) != 0 {
+			t.Errorf("Access-Control-Allow-Headers = %q, want absent", got)
+		}
+		if got := response.Header().Values("Vary"); len(got) != 1 || got[0] != "Access-Control-Request-Headers" {
+			t.Errorf("Vary = %q, want only Access-Control-Request-Headers", got)
+		}
+		if got := response.Body.String(); got != "" {
+			t.Errorf("OPTIONS body = %q, want empty", got)
+		}
+		if got := response.Result().ContentLength; got != 0 {
+			t.Errorf("Content-Length = %d, want 0", got)
 		}
 	})
 }

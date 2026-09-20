@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -57,17 +58,30 @@ func expressCORS(next http.Handler) http.Handler {
 		// Match the default Express cors() contract rather than a browser-equivalent
 		// approximation. In particular, wildcard origins do not require Vary: Origin.
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		if r.Method == http.MethodOptions && r.Header.Get("Origin") != "" && r.Header.Get("Access-Control-Request-Method") != "" {
+		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", expressAllowedMethods)
+			mergeVary(w.Header(), "Access-Control-Request-Headers")
 			if requestedHeaders := r.Header.Get("Access-Control-Request-Headers"); requestedHeaders != "" {
 				w.Header().Set("Access-Control-Allow-Headers", requestedHeaders)
-				w.Header().Set("Vary", "Access-Control-Request-Headers")
 			}
+			w.Header().Set("Content-Length", "0")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func mergeVary(header http.Header, field string) {
+	values := header.Values("Vary")
+	for _, value := range values {
+		for _, token := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(token), field) {
+				return
+			}
+		}
+	}
+	header.Set("Vary", strings.Join(append(values, field), ", "))
 }
 
 func requestID(next http.Handler) http.Handler {
