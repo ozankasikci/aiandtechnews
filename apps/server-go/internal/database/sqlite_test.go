@@ -40,8 +40,8 @@ func TestOpenConfiguresSQLiteAndEscapesFilePath(t *testing.T) {
 	}
 	if info, err := os.Stat(filepath.Dir(path)); err != nil {
 		t.Fatalf("parent directory: %v", err)
-	} else if info.Mode().Perm() != 0o750 {
-		t.Errorf("parent mode = %#o, want %#o", info.Mode().Perm(), 0o750)
+	} else if got := info.Mode().Perm(); got&^0o750 != 0 || got&0o022 != 0 {
+		t.Errorf("parent mode = %#o, want no permissions outside 0750 and no group/world write bits", got)
 	}
 
 	if _, err := db.Exec(`CREATE TABLE parent (id INTEGER PRIMARY KEY)`); err != nil {

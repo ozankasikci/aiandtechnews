@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -90,6 +92,50 @@ func TestRunRollsBackAllMigrationsOnFailure(t *testing.T) {
 	assertObjectAbsent(t, db, "schema_migrations")
 }
 
+func TestRunRejectsAttachBeforeItCanLeakOutsideRollback(t *testing.T) {
+	db, _ := openDB(t)
+	auxPath := filepath.Join(t.TempDir(), "auxiliary.db")
+	descriptor := migrate.Descriptor{
+		Version: 1,
+		Name:    "attach escape",
+		SQL:     fmt.Sprintf("ATTACH DATABASE '%s' AS aux; CREATE TABLE leaked(id INTEGER); INSERT INTO missing_table VALUES (1);", strings.ReplaceAll(auxPath, "'", "''")),
+	}
+
+	err := migrate.Run(context.Background(), db, []migrate.Descriptor{descriptor})
+	if !errors.Is(err, migrate.ErrInvalidDescriptors) {
+		t.Errorf("Run() error = %v, want ErrInvalidDescriptors", err)
+	}
+	if _, err := os.Stat(auxPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("auxiliary database Stat() error = %v, want not exist", err)
+	}
+	assertDatabaseNames(t, db, "main")
+	assertObjectAbsent(t, db, "schema_migrations")
+	assertObjectAbsent(t, db, "leaked")
+}
+
+func TestRunRejectsPragmaBeforeItCanLeakOutsideRollback(t *testing.T) {
+	db, _ := openDB(t)
+	descriptor := migrate.Descriptor{
+		Version: 1,
+		Name:    "pragma escape",
+		SQL:     `PRAGMA ignore_check_constraints=ON; CREATE TABLE leaked(id INTEGER); INSERT INTO missing_table VALUES (1);`,
+	}
+
+	err := migrate.Run(context.Background(), db, []migrate.Descriptor{descriptor})
+	if !errors.Is(err, migrate.ErrInvalidDescriptors) {
+		t.Errorf("Run() error = %v, want ErrInvalidDescriptors", err)
+	}
+	var ignoreCheckConstraints int
+	if err := db.QueryRow(`PRAGMA ignore_check_constraints`).Scan(&ignoreCheckConstraints); err != nil {
+		t.Fatalf("read ignore_check_constraints: %v", err)
+	}
+	if ignoreCheckConstraints != 0 {
+		t.Errorf("ignore_check_constraints = %d, want 0", ignoreCheckConstraints)
+	}
+	assertObjectAbsent(t, db, "schema_migrations")
+	assertObjectAbsent(t, db, "leaked")
+}
+
 func TestRunAppliesTriggerMigrationAndRecordsLedger(t *testing.T) {
 	db, _ := openDB(t)
 	descriptor := migrate.Descriptor{
@@ -170,20 +216,23 @@ func TestRunRejectsTransactionControlBeforeDatabaseTouch(t *testing.T) {
 
 func TestRunValidatesDescriptorSQLStatementStarts(t *testing.T) {
 	rejected := map[string]string{
-		"begin":                  `BEGIN`,
-		"commit mixed case":      `cOmMiT TRANSACTION`,
-		"rollback after SQL":     `CREATE TABLE ok(id INTEGER); ROLLBACK`,
-		"savepoint comments":     "CREATE TABLE ok(id INTEGER); -- explain\n /* more */ SAVEPOINT x",
-		"release semicolons":     `;;; RELEASE x`,
-		"top-level end":          `END`,
-		"commit after trigger":   `CREATE TRIGGER safe_insert AFTER INSERT ON safe BEGIN SELECT 1; END; COMMIT`,
-		"commit in trigger body": `CREATE TRIGGER unsafe_insert AFTER INSERT ON safe BEGIN SELECT 1; COMMIT; END;`,
-		"vacuum":                 ` VACUUM main`,
-		"unterminated comment":   `CREATE TABLE ok(id INTEGER); /* never closed`,
-		"unterminated string":    `INSERT INTO ok VALUES ('never closed)`,
-		"unterminated double":    `CREATE TABLE "never closed (id INTEGER)`,
-		"unterminated backtick":  "CREATE TABLE `never closed (id INTEGER)",
-		"unterminated bracket":   `CREATE TABLE [never closed (id INTEGER)`,
+		"attach mixed case":       `aTtAcH DATABASE 'aux.db' AS aux`,
+		"detach after comments":   "-- prefix\n/* more */ DeTaCh DATABASE aux",
+		"pragma after semicolons": `;;; pRaGmA ignore_check_constraints=ON`,
+		"begin":                   `BEGIN`,
+		"commit mixed case":       `cOmMiT TRANSACTION`,
+		"rollback after SQL":      `CREATE TABLE ok(id INTEGER); ROLLBACK`,
+		"savepoint comments":      "CREATE TABLE ok(id INTEGER); -- explain\n /* more */ SAVEPOINT x",
+		"release semicolons":      `;;; RELEASE x`,
+		"top-level end":           `END`,
+		"commit after trigger":    `CREATE TRIGGER safe_insert AFTER INSERT ON safe BEGIN SELECT 1; END; COMMIT`,
+		"commit in trigger body":  `CREATE TRIGGER unsafe_insert AFTER INSERT ON safe BEGIN SELECT 1; COMMIT; END;`,
+		"vacuum":                  ` VACUUM main`,
+		"unterminated comment":    `CREATE TABLE ok(id INTEGER); /* never closed`,
+		"unterminated string":     `INSERT INTO ok VALUES ('never closed)`,
+		"unterminated double":     `CREATE TABLE "never closed (id INTEGER)`,
+		"unterminated backtick":   "CREATE TABLE `never closed (id INTEGER)",
+		"unterminated bracket":    `CREATE TABLE [never closed (id INTEGER)`,
 	}
 	for name, sqlText := range rejected {
 		t.Run("reject "+name, func(t *testing.T) {
@@ -199,15 +248,18 @@ func TestRunValidatesDescriptorSQLStatementStarts(t *testing.T) {
 	}
 
 	accepted := map[string]string{
-		"ordinary multi statement": `CREATE TABLE ordinary(id INTEGER); INSERT INTO ordinary VALUES (1);`,
-		"keywords in literals":     `SELECT 'COMMIT; ROLLBACK', 'it''s BEGIN'; SELECT 1;`,
-		"keywords in comments":     "-- COMMIT;\n/* ROLLBACK; SAVEPOINT */ SELECT 1;",
-		"keywords as identifiers":  `CREATE TABLE commit_log(begin_value TEXT, rollback_reason TEXT);`,
-		"quoted identifiers":       "CREATE TABLE \"COMMIT\" (`ROLLBACK` TEXT, [BEGIN] TEXT);",
-		"escaped quoted content":   "SELECT \"a\"\"; COMMIT\", `b``; ROLLBACK`, [c]]; VACUUM]; SELECT 1;",
-		"create trigger":           `CREATE /* prefix comment */ TRIGGER audit_insert AFTER INSERT ON ordinary BEGIN INSERT INTO ordinary VALUES (NEW.id); UPDATE ordinary SET id = id; END;`,
-		"create temp trigger":      "CREATE -- prefix comment\n TEMP TRIGGER audit_insert AFTER INSERT ON ordinary BEGIN SELECT 'END; COMMIT'; /* body ; */ SELECT 1; END;",
-		"create temporary trigger": `CREATE TEMPORARY TRIGGER audit_insert AFTER INSERT ON ordinary BEGIN SELECT 1; END;`,
+		"ordinary multi statement":  `CREATE TABLE ordinary(id INTEGER); INSERT INTO ordinary VALUES (1);`,
+		"new unsafe words literals": `SELECT 'ATTACH; DETACH; PRAGMA';`,
+		"new unsafe words comments": "-- ATTACH; DETACH; PRAGMA\nSELECT 1;",
+		"new unsafe identifiers":    `CREATE TABLE pragma_log(attach_value TEXT, detach_reason TEXT);`,
+		"keywords in literals":      `SELECT 'COMMIT; ROLLBACK', 'it''s BEGIN'; SELECT 1;`,
+		"keywords in comments":      "-- COMMIT;\n/* ROLLBACK; SAVEPOINT */ SELECT 1;",
+		"keywords as identifiers":   `CREATE TABLE commit_log(begin_value TEXT, rollback_reason TEXT);`,
+		"quoted identifiers":        "CREATE TABLE \"COMMIT\" (`ROLLBACK` TEXT, [BEGIN] TEXT);",
+		"escaped quoted content":    "SELECT \"a\"\"; COMMIT\", `b``; ROLLBACK`, [c]]; VACUUM]; SELECT 1;",
+		"create trigger":            `CREATE /* prefix comment */ TRIGGER audit_insert AFTER INSERT ON ordinary BEGIN INSERT INTO ordinary VALUES (NEW.id); UPDATE ordinary SET id = id; END;`,
+		"create temp trigger":       "CREATE -- prefix comment\n TEMP TRIGGER audit_insert AFTER INSERT ON ordinary BEGIN SELECT 'END; COMMIT'; /* body ; */ SELECT 1; END;",
+		"create temporary trigger":  `CREATE TEMPORARY TRIGGER audit_insert AFTER INSERT ON ordinary BEGIN SELECT 1; END;`,
 	}
 	for name, sqlText := range accepted {
 		t.Run("accept "+name, func(t *testing.T) {
@@ -339,6 +391,41 @@ func TestRunRejectsIncompatibleLedgerSchemas(t *testing.T) {
 	}
 }
 
+func TestRunRejectsMalformedAppliedAtBeforePendingMigrations(t *testing.T) {
+	db, _ := openDB(t)
+	applied := migrate.Descriptor{Version: 1, Name: "applied", SQL: `CREATE TABLE applied(id INTEGER);`}
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (
+		version INTEGER PRIMARY KEY,
+		name TEXT NOT NULL UNIQUE,
+		checksum TEXT NOT NULL,
+		applied_at TEXT NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)`,
+		applied.Version, applied.Name, applied.Checksum(), "not-a-timestamp"); err != nil {
+		t.Fatal(err)
+	}
+	pending := migrate.Descriptor{Version: 2, Name: "pending", SQL: `CREATE TABLE pending(id INTEGER);`}
+
+	err := migrate.Run(context.Background(), db, []migrate.Descriptor{applied, pending})
+	if !errors.Is(err, migrate.ErrIncompatibleLedger) {
+		t.Fatalf("Run() error = %v, want ErrIncompatibleLedger", err)
+	}
+	var parseError *time.ParseError
+	if !errors.As(err, &parseError) {
+		t.Fatalf("Run() error = %v, want underlying time.ParseError", err)
+	}
+	assertObjectAbsent(t, db, "pending")
+	var rows int
+	if err := db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Fatalf("ledger rows = %d, want 1", rows)
+	}
+}
+
 func TestConcurrentRunnersApplyExactlyOnce(t *testing.T) {
 	_, path := openDB(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -395,6 +482,9 @@ func TestCancellationLeavesNoPartialState(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run() error = nil")
 	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Run() error = %v, want context.DeadlineExceeded identity", err)
+	}
 	assertObjectAbsent(t, db, "canceled")
 	var ledgerRows, baseRows int
 	if err := db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&ledgerRows); err != nil {
@@ -405,6 +495,30 @@ func TestCancellationLeavesNoPartialState(t *testing.T) {
 	}
 	if ledgerRows != 1 || baseRows != 1 {
 		t.Fatalf("state after cancellation = ledger rows %d, base rows %d; want 1, 1", ledgerRows, baseRows)
+	}
+}
+
+func assertDatabaseNames(t *testing.T, db *sql.DB, want ...string) {
+	t.Helper()
+	rows, err := db.Query(`PRAGMA database_list`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var sequence int
+		var name, file string
+		if err := rows.Scan(&sequence, &name, &file); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("database names = %v, want %v", got, want)
 	}
 }
 

@@ -2,9 +2,10 @@
 //
 // Migration SQL is immutable: checksums cover its exact bytes. A migration must
 // not contain transaction-control statements (BEGIN, COMMIT, ROLLBACK,
-// SAVEPOINT, RELEASE, or top-level END) or operations SQLite forbids in a
-// transaction, such as VACUUM. END is permitted only as the closing keyword of
-// a recognized CREATE TRIGGER body. The runner owns the single transaction
+// SAVEPOINT, RELEASE, or top-level END), operations SQLite forbids in a
+// transaction such as VACUUM, or connection/file-affecting ATTACH, DETACH, and
+// PRAGMA statements. END is permitted only as the closing keyword of a
+// recognized CREATE TRIGGER body. The runner owns the single transaction
 // around the complete migration batch.
 package migrate
 
@@ -178,8 +179,11 @@ func validateDescriptors(descriptors []Descriptor) error {
 }
 
 var transactionUnsafeStatements = map[string]struct{}{
+	"ATTACH":    {},
 	"BEGIN":     {},
 	"COMMIT":    {},
+	"DETACH":    {},
+	"PRAGMA":    {},
 	"ROLLBACK":  {},
 	"SAVEPOINT": {},
 	"RELEASE":   {},
@@ -204,8 +208,9 @@ const (
 // [TEMP|TEMPORARY] TRIGGER ... BEGIN ...; ...; END so body semicolons do not
 // hide transaction control and the trigger-closing END is not mistaken for a
 // transaction statement. It is not a general SQL parser. The migration runner,
-// rather than descriptors, owns the transaction, so transaction control and
-// statements that cannot run in a transaction are rejected.
+// rather than descriptors, owns the transaction, so transaction control,
+// statements that cannot run in a transaction, and connection/file-affecting
+// statements whose effects can survive rollback are rejected.
 func validateDescriptorSQL(sqlText string) error {
 	statementStart := true
 	triggerState := triggerNone
@@ -373,7 +378,7 @@ type columnInfo struct {
 func validateLedger(ctx context.Context, q queryer) error {
 	rows, err := q.QueryContext(ctx, `PRAGMA table_info('schema_migrations')`)
 	if err != nil {
-		return fmt.Errorf("%w: inspect columns: %v", ErrIncompatibleLedger, err)
+		return fmt.Errorf("%w: inspect columns: %w", ErrIncompatibleLedger, err)
 	}
 	defer rows.Close()
 	columns := map[string]columnInfo{}
@@ -382,12 +387,12 @@ func validateLedger(ctx context.Context, q queryer) error {
 		var column columnInfo
 		var defaultValue any
 		if err := rows.Scan(&cid, &column.name, &column.typeName, &column.notNull, &defaultValue, &column.pk); err != nil {
-			return fmt.Errorf("%w: scan columns: %v", ErrIncompatibleLedger, err)
+			return fmt.Errorf("%w: scan columns: %w", ErrIncompatibleLedger, err)
 		}
 		columns[column.name] = column
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("%w: inspect columns: %v", ErrIncompatibleLedger, err)
+		return fmt.Errorf("%w: inspect columns: %w", ErrIncompatibleLedger, err)
 	}
 	if len(columns) != 4 || !validColumn(columns["version"], "INTEGER", false, 1) ||
 		!validColumn(columns["name"], "TEXT", true, 0) ||
@@ -419,7 +424,7 @@ func boolInt(value bool) int {
 func hasUniqueNameIndex(ctx context.Context, q queryer) (bool, error) {
 	rows, err := q.QueryContext(ctx, `PRAGMA index_list('schema_migrations')`)
 	if err != nil {
-		return false, fmt.Errorf("%w: inspect indexes: %v", ErrIncompatibleLedger, err)
+		return false, fmt.Errorf("%w: inspect indexes: %w", ErrIncompatibleLedger, err)
 	}
 	type index struct {
 		name    string
@@ -433,12 +438,12 @@ func hasUniqueNameIndex(ctx context.Context, q queryer) (bool, error) {
 		var origin string
 		if err := rows.Scan(&seq, &idx.name, &idx.unique, &origin, &idx.partial); err != nil {
 			rows.Close()
-			return false, fmt.Errorf("%w: scan indexes: %v", ErrIncompatibleLedger, err)
+			return false, fmt.Errorf("%w: scan indexes: %w", ErrIncompatibleLedger, err)
 		}
 		indexes = append(indexes, idx)
 	}
 	if err := rows.Close(); err != nil {
-		return false, fmt.Errorf("%w: close indexes: %v", ErrIncompatibleLedger, err)
+		return false, fmt.Errorf("%w: close indexes: %w", ErrIncompatibleLedger, err)
 	}
 	for _, idx := range indexes {
 		if idx.unique != 1 || idx.partial != 0 {
@@ -446,7 +451,7 @@ func hasUniqueNameIndex(ctx context.Context, q queryer) (bool, error) {
 		}
 		info, err := q.QueryContext(ctx, `PRAGMA index_info('`+strings.ReplaceAll(idx.name, "'", "''")+`')`)
 		if err != nil {
-			return false, fmt.Errorf("%w: inspect index: %v", ErrIncompatibleLedger, err)
+			return false, fmt.Errorf("%w: inspect index: %w", ErrIncompatibleLedger, err)
 		}
 		var names []string
 		for info.Next() {
@@ -454,12 +459,12 @@ func hasUniqueNameIndex(ctx context.Context, q queryer) (bool, error) {
 			var name string
 			if err := info.Scan(&seq, &cid, &name); err != nil {
 				info.Close()
-				return false, fmt.Errorf("%w: scan index: %v", ErrIncompatibleLedger, err)
+				return false, fmt.Errorf("%w: scan index: %w", ErrIncompatibleLedger, err)
 			}
 			names = append(names, name)
 		}
 		if err := info.Close(); err != nil {
-			return false, fmt.Errorf("%w: close index: %v", ErrIncompatibleLedger, err)
+			return false, fmt.Errorf("%w: close index: %w", ErrIncompatibleLedger, err)
 		}
 		if len(names) == 1 && names[0] == "name" {
 			return true, nil
@@ -471,7 +476,7 @@ func hasUniqueNameIndex(ctx context.Context, q queryer) (bool, error) {
 type appliedRecord struct{ name, checksum string }
 
 func readApplied(ctx context.Context, q queryer) (map[int64]appliedRecord, []int64, int64, error) {
-	rows, err := q.QueryContext(ctx, `SELECT version, name, checksum FROM schema_migrations ORDER BY version`)
+	rows, err := q.QueryContext(ctx, `SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version`)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("read migration ledger: %w", err)
 	}
@@ -482,8 +487,12 @@ func readApplied(ctx context.Context, q queryer) (map[int64]appliedRecord, []int
 	for rows.Next() {
 		var version int64
 		var record appliedRecord
-		if err := rows.Scan(&version, &record.name, &record.checksum); err != nil {
+		var appliedAt string
+		if err := rows.Scan(&version, &record.name, &record.checksum, &appliedAt); err != nil {
 			return nil, nil, 0, fmt.Errorf("scan migration ledger: %w", err)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, appliedAt); err != nil {
+			return nil, nil, 0, fmt.Errorf("%w: version %d has invalid applied_at %q: %w", ErrIncompatibleLedger, version, appliedAt, err)
 		}
 		applied[version] = record
 		versions = append(versions, version)

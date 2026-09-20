@@ -46,7 +46,7 @@ The service is a single binary with a `cmd` plus `internal` layout:
 - `cmd/api` is the executable entry point and imports only configuration and the application composition root.
 - `internal/app` wires modules and infrastructure, including gathering capability-owned migration descriptors in execution order.
 - Cohesive capability packages such as `content`, `editorial`, `newsletter`, `media`, and `settings` own their domain, repository, service, HTTP handlers, relative route mounting, and migration SQL.
-- `internal/database/migrate` owns only the migration ledger and runner; it does not own capability schema SQL.
+- `internal/database/migrate` owns only the migration ledger and runner; it does not own capability schema SQL. The runner owns migration transaction boundaries, so descriptors must not contain transaction control, `VACUUM`, `ATTACH`, `DETACH`, or `PRAGMA` statements. `ATTACH`, `DETACH`, and `PRAGMA` are rejected because their file, attachment, or connection effects can survive a rollback.
 - Narrow infrastructure packages live under `internal` and are named for their purpose.
 - Interfaces are declared by the consuming package at the point of use. Constructors return concrete types unless a consumer needs an interface.
 
