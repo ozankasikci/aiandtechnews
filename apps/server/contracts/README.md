@@ -37,7 +37,8 @@ stable or secret-free fixture:
 
 - login JWT: `$JWT`
 - authenticated request header: `$AUTHORIZATION`
-- signed newsletter tokens: `$NEWSLETTER_TOKEN`
+- signed newsletter tokens: `$NEWSLETTER_CONFIRM_TOKEN`, `$NEWSLETTER_UNSUBSCRIBE_ACTIVE_TOKEN`, and
+  `$NEWSLETTER_UNSUBSCRIBE_OLD_TOKEN`
 - digest secret header: `$CRON_AUTHORIZATION`
 - Multer random basename and URL: `$UPLOAD_FILENAME` and `/uploads/$UPLOAD_FILENAME`
 - multipart boundary: `$MULTIPART_BOUNDARY`
@@ -46,6 +47,28 @@ stable or secret-free fixture:
 Runtime requests still use the real synthetic JWT, signed tokens, cron secret, password, and
 multipart body. No raw secret or credential is written to the fixture. Response headers are limited
 to contract-relevant `content-type` and CORS headers; volatile transport headers are omitted.
+
+## Schema version 2 replay data
+
+Schema version 2 contains enough metadata for a consumer to replay operations rather than only
+compare responses:
+
+- A templated route keeps its canonical `request.path` and also records the concrete
+  `request.actualPath` and typed `request.pathParameters` used during capture.
+- `dependencies` connect a creating operation to later requests with RFC 6901 JSON pointers:
+  `responsePointer` selects a value from the earlier response and `requestTarget` identifies where
+  to bind it in the later request.
+- `replay.bindings` defines resolvers for every placeholder. Resolvers can read a secret reference,
+  apply a template, extract a prior response with a JSON pointer, reproduce a newsletter token at
+  its fixed expiry, or provide a literal value.
+- JWT and newsletter bindings contain SHA-256 hashes and decoded compatibility vectors, never raw
+  tokens. Newsletter vectors contain the exact signed payload (`v`, `id`, `purpose`, and `exp`).
+- Multipart requests record exact file bytes as `contentBase64`, together with field name, filename,
+  MIME type, and byte size; the boundary is a replay binding.
+
+Capture requests have a bounded timeout. Shutdown first uses a bounded `SIGTERM` grace period, then
+a bounded `SIGKILL` wait. The harness stdout protocol is exactly one complete newline-terminated JSON
+ready line for its entire lifecycle; diagnostics use stderr, and extra or partial stdout is rejected.
 
 Extra probes live under `observations` and are explicitly excluded from the 32-operation coverage.
 They currently preserve the legacy facts that logout does not revoke its JWT and an unauthenticated

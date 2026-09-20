@@ -1,45 +1,136 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "source": "node-contract-server",
   "fixedClock": "2026-09-20T12:00:00.000Z",
-  "normalization": {
-    "rules": [
+  "replay": {
+    "bindings": [
+      {
+        "placeholder": "$PASSWORD",
+        "resolver": {
+          "type": "secretRef",
+          "name": "CONTRACT_TEST_PASSWORD"
+        },
+        "sensitive": true
+      },
       {
         "placeholder": "$JWT",
-        "appliesTo": "auth.login response token",
-        "runtime": "fixed-clock signed JWT"
+        "resolver": {
+          "type": "responseJsonPointer",
+          "operationId": "auth.login",
+          "pointer": "/token"
+        },
+        "sensitive": true,
+        "vector": {
+          "alg": "HS256",
+          "claims": {
+            "id": 201,
+            "email": "editorial@example.invalid",
+            "role": "admin",
+            "iat": 1789905600,
+            "exp": 1790510400
+          },
+          "sha256": "f075310d5db836008907399e2d08f182b0d5734e870aa3db14b715c69be4ae56"
+        }
       },
       {
         "placeholder": "$AUTHORIZATION",
-        "appliesTo": "authenticated request authorization headers",
-        "runtime": "Bearer plus raw JWT"
+        "resolver": {
+          "type": "template",
+          "value": "Bearer ${$JWT}"
+        },
+        "dependsOn": [
+          "$JWT"
+        ],
+        "sensitive": true
       },
       {
-        "placeholder": "$NEWSLETTER_TOKEN",
-        "appliesTo": "newsletter query/body tokens",
-        "runtime": "signed with synthetic secret"
+        "placeholder": "$NEWSLETTER_CONFIRM_TOKEN",
+        "resolver": {
+          "type": "newsletterToken",
+          "secretRef": "NEWSLETTER_TOKEN_SECRET",
+          "subscriberId": 501,
+          "purpose": "confirm",
+          "expiresAt": "2026-09-21T12:00:00.000Z"
+        },
+        "sensitive": true,
+        "vector": {
+          "payload": {
+            "v": 1,
+            "id": 501,
+            "purpose": "confirm",
+            "exp": 1789992000
+          },
+          "sha256": "12144e7efe9c98d9a9be27f9dff1bd8c4b10726d898d3f2e2e3cad0515af3e8c"
+        }
+      },
+      {
+        "placeholder": "$NEWSLETTER_UNSUBSCRIBE_ACTIVE_TOKEN",
+        "resolver": {
+          "type": "newsletterToken",
+          "secretRef": "NEWSLETTER_TOKEN_SECRET",
+          "subscriberId": 502,
+          "purpose": "unsubscribe",
+          "expiresAt": "2026-09-21T12:00:00.000Z"
+        },
+        "sensitive": true,
+        "vector": {
+          "payload": {
+            "v": 1,
+            "id": 502,
+            "purpose": "unsubscribe",
+            "exp": 1789992000
+          },
+          "sha256": "8a5f9115ef9cd2f885011fed72152da01370cfe03321d2f6e30e388bae41b345"
+        }
+      },
+      {
+        "placeholder": "$NEWSLETTER_UNSUBSCRIBE_OLD_TOKEN",
+        "resolver": {
+          "type": "newsletterToken",
+          "secretRef": "NEWSLETTER_TOKEN_SECRET",
+          "subscriberId": 503,
+          "purpose": "unsubscribe",
+          "expiresAt": "2026-09-21T12:00:00.000Z"
+        },
+        "sensitive": true,
+        "vector": {
+          "payload": {
+            "v": 1,
+            "id": 503,
+            "purpose": "unsubscribe",
+            "exp": 1789992000
+          },
+          "sha256": "599439807ad1d2e93aed0ab1adbfa6bf029bafb3bdfa24e73ddcdceab3a6fc3a"
+        }
       },
       {
         "placeholder": "$CRON_AUTHORIZATION",
-        "appliesTo": "digest authorization headers",
-        "runtime": "Bearer plus synthetic cron secret"
+        "resolver": {
+          "type": "secretRefTemplate",
+          "secretRef": "CRON_SECRET",
+          "value": "Bearer ${secret}"
+        },
+        "sensitive": true
       },
       {
         "placeholder": "$UPLOAD_FILENAME",
-        "appliesTo": "Multer-generated response URL/filename",
-        "runtime": "cryptographically random basename"
+        "resolver": {
+          "type": "responseJsonPointer",
+          "operationId": "dashboard.media.upload",
+          "pointer": "/media/filename"
+        }
       },
       {
         "placeholder": "$MULTIPART_BOUNDARY",
-        "appliesTo": "multipart content-type boundary",
-        "runtime": "fixed harness boundary omitted from fixture"
-      },
-      {
-        "placeholder": "$PASSWORD",
-        "appliesTo": "auth.login request password",
-        "runtime": "documented synthetic test password"
+        "resolver": {
+          "type": "literal",
+          "value": "technews-contract-boundary"
+        }
       }
-    ],
+    ]
+  },
+  "normalization": {
+    "strategy": "Only nondeterministic or sensitive values are replaced; hashes and decoded metadata provide safe compatibility vectors.",
     "fixedValuesRemainLiteral": [
       "database IDs",
       "2026-09-20T12:00:00.000Z and derived timestamps",
@@ -260,6 +351,10 @@
       "request": {
         "method": "GET",
         "path": "/api/articles/:slug",
+        "actualPath": "/api/articles/synthetic-published-newer",
+        "pathParameters": {
+          "slug": "synthetic-published-newer"
+        },
         "headers": {
           "origin": "https://client.example.invalid"
         }
@@ -313,6 +408,10 @@
       "request": {
         "method": "GET",
         "path": "/api/articles/id/:id",
+        "actualPath": "/api/articles/id/301",
+        "pathParameters": {
+          "id": 301
+        },
         "headers": {
           "origin": "https://client.example.invalid"
         }
@@ -480,7 +579,7 @@
         "method": "GET",
         "path": "/api/newsletter/confirm",
         "query": {
-          "token": "$NEWSLETTER_TOKEN"
+          "token": "$NEWSLETTER_CONFIRM_TOKEN"
         },
         "headers": {
           "origin": "https://client.example.invalid"
@@ -504,7 +603,7 @@
         "method": "GET",
         "path": "/api/newsletter/unsubscribe",
         "query": {
-          "token": "$NEWSLETTER_TOKEN"
+          "token": "$NEWSLETTER_UNSUBSCRIBE_ACTIVE_TOKEN"
         },
         "headers": {
           "origin": "https://client.example.invalid"
@@ -531,7 +630,7 @@
           "content-type": "application/json"
         },
         "body": {
-          "token": "$NEWSLETTER_TOKEN"
+          "token": "$NEWSLETTER_UNSUBSCRIBE_OLD_TOKEN"
         }
       },
       "response": {
@@ -594,6 +693,10 @@
       "request": {
         "method": "GET",
         "path": "/api/newsletter/editions/:edition",
+        "actualPath": "/api/newsletter/editions/2026-09-19",
+        "pathParameters": {
+          "edition": "2026-09-19"
+        },
         "headers": {
           "origin": "https://client.example.invalid"
         }
@@ -923,6 +1026,10 @@
       "request": {
         "method": "GET",
         "path": "/api/dashboard/articles/:id",
+        "actualPath": "/api/dashboard/articles/303",
+        "pathParameters": {
+          "id": 303
+        },
         "headers": {
           "origin": "https://client.example.invalid",
           "authorization": "$AUTHORIZATION"
@@ -1040,6 +1147,10 @@
       "request": {
         "method": "PUT",
         "path": "/api/dashboard/articles/:id",
+        "actualPath": "/api/dashboard/articles/305",
+        "pathParameters": {
+          "id": 305
+        },
         "headers": {
           "origin": "https://client.example.invalid",
           "content-type": "application/json",
@@ -1050,6 +1161,13 @@
           "meta_description": null
         }
       },
+      "dependencies": [
+        {
+          "operationId": "dashboard.articles.create",
+          "responsePointer": "/article/id",
+          "requestTarget": "/pathParameters/id"
+        }
+      ],
       "response": {
         "status": 200,
         "headers": {
@@ -1099,11 +1217,22 @@
       "request": {
         "method": "DELETE",
         "path": "/api/dashboard/articles/:id",
+        "actualPath": "/api/dashboard/articles/305",
+        "pathParameters": {
+          "id": 305
+        },
         "headers": {
           "origin": "https://client.example.invalid",
           "authorization": "$AUTHORIZATION"
         }
       },
+      "dependencies": [
+        {
+          "operationId": "dashboard.articles.create",
+          "responsePointer": "/article/id",
+          "requestTarget": "/pathParameters/id"
+        }
+      ],
       "response": {
         "status": 200,
         "headers": {
@@ -1208,6 +1337,10 @@
       "request": {
         "method": "PUT",
         "path": "/api/dashboard/categories/:id",
+        "actualPath": "/api/dashboard/categories/105",
+        "pathParameters": {
+          "id": 105
+        },
         "headers": {
           "origin": "https://client.example.invalid",
           "content-type": "application/json",
@@ -1218,6 +1351,13 @@
           "color": "#fedcba"
         }
       },
+      "dependencies": [
+        {
+          "operationId": "dashboard.categories.create",
+          "responsePointer": "/category/id",
+          "requestTarget": "/pathParameters/id"
+        }
+      ],
       "response": {
         "status": 200,
         "headers": {
@@ -1240,11 +1380,22 @@
       "request": {
         "method": "DELETE",
         "path": "/api/dashboard/categories/:id",
+        "actualPath": "/api/dashboard/categories/105",
+        "pathParameters": {
+          "id": 105
+        },
         "headers": {
           "origin": "https://client.example.invalid",
           "authorization": "$AUTHORIZATION"
         }
       },
+      "dependencies": [
+        {
+          "operationId": "dashboard.categories.create",
+          "responsePointer": "/category/id",
+          "requestTarget": "/pathParameters/id"
+        }
+      ],
       "response": {
         "status": 200,
         "headers": {
@@ -1300,7 +1451,8 @@
           "field": "file",
           "filename": "capture.png",
           "mimeType": "image/png",
-          "size": 21
+          "size": 21,
+          "contentBase64": "c3ludGhldGljIGltYWdlIGJ5dGVz"
         }
       },
       "response": {
@@ -1326,11 +1478,22 @@
       "request": {
         "method": "DELETE",
         "path": "/api/dashboard/media/:id",
+        "actualPath": "/api/dashboard/media/402",
+        "pathParameters": {
+          "id": 402
+        },
         "headers": {
           "origin": "https://client.example.invalid",
           "authorization": "$AUTHORIZATION"
         }
       },
+      "dependencies": [
+        {
+          "operationId": "dashboard.media.upload",
+          "responsePointer": "/media/id",
+          "requestTarget": "/pathParameters/id"
+        }
+      ],
       "response": {
         "status": 200,
         "headers": {
