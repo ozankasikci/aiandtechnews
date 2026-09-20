@@ -50,6 +50,24 @@ func TestRouterHTTPFoundation(t *testing.T) {
 		}
 	})
 
+	t.Run("generated request ID matches context, response, and access log", func(t *testing.T) {
+		logs.Reset()
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/echo-id", nil))
+
+		id := response.Header().Get("X-Request-ID")
+		if id == "" {
+			t.Fatal("generated X-Request-ID is empty")
+		}
+		if got := response.Body.String(); got != `{"requestId":"`+id+`"}` {
+			t.Errorf("body = %q, want generated response ID %q", got, id)
+		}
+		entries := decodeJSONLogs(t, logs.Bytes())
+		if len(entries) != 1 || entries[0]["request_id"] != id {
+			t.Errorf("access logs = %#v, want generated request ID %q", entries, id)
+		}
+	})
+
 	t.Run("unsafe and oversized request IDs are replaced", func(t *testing.T) {
 		for _, id := range []string{"spaces are unsafe", strings.Repeat("a", MaxRequestIDLength+1)} {
 			request := httptest.NewRequest(http.MethodGet, "/api/echo-id", nil)
@@ -63,8 +81,9 @@ func TestRouterHTTPFoundation(t *testing.T) {
 		}
 	})
 
-	t.Run("not found is stable JSON", func(t *testing.T) {
+	t.Run("not found is stable JSON inside and outside API", func(t *testing.T) {
 		assertJSONError(t, router, http.MethodGet, "/api/missing", http.StatusNotFound, `{"error":"Not found"}`)
+		assertJSONError(t, router, http.MethodGet, "/health", http.StatusNotFound, `{"error":"Not found"}`)
 	})
 
 	t.Run("method not allowed is stable JSON and sets Allow", func(t *testing.T) {
@@ -78,7 +97,8 @@ func TestRouterHTTPFoundation(t *testing.T) {
 		}
 	})
 
-	t.Run("panic recovery does not leak panic", func(t *testing.T) {
+	t.Run("panic recovery logs request ID and access status without leaking panic", func(t *testing.T) {
+		logs.Reset()
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/panic", nil))
 		if response.Code != http.StatusInternalServerError || response.Body.String() != `{"error":"Internal server error"}` {
@@ -87,19 +107,37 @@ func TestRouterHTTPFoundation(t *testing.T) {
 		if strings.Contains(response.Body.String(), "secret") {
 			t.Error("panic response leaked panic value")
 		}
-	})
-
-	t.Run("wildcard CORS simple request", func(t *testing.T) {
-		request := httptest.NewRequest(http.MethodGet, "/api/echo-id", nil)
-		request.Header.Set("Origin", "https://example.test")
-		response := httptest.NewRecorder()
-		router.ServeHTTP(response, request)
-		if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
-			t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
+		id := response.Header().Get("X-Request-ID")
+		entries := decodeJSONLogs(t, logs.Bytes())
+		if len(entries) != 2 {
+			t.Fatalf("log entries = %#v, want panic and access entries", entries)
+		}
+		if entries[0]["msg"] != "http request panic" || entries[0]["request_id"] != id {
+			t.Errorf("panic log = %#v, want request ID %q", entries[0], id)
+		}
+		if entries[1]["msg"] != "http request" || entries[1]["request_id"] != id || entries[1]["status"] != float64(http.StatusInternalServerError) {
+			t.Errorf("access log = %#v, want request ID %q and status 500", entries[1], id)
 		}
 	})
 
-	t.Run("CORS preflight is Express-compatible", func(t *testing.T) {
+	t.Run("wildcard CORS simple responses with and without Origin", func(t *testing.T) {
+		for _, origin := range []string{"", "https://example.test"} {
+			request := httptest.NewRequest(http.MethodGet, "/api/echo-id", nil)
+			if origin != "" {
+				request.Header.Set("Origin", origin)
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+				t.Errorf("origin %q: Access-Control-Allow-Origin = %q, want *", origin, got)
+			}
+			if got := response.Header().Values("Vary"); len(got) != 0 {
+				t.Errorf("origin %q: Vary = %q, want absent on simple response", origin, got)
+			}
+		}
+	})
+
+	t.Run("CORS preflight is exactly Express-compatible when headers are requested", func(t *testing.T) {
 		request := httptest.NewRequest(http.MethodOptions, "/api/echo-id", nil)
 		request.Header.Set("Origin", "https://example.test")
 		request.Header.Set("Access-Control-Request-Method", http.MethodGet)
@@ -112,10 +150,59 @@ func TestRouterHTTPFoundation(t *testing.T) {
 		if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 			t.Errorf("Access-Control-Allow-Origin = %q", got)
 		}
-		if got := strings.ToLower(response.Header().Get("Access-Control-Allow-Headers")); !strings.Contains(got, "authorization") || !strings.Contains(got, "content-type") {
-			t.Errorf("Access-Control-Allow-Headers = %q", got)
+		if got := response.Header().Get("Access-Control-Allow-Methods"); got != "GET,HEAD,PUT,PATCH,POST,DELETE" {
+			t.Errorf("Access-Control-Allow-Methods = %q", got)
+		}
+		if got := response.Header().Get("Access-Control-Allow-Headers"); got != "Authorization, Content-Type" {
+			t.Errorf("Access-Control-Allow-Headers = %q, want exact request value", got)
+		}
+		if got := response.Header().Values("Vary"); len(got) != 1 || got[0] != "Access-Control-Request-Headers" {
+			t.Errorf("Vary = %q, want only Access-Control-Request-Headers", got)
+		}
+		if got := response.Body.String(); got != "" {
+			t.Errorf("preflight body = %q, want empty", got)
 		}
 	})
+
+	t.Run("CORS preflight without requested headers has no Vary", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodOptions, "/api/echo-id", nil)
+		request.Header.Set("Origin", "https://example.test")
+		request.Header.Set("Access-Control-Request-Method", http.MethodGet)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusNoContent {
+			t.Errorf("status = %d, want 204", response.Code)
+		}
+		if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+			t.Errorf("Access-Control-Allow-Origin = %q", got)
+		}
+		if got := response.Header().Get("Access-Control-Allow-Methods"); got != "GET,HEAD,PUT,PATCH,POST,DELETE" {
+			t.Errorf("Access-Control-Allow-Methods = %q", got)
+		}
+		if got := response.Header().Values("Access-Control-Allow-Headers"); len(got) != 0 {
+			t.Errorf("Access-Control-Allow-Headers = %q, want absent", got)
+		}
+		if got := response.Header().Values("Vary"); len(got) != 0 {
+			t.Errorf("Vary = %q, want absent", got)
+		}
+	})
+}
+
+func decodeJSONLogs(t *testing.T, output []byte) []map[string]any {
+	t.Helper()
+	lines := bytes.Split(bytes.TrimSpace(output), []byte("\n"))
+	entries := make([]map[string]any, 0, len(lines))
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		var entry map[string]any
+		if err := json.Unmarshal(line, &entry); err != nil {
+			t.Fatalf("log is not JSON: %v (%q)", err, line)
+		}
+		entries = append(entries, entry)
+	}
+	return entries
 }
 
 func assertJSONError(t *testing.T, handler http.Handler, method, path string, status int, body string) {

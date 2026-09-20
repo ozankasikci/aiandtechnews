@@ -12,10 +12,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
 )
 
 const MaxRequestIDLength = 64
+
+const expressAllowedMethods = "GET,HEAD,PUT,PATCH,POST,DELETE"
 
 // NewRouter creates the shared HTTP transport and mounts public capability
 // routes beneath /api.
@@ -28,13 +29,7 @@ func NewRouter(logger *slog.Logger, mountAPI func(chi.Router)) http.Handler {
 	router.Use(requestID)
 	router.Use(accessLog(logger))
 	router.Use(recoverPanics(logger))
-	router.Use(expressCORS(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodPatch, http.MethodPost, http.MethodDelete, http.MethodOptions},
-		AllowedHeaders:   []string{"*"},
-		AllowCredentials: false,
-		MaxAge:           0,
-	}))
+	router.Use(expressCORS)
 	router.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, `{"error":"Not found"}`)
 	})
@@ -57,32 +52,22 @@ func NewRouter(logger *slog.Logger, mountAPI func(chi.Router)) http.Handler {
 	return router
 }
 
-func expressCORS(options cors.Options) func(http.Handler) http.Handler {
-	configured := cors.Handler(options)
-	return func(next http.Handler) http.Handler {
-		handler := configured(next)
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Express' default cors middleware emits the wildcard on all responses,
-			// including same-origin/no-Origin requests.
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			if r.Method == http.MethodOptions && r.Header.Get("Origin") != "" && r.Header.Get("Access-Control-Request-Method") != "" {
-				handler.ServeHTTP(&preflightResponseWriter{ResponseWriter: w}, r)
-				return
+func expressCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Match the default Express cors() contract rather than a browser-equivalent
+		// approximation. In particular, wildcard origins do not require Vary: Origin.
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method == http.MethodOptions && r.Header.Get("Origin") != "" && r.Header.Get("Access-Control-Request-Method") != "" {
+			w.Header().Set("Access-Control-Allow-Methods", expressAllowedMethods)
+			if requestedHeaders := r.Header.Get("Access-Control-Request-Headers"); requestedHeaders != "" {
+				w.Header().Set("Access-Control-Allow-Headers", requestedHeaders)
+				w.Header().Set("Vary", "Access-Control-Request-Headers")
 			}
-			handler.ServeHTTP(w, r)
-		})
-	}
-}
-
-type preflightResponseWriter struct {
-	http.ResponseWriter
-}
-
-func (w *preflightResponseWriter) WriteHeader(status int) {
-	if status == http.StatusOK {
-		status = http.StatusNoContent
-	}
-	w.ResponseWriter.WriteHeader(status)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func requestID(next http.Handler) http.Handler {

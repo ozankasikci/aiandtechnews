@@ -36,6 +36,7 @@ func NewServer(address string, handler http.Handler, logger *slog.Logger, option
 		httpServer: &http.Server{
 			Addr:              address,
 			Handler:           handler,
+			ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
 			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       15 * time.Second,
 			WriteTimeout:      30 * time.Second,

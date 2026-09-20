@@ -1,18 +1,22 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestNewServerHasHardenedTimeouts(t *testing.T) {
-	server := NewServer("127.0.0.1:0", http.NewServeMux(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	server := NewServer("127.0.0.1:0", http.NewServeMux(), logger)
 	httpServer := server.HTTPServer()
 
 	if httpServer.Addr != "127.0.0.1:0" {
@@ -23,6 +27,13 @@ func TestNewServerHasHardenedTimeouts(t *testing.T) {
 	}
 	if httpServer.MaxHeaderBytes != 1<<20 {
 		t.Errorf("MaxHeaderBytes = %d, want %d", httpServer.MaxHeaderBytes, 1<<20)
+	}
+	if httpServer.ErrorLog == nil {
+		t.Fatal("ErrorLog is nil; net/http diagnostics must use the supplied logger")
+	}
+	httpServer.ErrorLog.Print("transport failure")
+	if got := logs.String(); !strings.Contains(got, `"level":"ERROR"`) || !strings.Contains(got, "transport failure") {
+		t.Errorf("ErrorLog output = %q, want slog error output", got)
 	}
 }
 
@@ -75,16 +86,26 @@ func TestServeGracefullyDrainsInflightRequest(t *testing.T) {
 
 func TestServeForcesCloseAfterShutdownTimeout(t *testing.T) {
 	started := make(chan struct{})
-	handler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	exited := make(chan struct{})
+	handler := http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
 		close(started)
-		select {}
+		<-request.Context().Done()
+		close(exited)
 	})
 	server := NewServer("127.0.0.1:0", handler, discardLogger(), WithShutdownTimeout(20*time.Millisecond))
 	listener := localListener(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	serveResult := make(chan error, 1)
 	go func() { serveResult <- server.Serve(ctx, listener) }()
-	go func() { _, _ = http.Get("http://" + listener.Addr().String()) }()
+	clientResult := make(chan error, 1)
+	go func() {
+		client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+		response, err := client.Get("http://" + listener.Addr().String())
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		clientResult <- err
+	}()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
@@ -98,6 +119,19 @@ func TestServeForcesCloseAfterShutdownTimeout(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Serve did not force close after shutdown timeout")
+	}
+	select {
+	case <-exited:
+	case <-time.After(time.Second):
+		t.Fatal("forced close did not cancel the request context and release the handler")
+	}
+	select {
+	case err := <-clientResult:
+		if err == nil {
+			t.Fatal("client request unexpectedly succeeded after forced close")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("client request did not return after forced close")
 	}
 }
 
