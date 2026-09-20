@@ -65,7 +65,7 @@ func (c Config) Validate() error {
 		return fmt.Errorf("invalid SERVER_ADDR %q: %w", c.Address, err)
 	}
 	portNumber, err := strconv.Atoi(port)
-	if err != nil || portNumber < 0 || portNumber > 65535 {
+	if err != nil || portNumber < 1 || portNumber > 65535 {
 		return fmt.Errorf("invalid SERVER_ADDR port %q", port)
 	}
 	if c.Mode != ModeProduction && portNumber == 4001 {
