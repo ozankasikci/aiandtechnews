@@ -27,7 +27,14 @@ type openAPIInfo struct {
 }
 
 type openAPIComponents struct {
-	Parameters map[string]openAPIParameter `yaml:"parameters"`
+	Parameters      map[string]openAPIParameter      `yaml:"parameters"`
+	SecuritySchemes map[string]openAPISecurityScheme `yaml:"securitySchemes"`
+}
+
+type openAPISecurityScheme struct {
+	Type         string `yaml:"type"`
+	Scheme       string `yaml:"scheme"`
+	BearerFormat string `yaml:"bearerFormat"`
 }
 
 type openAPIPath struct {
@@ -115,7 +122,14 @@ func TestOpenAPIRejectsMalformedAndSemanticDrift(t *testing.T) {
 		{"extra path parameter", []byte(strings.Replace(string(valid), "        - $ref: '#/components/parameters/Slug'\n", "        - $ref: '#/components/parameters/Slug'\n        - $ref: '#/components/parameters/ID'\n", 1)), "unexpected path parameter"},
 		{"path parameter not required", []byte(strings.Replace(string(valid), "    Slug:\n      name: slug\n      in: path\n      required: true", "    Slug:\n      name: slug\n      in: path\n      required: false", 1)), "must be required"},
 		{"missing observed query", []byte(strings.Replace(string(valid), "        - $ref: '#/components/parameters/Page'\n        - $ref: '#/components/parameters/Limit'\n", "        - $ref: '#/components/parameters/Limit'\n", 1)), "query parameter page"},
+		{"extra query on health", []byte(strings.Replace(string(valid), "      operationId: health.get\n", "      operationId: health.get\n      parameters:\n        - $ref: '#/components/parameters/Limit'\n", 1)), "query parameters are [limit], want exactly []"},
+		{"duplicate declared query", []byte(strings.Replace(string(valid), "        - $ref: '#/components/parameters/Page'\n        - $ref: '#/components/parameters/Limit'\n", "        - $ref: '#/components/parameters/Page'\n        - $ref: '#/components/parameters/Limit'\n        - $ref: '#/components/parameters/Limit'\n", 1)), "duplicate query parameter \"limit\""},
 		{"required token made optional", []byte(strings.Replace(string(valid), "    Token:\n      name: token\n      in: query\n      required: true", "    Token:\n      name: token\n      in: query", 1)), "query parameter token must be required"},
+		{"missing bearer security scheme", []byte(strings.Replace(string(valid), "    bearerAuth:\n      type: http\n      scheme: bearer\n      bearerFormat: JWT\n", "", 1)), "security scheme bearerAuth is missing"},
+		{"malformed bearer security scheme", []byte(strings.Replace(string(valid), "      bearerFormat: JWT", "      bearerFormat: opaque", 1)), "security scheme bearerAuth"},
+		{"missing cron security scheme", []byte(strings.Replace(string(valid), "    cronBearer:\n      type: http\n      scheme: bearer\n", "", 1)), "security scheme cronBearer is missing"},
+		{"malformed cron security scheme", []byte(strings.Replace(string(valid), "    cronBearer:\n      type: http\n      scheme: bearer", "    cronBearer:\n      type: apiKey\n      scheme: bearer", 1)), "security scheme cronBearer"},
+		{"unresolved operation security", []byte(strings.Replace(string(valid), "        - cronBearer: []", "        - missingBearer: []", 1)), "security scheme missingBearer is not defined"},
 		{"missing user security", []byte(strings.Replace(string(valid), "      security: &userSecurity\n        - bearerAuth: []", "      security: &userSecurity []", 1)), "security"},
 		{"wrong cron security", []byte(strings.Replace(string(valid), "        - cronBearer: []", "        - bearerAuth: []", 1)), "cronBearer"},
 		{"security on public route", []byte(strings.Replace(string(valid), "      operationId: health.get\n", "      operationId: health.get\n      security:\n        - bearerAuth: []\n", 1)), "public fixture request must not declare security"},
@@ -194,6 +208,9 @@ func parseOpenAPIManifest(data []byte) ([]manifestOperation, error) {
 	if len(document.Paths) == 0 {
 		return nil, fmt.Errorf("paths contains no operations")
 	}
+	if err := validateSecuritySchemes(document.Parts.SecuritySchemes); err != nil {
+		return nil, err
+	}
 
 	paths := make([]string, 0, len(document.Paths))
 	for path := range document.Paths {
@@ -225,6 +242,9 @@ func parseOpenAPIManifest(data []byte) ([]manifestOperation, error) {
 			if err := validatePathParameters(path, parameters); err != nil {
 				return nil, fmt.Errorf("%s %s: %w", method.name, path, err)
 			}
+			if err := validateSecurityReferences(operation.Security, document.Parts.SecuritySchemes); err != nil {
+				return nil, fmt.Errorf("%s %s: %w", method.name, path, err)
+			}
 			responses := make(map[string][]string, len(operation.Responses))
 			for status, response := range operation.Responses {
 				for mediaType := range response.Content {
@@ -242,6 +262,34 @@ func parseOpenAPIManifest(data []byte) ([]manifestOperation, error) {
 		return nil, fmt.Errorf("paths contains no operations")
 	}
 	return operations, nil
+}
+
+func validateSecuritySchemes(schemes map[string]openAPISecurityScheme) error {
+	expected := map[string]openAPISecurityScheme{
+		"bearerAuth": {Type: "http", Scheme: "bearer", BearerFormat: "JWT"},
+		"cronBearer": {Type: "http", Scheme: "bearer"},
+	}
+	for _, name := range []string{"bearerAuth", "cronBearer"} {
+		got, ok := schemes[name]
+		if !ok {
+			return fmt.Errorf("security scheme %s is missing", name)
+		}
+		if got != expected[name] {
+			return fmt.Errorf("security scheme %s is %+v, want exactly %+v", name, got, expected[name])
+		}
+	}
+	return nil
+}
+
+func validateSecurityReferences(requirements []map[string][]string, schemes map[string]openAPISecurityScheme) error {
+	for _, requirement := range requirements {
+		for name := range requirement {
+			if _, ok := schemes[name]; !ok {
+				return fmt.Errorf("security scheme %s is not defined", name)
+			}
+		}
+	}
+	return nil
 }
 
 var openAPIPathParameterPattern = regexp.MustCompile(`\{([A-Za-z][A-Za-z0-9_]*)\}`)
@@ -331,10 +379,19 @@ func validateDocumentedOperation(documented manifestOperation, fixture Operation
 	}
 
 	parameters := make(map[string]openAPIParameter)
+	declaredQuery := make(map[string]bool)
 	for _, parameter := range documented.Parameters {
+		if parameter.In == "query" {
+			if declaredQuery[parameter.Name] {
+				return fmt.Errorf("duplicate query parameter %q", parameter.Name)
+			}
+			declaredQuery[parameter.Name] = true
+		}
 		parameters[parameter.In+":"+parameter.Name] = parameter
 	}
+	fixtureQuery := make(map[string]bool, len(fixture.Request.Query))
 	for name := range fixture.Request.Query {
+		fixtureQuery[name] = true
 		parameter, ok := parameters["query:"+name]
 		if !ok {
 			return fmt.Errorf("query parameter %s is not declared", name)
@@ -342,6 +399,9 @@ func validateDocumentedOperation(documented manifestOperation, fixture Operation
 		if (fixture.OperationID == "newsletter.confirm" || fixture.OperationID == "newsletter.unsubscribeGet") && name == "token" && !parameter.Required {
 			return fmt.Errorf("query parameter token must be required")
 		}
+	}
+	if got, want := sortedKeys(declaredQuery), sortedKeys(fixtureQuery); strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		return fmt.Errorf("query parameters are %v, want exactly %v", got, want)
 	}
 
 	expectedMediaType := ""
