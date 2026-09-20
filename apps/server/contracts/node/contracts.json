@@ -1,0 +1,1432 @@
+{
+  "schemaVersion": 1,
+  "source": "node-contract-server",
+  "fixedClock": "2026-09-20T12:00:00.000Z",
+  "normalization": {
+    "rules": [
+      {
+        "placeholder": "$JWT",
+        "appliesTo": "auth.login response token",
+        "runtime": "fixed-clock signed JWT"
+      },
+      {
+        "placeholder": "$AUTHORIZATION",
+        "appliesTo": "authenticated request authorization headers",
+        "runtime": "Bearer plus raw JWT"
+      },
+      {
+        "placeholder": "$NEWSLETTER_TOKEN",
+        "appliesTo": "newsletter query/body tokens",
+        "runtime": "signed with synthetic secret"
+      },
+      {
+        "placeholder": "$CRON_AUTHORIZATION",
+        "appliesTo": "digest authorization headers",
+        "runtime": "Bearer plus synthetic cron secret"
+      },
+      {
+        "placeholder": "$UPLOAD_FILENAME",
+        "appliesTo": "Multer-generated response URL/filename",
+        "runtime": "cryptographically random basename"
+      },
+      {
+        "placeholder": "$MULTIPART_BOUNDARY",
+        "appliesTo": "multipart content-type boundary",
+        "runtime": "fixed harness boundary omitted from fixture"
+      },
+      {
+        "placeholder": "$PASSWORD",
+        "appliesTo": "auth.login request password",
+        "runtime": "documented synthetic test password"
+      }
+    ],
+    "fixedValuesRemainLiteral": [
+      "database IDs",
+      "2026-09-20T12:00:00.000Z and derived timestamps",
+      "semantic body ordering/nulls/errors/statuses"
+    ]
+  },
+  "operations": [
+    {
+      "operationId": "health.get",
+      "request": {
+        "method": "GET",
+        "path": "/api/health",
+        "headers": {
+          "origin": "https://client.example.invalid"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "status": "ok"
+        }
+      }
+    },
+    {
+      "operationId": "articles.list",
+      "request": {
+        "method": "GET",
+        "path": "/api/articles",
+        "query": {
+          "page": "1",
+          "limit": "2"
+        },
+        "headers": {
+          "origin": "https://client.example.invalid"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "articles": [
+            {
+              "id": 301,
+              "title": "Synthetic Published Newer",
+              "slug": "synthetic-published-newer",
+              "excerpt": "Newer synthetic excerpt",
+              "content": "<p>Entirely synthetic contract article content.</p>",
+              "featured_image": "/uploads/synthetic-contract-image.png",
+              "category_id": 101,
+              "author_id": 201,
+              "status": "published",
+              "published_at": "2026-09-19T12:00:00.000Z",
+              "meta_title": "Synthetic meta title",
+              "meta_description": "Synthetic meta description",
+              "source": "Synthetic Wire",
+              "source_url": "https://news.example.invalid/newer",
+              "view_count": 42,
+              "created_at": "2026-09-19T10:00:00.000Z",
+              "updated_at": "2026-09-19T12:00:00.000Z",
+              "category": {
+                "id": 101,
+                "name": "Synthetic AI",
+                "slug": "synthetic-ai",
+                "description": "Synthetic artificial intelligence fixtures",
+                "color": "#111111"
+              },
+              "author": {
+                "id": 201,
+                "name": "TechNews Editorial",
+                "email": "editorial@example.invalid",
+                "avatar": "/uploads/synthetic-contract-image.png",
+                "bio": "Synthetic editorial contract fixture.",
+                "role": "admin"
+              }
+            },
+            {
+              "id": 302,
+              "title": "Synthetic Published Null Options",
+              "slug": "synthetic-published-null-options",
+              "excerpt": "Null option excerpt",
+              "content": "Synthetic plain text.",
+              "featured_image": null,
+              "category_id": 102,
+              "author_id": 202,
+              "status": "published",
+              "published_at": "2026-09-18 09:00:00",
+              "meta_title": null,
+              "meta_description": null,
+              "source": null,
+              "source_url": null,
+              "view_count": 0,
+              "created_at": "2026-09-18 08:00:00",
+              "updated_at": "2026-09-18 09:00:00",
+              "category": {
+                "id": 102,
+                "name": "Synthetic Code",
+                "slug": "synthetic-code",
+                "description": "Synthetic programming fixtures",
+                "color": "#222222"
+              },
+              "author": {
+                "id": 202,
+                "name": "Synthetic Reporter",
+                "email": "reporter@example.invalid",
+                "avatar": null,
+                "bio": null,
+                "role": "editor"
+              }
+            }
+          ],
+          "total": 2,
+          "page": 1,
+          "totalPages": 1
+        }
+      }
+    },
+    {
+      "operationId": "articles.trending",
+      "request": {
+        "method": "GET",
+        "path": "/api/articles/trending",
+        "query": {
+          "limit": "2"
+        },
+        "headers": {
+          "origin": "https://client.example.invalid"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "articles": [
+            {
+              "id": 301,
+              "title": "Synthetic Published Newer",
+              "slug": "synthetic-published-newer",
+              "excerpt": "Newer synthetic excerpt",
+              "content": "<p>Entirely synthetic contract article content.</p>",
+              "featured_image": "/uploads/synthetic-contract-image.png",
+              "category_id": 101,
+              "author_id": 201,
+              "status": "published",
+              "published_at": "2026-09-19T12:00:00.000Z",
+              "meta_title": "Synthetic meta title",
+              "meta_description": "Synthetic meta description",
+              "source": "Synthetic Wire",
+              "source_url": "https://news.example.invalid/newer",
+              "view_count": 42,
+              "created_at": "2026-09-19T10:00:00.000Z",
+              "updated_at": "2026-09-19T12:00:00.000Z",
+              "category": {
+                "id": 101,
+                "name": "Synthetic AI",
+                "slug": "synthetic-ai",
+                "description": "Synthetic artificial intelligence fixtures",
+                "color": "#111111"
+              },
+              "author": {
+                "id": 201,
+                "name": "TechNews Editorial",
+                "email": "editorial@example.invalid",
+                "avatar": "/uploads/synthetic-contract-image.png",
+                "bio": "Synthetic editorial contract fixture.",
+                "role": "admin"
+              }
+            },
+            {
+              "id": 302,
+              "title": "Synthetic Published Null Options",
+              "slug": "synthetic-published-null-options",
+              "excerpt": "Null option excerpt",
+              "content": "Synthetic plain text.",
+              "featured_image": null,
+              "category_id": 102,
+              "author_id": 202,
+              "status": "published",
+              "published_at": "2026-09-18 09:00:00",
+              "meta_title": null,
+              "meta_description": null,
+              "source": null,
+              "source_url": null,
+              "view_count": 0,
+              "created_at": "2026-09-18 08:00:00",
+              "updated_at": "2026-09-18 09:00:00",
+              "category": {
+                "id": 102,
+                "name": "Synthetic Code",
+                "slug": "synthetic-code",
+                "description": "Synthetic programming fixtures",
+                "color": "#222222"
+              },
+              "author": {
+                "id": 202,
+                "name": "Synthetic Reporter",
+                "email": "reporter@example.invalid",
+                "avatar": null,
+                "bio": null,
+                "role": "editor"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "operationId": "articles.getBySlug",
+      "request": {
+        "method": "GET",
+        "path": "/api/articles/:slug",
+        "headers": {
+          "origin": "https://client.example.invalid"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "article": {
+            "id": 301,
+            "title": "Synthetic Published Newer",
+            "slug": "synthetic-published-newer",
+            "excerpt": "Newer synthetic excerpt",
+            "content": "<p>Entirely synthetic contract article content.</p>",
+            "featured_image": "/uploads/synthetic-contract-image.png",
+            "category_id": 101,
+            "author_id": 201,
+            "status": "published",
+            "published_at": "2026-09-19T12:00:00.000Z",
+            "meta_title": "Synthetic meta title",
+            "meta_description": "Synthetic meta description",
+            "source": "Synthetic Wire",
+            "source_url": "https://news.example.invalid/newer",
+            "view_count": 42,
+            "created_at": "2026-09-19T10:00:00.000Z",
+            "updated_at": "2026-09-19T12:00:00.000Z",
+            "category": {
+              "id": 101,
+              "name": "Synthetic AI",
+              "slug": "synthetic-ai",
+              "description": "Synthetic artificial intelligence fixtures",
+              "color": "#111111"
+            },
+            "author": {
+              "id": 201,
+              "name": "TechNews Editorial",
+              "email": "editorial@example.invalid",
+              "avatar": "/uploads/synthetic-contract-image.png",
+              "bio": "Synthetic editorial contract fixture.",
+              "role": "admin"
+            }
+          }
+        }
+      }
+    },
+    {
+      "operationId": "articles.getById",
+      "request": {
+        "method": "GET",
+        "path": "/api/articles/id/:id",
+        "headers": {
+          "origin": "https://client.example.invalid"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "article": {
+            "id": 301,
+            "title": "Synthetic Published Newer",
+            "slug": "synthetic-published-newer",
+            "excerpt": "Newer synthetic excerpt",
+            "content": "<p>Entirely synthetic contract article content.</p>",
+            "featured_image": "/uploads/synthetic-contract-image.png",
+            "category_id": 101,
+            "author_id": 201,
+            "status": "published",
+            "published_at": "2026-09-19T12:00:00.000Z",
+            "meta_title": "Synthetic meta title",
+            "meta_description": "Synthetic meta description",
+            "source": "Synthetic Wire",
+            "source_url": "https://news.example.invalid/newer",
+            "view_count": 43,
+            "created_at": "2026-09-19T10:00:00.000Z",
+            "updated_at": "2026-09-19T12:00:00.000Z",
+            "category": {
+              "id": 101,
+              "name": "Synthetic AI",
+              "slug": "synthetic-ai",
+              "description": "Synthetic artificial intelligence fixtures",
+              "color": "#111111"
+            },
+            "author": {
+              "id": 201,
+              "name": "TechNews Editorial",
+              "email": "editorial@example.invalid",
+              "avatar": "/uploads/synthetic-contract-image.png",
+              "bio": "Synthetic editorial contract fixture.",
+              "role": "admin"
+            }
+          }
+        }
+      }
+    },
+    {
+      "operationId": "categories.list",
+      "request": {
+        "method": "GET",
+        "path": "/api/categories",
+        "headers": {
+          "origin": "https://client.example.invalid"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "categories": [
+            {
+              "id": 101,
+              "name": "Synthetic AI",
+              "slug": "synthetic-ai",
+              "description": "Synthetic artificial intelligence fixtures",
+              "color": "#111111"
+            },
+            {
+              "id": 102,
+              "name": "Synthetic Code",
+              "slug": "synthetic-code",
+              "description": "Synthetic programming fixtures",
+              "color": "#222222"
+            },
+            {
+              "id": 103,
+              "name": "Synthetic Startups",
+              "slug": "synthetic-startups",
+              "description": "Synthetic startup fixtures",
+              "color": "#333333"
+            },
+            {
+              "id": 104,
+              "name": "Synthetic Unused",
+              "slug": "synthetic-unused",
+              "description": "Intentionally unused contract category",
+              "color": "#444444"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "operationId": "authors.list",
+      "request": {
+        "method": "GET",
+        "path": "/api/authors",
+        "headers": {
+          "origin": "https://client.example.invalid"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "authors": [
+            {
+              "id": 202,
+              "name": "Synthetic Reporter",
+              "email": "reporter@example.invalid",
+              "avatar": null,
+              "bio": null,
+              "role": "editor"
+            },
+            {
+              "id": 201,
+              "name": "TechNews Editorial",
+              "email": "editorial@example.invalid",
+              "avatar": "/uploads/synthetic-contract-image.png",
+              "bio": "Synthetic editorial contract fixture.",
+              "role": "admin"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "operationId": "newsletter.subscribe",
+      "request": {
+        "method": "POST",
+        "path": "/api/subscribe",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "content-type": "application/json"
+        },
+        "body": {
+          "email": "capture@example.invalid",
+          "placement": "contract-capture"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "success": true,
+          "state": "subscribed",
+          "message": "You're subscribed. The next digest will arrive in your inbox."
+        }
+      }
+    },
+    {
+      "operationId": "newsletter.confirm",
+      "request": {
+        "method": "GET",
+        "path": "/api/newsletter/confirm",
+        "query": {
+          "token": "$NEWSLETTER_TOKEN"
+        },
+        "headers": {
+          "origin": "https://client.example.invalid"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "state": "confirmed",
+          "welcomeSent": true
+        }
+      }
+    },
+    {
+      "operationId": "newsletter.unsubscribeGet",
+      "request": {
+        "method": "GET",
+        "path": "/api/newsletter/unsubscribe",
+        "query": {
+          "token": "$NEWSLETTER_TOKEN"
+        },
+        "headers": {
+          "origin": "https://client.example.invalid"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "state": "unsubscribed"
+        }
+      }
+    },
+    {
+      "operationId": "newsletter.unsubscribePost",
+      "request": {
+        "method": "POST",
+        "path": "/api/newsletter/unsubscribe",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "content-type": "application/json"
+        },
+        "body": {
+          "token": "$NEWSLETTER_TOKEN"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "state": "already_unsubscribed"
+        }
+      }
+    },
+    {
+      "operationId": "newsletter.editions",
+      "request": {
+        "method": "GET",
+        "path": "/api/newsletter/editions",
+        "query": {
+          "limit": "2"
+        },
+        "headers": {
+          "origin": "https://client.example.invalid"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "editions": [
+            {
+              "edition": "2026-09-19",
+              "subject": "Synthetic daily digest",
+              "articles": [
+                {
+                  "title": "Synthetic Published Newer",
+                  "slug": "synthetic-published-newer",
+                  "excerpt": "Newer synthetic excerpt",
+                  "category": "Synthetic AI",
+                  "readingMinutes": 1
+                }
+              ],
+              "createdAt": "2026-09-19T13:00:00.000Z"
+            },
+            {
+              "edition": "2026-09-18",
+              "subject": "Synthetic malformed digest",
+              "articles": [],
+              "createdAt": "2026-09-18T13:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "operationId": "newsletter.edition",
+      "request": {
+        "method": "GET",
+        "path": "/api/newsletter/editions/:edition",
+        "headers": {
+          "origin": "https://client.example.invalid"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "edition": {
+            "edition": "2026-09-19",
+            "subject": "Synthetic daily digest",
+            "articles": [
+              {
+                "title": "Synthetic Published Newer",
+                "slug": "synthetic-published-newer",
+                "excerpt": "Newer synthetic excerpt",
+                "category": "Synthetic AI",
+                "readingMinutes": 1
+              }
+            ],
+            "createdAt": "2026-09-19T13:00:00.000Z"
+          }
+        }
+      }
+    },
+    {
+      "operationId": "newsletter.digestGet",
+      "request": {
+        "method": "GET",
+        "path": "/api/newsletter/digest",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "authorization": "$CRON_AUTHORIZATION"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "success": true,
+          "edition": "2026-09-20",
+          "articles": 1,
+          "sent": 2,
+          "skipped": 0,
+          "failed": 0
+        }
+      }
+    },
+    {
+      "operationId": "newsletter.digestPost",
+      "request": {
+        "method": "POST",
+        "path": "/api/newsletter/digest",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "authorization": "$CRON_AUTHORIZATION"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "success": true,
+          "edition": "2026-09-20",
+          "articles": 1,
+          "sent": 0,
+          "skipped": 2,
+          "failed": 0
+        }
+      }
+    },
+    {
+      "operationId": "auth.login",
+      "request": {
+        "method": "POST",
+        "path": "/api/auth/login",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "content-type": "application/json"
+        },
+        "body": {
+          "email": "editorial@example.invalid",
+          "password": "$PASSWORD"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "token": "$JWT",
+          "user": {
+            "id": 201,
+            "name": "TechNews Editorial",
+            "email": "editorial@example.invalid",
+            "role": "admin"
+          }
+        }
+      }
+    },
+    {
+      "operationId": "auth.me",
+      "request": {
+        "method": "GET",
+        "path": "/api/auth/me",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "authorization": "$AUTHORIZATION"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "user": {
+            "id": 201,
+            "email": "editorial@example.invalid",
+            "role": "admin",
+            "iat": 1789905600,
+            "exp": 1790510400
+          }
+        }
+      }
+    },
+    {
+      "operationId": "auth.logout",
+      "request": {
+        "method": "POST",
+        "path": "/api/auth/logout",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "authorization": "$AUTHORIZATION"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "success": true
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.articles.list",
+      "request": {
+        "method": "GET",
+        "path": "/api/dashboard/articles",
+        "query": {
+          "page": "1",
+          "limit": "5"
+        },
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "authorization": "$AUTHORIZATION"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "articles": [
+            {
+              "id": 301,
+              "title": "Synthetic Published Newer",
+              "slug": "synthetic-published-newer",
+              "excerpt": "Newer synthetic excerpt",
+              "content": "<p>Entirely synthetic contract article content.</p>",
+              "featured_image": "/uploads/synthetic-contract-image.png",
+              "category_id": 101,
+              "author_id": 201,
+              "status": "published",
+              "published_at": "2026-09-19T12:00:00.000Z",
+              "meta_title": "Synthetic meta title",
+              "meta_description": "Synthetic meta description",
+              "source": "Synthetic Wire",
+              "source_url": "https://news.example.invalid/newer",
+              "view_count": 43,
+              "created_at": "2026-09-19T10:00:00.000Z",
+              "updated_at": "2026-09-19T12:00:00.000Z",
+              "category": {
+                "id": 101,
+                "name": "Synthetic AI",
+                "slug": "synthetic-ai",
+                "description": "Synthetic artificial intelligence fixtures",
+                "color": "#111111"
+              },
+              "author": {
+                "id": 201,
+                "name": "TechNews Editorial",
+                "email": "editorial@example.invalid",
+                "avatar": "/uploads/synthetic-contract-image.png",
+                "bio": "Synthetic editorial contract fixture.",
+                "role": "admin"
+              }
+            },
+            {
+              "id": 302,
+              "title": "Synthetic Published Null Options",
+              "slug": "synthetic-published-null-options",
+              "excerpt": "Null option excerpt",
+              "content": "Synthetic plain text.",
+              "featured_image": null,
+              "category_id": 102,
+              "author_id": 202,
+              "status": "published",
+              "published_at": "2026-09-18 09:00:00",
+              "meta_title": null,
+              "meta_description": null,
+              "source": null,
+              "source_url": null,
+              "view_count": 0,
+              "created_at": "2026-09-18 08:00:00",
+              "updated_at": "2026-09-18 09:00:00",
+              "category": {
+                "id": 102,
+                "name": "Synthetic Code",
+                "slug": "synthetic-code",
+                "description": "Synthetic programming fixtures",
+                "color": "#222222"
+              },
+              "author": {
+                "id": 202,
+                "name": "Synthetic Reporter",
+                "email": "reporter@example.invalid",
+                "avatar": null,
+                "bio": null,
+                "role": "editor"
+              }
+            },
+            {
+              "id": 303,
+              "title": "Synthetic Draft",
+              "slug": "synthetic-draft",
+              "excerpt": "Draft excerpt",
+              "content": "<p>Synthetic draft.</p>",
+              "featured_image": null,
+              "category_id": 103,
+              "author_id": 201,
+              "status": "draft",
+              "published_at": null,
+              "meta_title": null,
+              "meta_description": null,
+              "source": "Synthetic Wire",
+              "source_url": "https://news.example.invalid/draft",
+              "view_count": 3,
+              "created_at": "2026-09-17T00:00:00.000Z",
+              "updated_at": "2026-09-17T00:00:00.000Z",
+              "category": {
+                "id": 103,
+                "name": "Synthetic Startups",
+                "slug": "synthetic-startups",
+                "description": "Synthetic startup fixtures",
+                "color": "#333333"
+              },
+              "author": {
+                "id": 201,
+                "name": "TechNews Editorial",
+                "email": "editorial@example.invalid",
+                "avatar": "/uploads/synthetic-contract-image.png",
+                "bio": "Synthetic editorial contract fixture.",
+                "role": "admin"
+              }
+            },
+            {
+              "id": 304,
+              "title": "Synthetic Scheduled",
+              "slug": "synthetic-scheduled",
+              "excerpt": "Scheduled excerpt",
+              "content": "<p>Synthetic scheduled.</p>",
+              "featured_image": null,
+              "category_id": 101,
+              "author_id": 202,
+              "status": "scheduled",
+              "published_at": "2030-01-01T00:00:00.000Z",
+              "meta_title": null,
+              "meta_description": null,
+              "source": "Synthetic Wire",
+              "source_url": "https://news.example.invalid/scheduled",
+              "view_count": 1,
+              "created_at": "2026-09-16T00:00:00.000Z",
+              "updated_at": "2026-09-16T00:00:00.000Z",
+              "category": {
+                "id": 101,
+                "name": "Synthetic AI",
+                "slug": "synthetic-ai",
+                "description": "Synthetic artificial intelligence fixtures",
+                "color": "#111111"
+              },
+              "author": {
+                "id": 202,
+                "name": "Synthetic Reporter",
+                "email": "reporter@example.invalid",
+                "avatar": null,
+                "bio": null,
+                "role": "editor"
+              }
+            }
+          ],
+          "total": 4,
+          "page": 1,
+          "totalPages": 1
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.articles.get",
+      "request": {
+        "method": "GET",
+        "path": "/api/dashboard/articles/:id",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "authorization": "$AUTHORIZATION"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "article": {
+            "id": 303,
+            "title": "Synthetic Draft",
+            "slug": "synthetic-draft",
+            "excerpt": "Draft excerpt",
+            "content": "<p>Synthetic draft.</p>",
+            "featured_image": null,
+            "category_id": 103,
+            "author_id": 201,
+            "status": "draft",
+            "published_at": null,
+            "meta_title": null,
+            "meta_description": null,
+            "source": "Synthetic Wire",
+            "source_url": "https://news.example.invalid/draft",
+            "view_count": 3,
+            "created_at": "2026-09-17T00:00:00.000Z",
+            "updated_at": "2026-09-17T00:00:00.000Z",
+            "category": {
+              "id": 103,
+              "name": "Synthetic Startups",
+              "slug": "synthetic-startups",
+              "description": "Synthetic startup fixtures",
+              "color": "#333333"
+            },
+            "author": {
+              "id": 201,
+              "name": "TechNews Editorial",
+              "email": "editorial@example.invalid",
+              "avatar": "/uploads/synthetic-contract-image.png",
+              "bio": "Synthetic editorial contract fixture.",
+              "role": "admin"
+            }
+          }
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.articles.create",
+      "request": {
+        "method": "POST",
+        "path": "/api/dashboard/articles",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "content-type": "application/json",
+          "authorization": "$AUTHORIZATION"
+        },
+        "body": {
+          "title": "Captured Draft",
+          "slug": "captured-draft",
+          "excerpt": "Synthetic captured excerpt",
+          "content": "Synthetic captured body.",
+          "category_id": 101,
+          "status": "draft"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "article": {
+            "id": 305,
+            "title": "Captured Draft",
+            "slug": "captured-draft",
+            "excerpt": "Synthetic captured excerpt",
+            "content": "Synthetic captured body.",
+            "featured_image": null,
+            "category_id": 101,
+            "author_id": 201,
+            "status": "draft",
+            "published_at": null,
+            "meta_title": null,
+            "meta_description": null,
+            "source": null,
+            "source_url": null,
+            "view_count": 0,
+            "created_at": "2026-09-20 12:00:00",
+            "updated_at": "2026-09-20 12:00:00",
+            "category": {
+              "id": 101,
+              "name": "Synthetic AI",
+              "slug": "synthetic-ai",
+              "description": "Synthetic artificial intelligence fixtures",
+              "color": "#111111"
+            },
+            "author": {
+              "id": 201,
+              "name": "TechNews Editorial",
+              "email": "editorial@example.invalid",
+              "avatar": "/uploads/synthetic-contract-image.png",
+              "bio": "Synthetic editorial contract fixture.",
+              "role": "admin"
+            }
+          }
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.articles.update",
+      "request": {
+        "method": "PUT",
+        "path": "/api/dashboard/articles/:id",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "content-type": "application/json",
+          "authorization": "$AUTHORIZATION"
+        },
+        "body": {
+          "title": "Captured Draft Updated",
+          "meta_description": null
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "article": {
+            "id": 305,
+            "title": "Captured Draft Updated",
+            "slug": "captured-draft",
+            "excerpt": "Synthetic captured excerpt",
+            "content": "Synthetic captured body.",
+            "featured_image": null,
+            "category_id": 101,
+            "author_id": 201,
+            "status": "draft",
+            "published_at": null,
+            "meta_title": null,
+            "meta_description": null,
+            "source": null,
+            "source_url": null,
+            "view_count": 0,
+            "created_at": "2026-09-20 12:00:00",
+            "updated_at": "2026-09-20 12:00:00",
+            "category": {
+              "id": 101,
+              "name": "Synthetic AI",
+              "slug": "synthetic-ai",
+              "description": "Synthetic artificial intelligence fixtures",
+              "color": "#111111"
+            },
+            "author": {
+              "id": 201,
+              "name": "TechNews Editorial",
+              "email": "editorial@example.invalid",
+              "avatar": "/uploads/synthetic-contract-image.png",
+              "bio": "Synthetic editorial contract fixture.",
+              "role": "admin"
+            }
+          }
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.articles.delete",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/dashboard/articles/:id",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "authorization": "$AUTHORIZATION"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "success": true
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.categories.list",
+      "request": {
+        "method": "GET",
+        "path": "/api/dashboard/categories",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "authorization": "$AUTHORIZATION"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "categories": [
+            {
+              "id": 101,
+              "name": "Synthetic AI",
+              "slug": "synthetic-ai",
+              "description": "Synthetic artificial intelligence fixtures",
+              "color": "#111111",
+              "article_count": 2
+            },
+            {
+              "id": 102,
+              "name": "Synthetic Code",
+              "slug": "synthetic-code",
+              "description": "Synthetic programming fixtures",
+              "color": "#222222",
+              "article_count": 1
+            },
+            {
+              "id": 103,
+              "name": "Synthetic Startups",
+              "slug": "synthetic-startups",
+              "description": "Synthetic startup fixtures",
+              "color": "#333333",
+              "article_count": 1
+            },
+            {
+              "id": 104,
+              "name": "Synthetic Unused",
+              "slug": "synthetic-unused",
+              "description": "Intentionally unused contract category",
+              "color": "#444444",
+              "article_count": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.categories.create",
+      "request": {
+        "method": "POST",
+        "path": "/api/dashboard/categories",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "content-type": "application/json",
+          "authorization": "$AUTHORIZATION"
+        },
+        "body": {
+          "name": "Captured Category",
+          "slug": "captured-category",
+          "description": "Synthetic captured category",
+          "color": "#abcdef"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "category": {
+            "id": 105,
+            "name": "Captured Category",
+            "slug": "captured-category",
+            "description": "Synthetic captured category",
+            "color": "#abcdef"
+          }
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.categories.update",
+      "request": {
+        "method": "PUT",
+        "path": "/api/dashboard/categories/:id",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "content-type": "application/json",
+          "authorization": "$AUTHORIZATION"
+        },
+        "body": {
+          "description": "Updated synthetic category",
+          "color": "#fedcba"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "category": {
+            "id": 105,
+            "name": "Captured Category",
+            "slug": "captured-category",
+            "description": "Updated synthetic category",
+            "color": "#fedcba"
+          }
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.categories.delete",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/dashboard/categories/:id",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "authorization": "$AUTHORIZATION"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "success": true
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.media.list",
+      "request": {
+        "method": "GET",
+        "path": "/api/dashboard/media",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "authorization": "$AUTHORIZATION"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "media": [
+            {
+              "id": 401,
+              "filename": "synthetic-contract-image.png",
+              "url": "/uploads/synthetic-contract-image.png",
+              "mime_type": "image/png",
+              "size": 25,
+              "uploaded_at": "2026-09-19T00:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.media.upload",
+      "request": {
+        "method": "POST",
+        "path": "/api/dashboard/media/upload",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "content-type": "multipart/form-data; boundary=$MULTIPART_BOUNDARY",
+          "authorization": "$AUTHORIZATION"
+        },
+        "multipart": {
+          "field": "file",
+          "filename": "capture.png",
+          "mimeType": "image/png",
+          "size": 21
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "media": {
+            "id": 402,
+            "filename": "capture.png",
+            "url": "/uploads/$UPLOAD_FILENAME",
+            "mime_type": "image/png",
+            "size": 21,
+            "uploaded_at": "2026-09-20 12:00:00"
+          }
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.media.delete",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/dashboard/media/:id",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "authorization": "$AUTHORIZATION"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "success": true
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.settings.get",
+      "request": {
+        "method": "GET",
+        "path": "/api/dashboard/settings",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "authorization": "$AUTHORIZATION"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "settings": {
+            "site_name": "Synthetic TechNews",
+            "site_description": "Synthetic contract fixture",
+            "social_twitter": "https://social.example.invalid/synthetic",
+            "social_linkedin": "",
+            "social_github": "https://code.example.invalid/synthetic",
+            "newsletter_enabled": true,
+            "newsletter_provider": "recorder",
+            "newsletter_webhook_url": "https://hooks.example.invalid/newsletter"
+          }
+        }
+      }
+    },
+    {
+      "operationId": "dashboard.settings.update",
+      "request": {
+        "method": "PUT",
+        "path": "/api/dashboard/settings",
+        "headers": {
+          "origin": "https://client.example.invalid",
+          "content-type": "application/json",
+          "authorization": "$AUTHORIZATION"
+        },
+        "body": {
+          "site_name": "Captured Synthetic TechNews",
+          "newsletter_enabled": false,
+          "ignored_key": "preserved-in-request-only"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "access-control-allow-origin": "*",
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "settings": {
+            "site_name": "Captured Synthetic TechNews",
+            "site_description": "Synthetic contract fixture",
+            "social_twitter": "https://social.example.invalid/synthetic",
+            "social_linkedin": "",
+            "social_github": "https://code.example.invalid/synthetic",
+            "newsletter_enabled": false,
+            "newsletter_provider": "recorder",
+            "newsletter_webhook_url": "https://hooks.example.invalid/newsletter"
+          }
+        }
+      }
+    }
+  ],
+  "observations": {
+    "excludedFromOperationCoverage": true,
+    "authLogoutJwtStillValid": true,
+    "dashboardUnknownRoute": {
+      "request": {
+        "method": "GET",
+        "path": "/api/dashboard/not-a-route",
+        "headers": {
+          "origin": "https://client.example.invalid"
+        }
+      },
+      "status": 401,
+      "body": {
+        "error": "Authentication required"
+      }
+    },
+    "deferredErrors": [
+      "Multer invalid type and size-limit scenarios"
+    ]
+  }
+}
