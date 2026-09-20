@@ -102,9 +102,11 @@ export function sendContractRequest(
   if (payload) headers["content-length"] = String(payload.length);
   return new Promise((resolve, reject) => {
     let settled = false;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     const settle = (action: () => void) => {
       if (settled) return;
       settled = true;
+      if (deadline) clearTimeout(deadline);
       action();
     };
     const req = httpRequest(url, { method, headers }, (res) => {
@@ -123,7 +125,13 @@ export function sendContractRequest(
         }
       });
     });
-    req.setTimeout(timeoutMs, () => req.destroy(new Error(`HTTP request timeout after ${timeoutMs}ms for ${method} ${target}`)));
+    deadline = setTimeout(() => {
+      const error = new Error(`HTTP request timeout after ${timeoutMs}ms for ${method} ${target}`);
+      settle(() => {
+        req.destroy();
+        reject(error);
+      });
+    }, timeoutMs);
     req.on("error", (error) => settle(() => reject(error)));
     req.end(payload);
   });
@@ -225,30 +233,35 @@ export function watchReadyLine(
   };
 }
 
-function childExit(child: ChildProcess): Promise<ChildExit> {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
-  }
+function childCompletion(child: ChildProcess): Promise<ChildExit> {
   return new Promise((resolve, reject) => {
     child.once("error", reject);
-    child.once("exit", (code, signal) => resolve({ code, signal }));
+    child.once("close", (code, signal) => resolve({ code, signal }));
   });
 }
 
 async function boundedExit(exit: Promise<ChildExit>, timeoutMs: number): Promise<ChildExit | undefined> {
-  return Promise.race([
-    exit,
-    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), timeoutMs)),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      exit,
+      new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), timeoutMs); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export async function shutdownChild(
   child: ChildProcess,
   gracefulMs = SHUTDOWN_GRACE_MS,
   finalMs = SHUTDOWN_KILL_MS,
+  installedCompletion?: Promise<ChildExit>,
 ): Promise<ChildExit> {
-  if (child.exitCode !== null || child.signalCode !== null) return { code: child.exitCode, signal: child.signalCode };
-  const exit = childExit(child);
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return installedCompletion ?? { code: child.exitCode, signal: child.signalCode };
+  }
+  const exit = installedCompletion ?? childCompletion(child);
   child.kill("SIGTERM");
   const graceful = await boundedExit(exit, gracefulMs);
   if (graceful) return graceful;
@@ -271,6 +284,7 @@ export async function captureContracts(): Promise<any> {
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  const completion = childCompletion(child);
   child.stderr!.setEncoding("utf8");
   child.stderr!.on("data", (chunk: string) => { stderr += chunk; });
   const readyOutput = watchReadyLine(child, () => stderr);
@@ -410,7 +424,7 @@ export async function captureContracts(): Promise<any> {
           },
           {
             placeholder: "$UPLOAD_FILENAME",
-            resolver: { type: "responseJsonPointer", operationId: "dashboard.media.upload", pointer: "/media/filename" },
+            resolver: { type: "responseJsonPointerTransform", operationId: "dashboard.media.upload", pointer: "/media/url", transform: "basename" },
           },
           {
             placeholder: "$MULTIPART_BOUNDARY",
@@ -436,7 +450,7 @@ export async function captureContracts(): Promise<any> {
 
   const cleanupErrors: unknown[] = [];
   try {
-    const exit = await shutdownChild(child);
+    const exit = await shutdownChild(child, SHUTDOWN_GRACE_MS, SHUTDOWN_KILL_MS, completion);
     if (exit.code !== 0) cleanupErrors.push(new Error(`contract server shutdown failed (code=${exit.code}, signal=${exit.signal}): ${stderr}`));
     readyOutput.validateComplete();
   } catch (error) {

@@ -115,9 +115,10 @@
       {
         "placeholder": "$UPLOAD_FILENAME",
         "resolver": {
-          "type": "responseJsonPointer",
+          "type": "responseJsonPointerTransform",
           "operationId": "dashboard.media.upload",
-          "pointer": "/media/filename"
+          "pointer": "/media/url",
+          "transform": "basename"
         }
       },
       {

@@ -17,6 +17,34 @@ import {
 const serverRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const fixturePath = path.join(serverRoot, "contracts", "node", "contracts.json");
 
+function jsonPointer(value: any, pointer: string): unknown {
+  return pointer.split("/").slice(1).reduce(
+    (current, token) => current[token.replaceAll("~1", "/").replaceAll("~0", "~")],
+    value,
+  );
+}
+
+function applyResponseDerivedBindings(value: unknown, bindings: any[], responses: Record<string, unknown>): unknown {
+  const replacements = bindings
+    .filter((binding) => binding.resolver.type === "responseJsonPointerTransform")
+    .map((binding) => {
+      const resolver = binding.resolver;
+      const selected = jsonPointer(responses[resolver.operationId], resolver.pointer);
+      assert.equal(typeof selected, "string");
+      assert.equal(resolver.transform, "basename");
+      return [path.posix.basename(selected as string), binding.placeholder] as const;
+    });
+  const replace = (item: unknown): unknown => {
+    if (typeof item === "string") {
+      return replacements.reduce((result, [runtime, placeholder]) => result.replaceAll(runtime, placeholder), item);
+    }
+    if (Array.isArray(item)) return item.map(replace);
+    if (item && typeof item === "object") return Object.fromEntries(Object.entries(item).map(([key, nested]) => [key, replace(nested)]));
+    return item;
+  };
+  return replace(value);
+}
+
 const expected = [
   ["health.get", "GET", "/api/health"],
   ["articles.list", "GET", "/api/articles"],
@@ -148,6 +176,21 @@ test("replay bindings contain safe compatibility vectors and reproducible multip
   const upload = fixture.operations.find((entry: any) => entry.operationId === "dashboard.media.upload");
   assert.equal(Buffer.from(upload.request.multipart.contentBase64, "base64").length, upload.request.multipart.size);
   assert.equal(Buffer.from(upload.request.multipart.contentBase64, "base64").toString("utf8"), "synthetic image bytes");
+
+  const runtimeBasename = "0123456789abcdef0123456789abcdef.png";
+  const runtimeBody = structuredClone(upload.response.body);
+  runtimeBody.media.url = `/uploads/${runtimeBasename}`;
+  assert.equal(bindings.$UPLOAD_FILENAME.resolver.type, "responseJsonPointerTransform");
+  assert.equal(bindings.$UPLOAD_FILENAME.resolver.pointer, "/media/url");
+  assert.equal(bindings.$UPLOAD_FILENAME.resolver.transform, "basename");
+  assert.deepEqual(
+    applyResponseDerivedBindings(runtimeBody, fixture.replay.bindings, { "dashboard.media.upload": runtimeBody }),
+    upload.response.body,
+  );
+  assert.equal(
+    path.posix.basename(jsonPointer(runtimeBody, bindings.$UPLOAD_FILENAME.resolver.pointer) as string),
+    runtimeBasename,
+  );
 });
 
 test("fresh capture is byte-identical twice and matches reviewed fixture", { timeout: 30_000 }, async () => {
@@ -184,7 +227,7 @@ test("fixtures contain only synthetic, normalized, stable material", () => {
   visit(fixture);
 });
 
-test("HTTP helper rejects malformed JSON, aborted responses, and timeouts", async (t) => {
+test("HTTP helper rejects malformed JSON, aborted responses, and absolute-deadline overruns", async (t) => {
   const server = createServer((request, response) => {
     if (request.url === "/malformed") {
       response.writeHead(200, { "content-type": "application/json" });
@@ -193,6 +236,11 @@ test("HTTP helper rejects malformed JSON, aborted responses, and timeouts", asyn
       response.writeHead(200, { "content-type": "application/json" });
       response.write("{");
       response.destroy();
+    } else if (request.url === "/drip") {
+      response.writeHead(200, { "content-type": "text/plain" });
+      const interval = setInterval(() => response.write("."), 10);
+      response.once("close", () => clearInterval(interval));
+      setTimeout(() => response.end("done"), 150);
     }
   });
   await new Promise<void>((resolve, reject) => {
@@ -206,6 +254,9 @@ test("HTTP helper rejects malformed JSON, aborted responses, and timeouts", asyn
   await assert.rejects(sendContractRequest(origin, "GET", "/malformed", {}, 100), /JSON/i);
   await assert.rejects(sendContractRequest(origin, "GET", "/aborted", {}, 100), /aborted|socket hang up/i);
   await assert.rejects(sendContractRequest(origin, "GET", "/timeout", {}, 25), /timeout/i);
+  const started = performance.now();
+  await assert.rejects(sendContractRequest(origin, "GET", "/drip", {}, 25), /timeout/i);
+  assert.ok(performance.now() - started < 100, "absolute deadline must not be extended by response activity");
 });
 
 test("ready stdout is one complete line for the whole child lifecycle", async () => {
@@ -217,7 +268,7 @@ test("ready stdout is one complete line for the whole child lifecycle", async ()
   ].join("")], { stdio: ["ignore", "pipe", "pipe"] });
   const watched = watchReadyLine(child, () => "", 500);
   assert.deepEqual(await watched.ready, { event: "contract-server-ready", host: "127.0.0.1", port: 1234 });
-  await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  await new Promise<void>((resolve) => child.once("close", () => resolve()));
   assert.throws(() => watched.validateComplete(), /exactly one|extra/i);
 });
 

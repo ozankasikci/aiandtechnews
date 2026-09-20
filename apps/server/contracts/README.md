@@ -59,16 +59,17 @@ compare responses:
   `responsePointer` selects a value from the earlier response and `requestTarget` identifies where
   to bind it in the later request.
 - `replay.bindings` defines resolvers for every placeholder. Resolvers can read a secret reference,
-  apply a template, extract a prior response with a JSON pointer, reproduce a newsletter token at
-  its fixed expiry, or provide a literal value.
+  apply a template, extract or transform a prior response value with a JSON pointer, reproduce a
+  newsletter token at its fixed expiry, or provide a literal value.
 - JWT and newsletter bindings contain SHA-256 hashes and decoded compatibility vectors, never raw
   tokens. Newsletter vectors contain the exact signed payload (`v`, `id`, `purpose`, and `exp`).
 - Multipart requests record exact file bytes as `contentBase64`, together with field name, filename,
   MIME type, and byte size; the boundary is a replay binding.
 
-Capture requests have a bounded timeout. Shutdown first uses a bounded `SIGTERM` grace period, then
-a bounded `SIGKILL` wait. The harness stdout protocol is exactly one complete newline-terminated JSON
-ready line for its entire lifecycle; diagnostics use stderr, and extra or partial stdout is rejected.
+Capture requests have an absolute elapsed deadline. Shutdown first uses a bounded `SIGTERM` grace
+period, then a bounded `SIGKILL` wait, and waits for child `close` so piped stdio is complete before
+validating output. The harness stdout protocol is exactly one complete newline-terminated JSON ready
+line for its entire lifecycle; diagnostics use stderr, and extra or partial stdout is rejected.
 
 Extra probes live under `observations` and are explicitly excluded from the 32-operation coverage.
 They currently preserve the legacy facts that logout does not revoke its JWT and an unauthenticated
