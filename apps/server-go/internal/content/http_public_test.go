@@ -42,7 +42,7 @@ func request(t *testing.T, handler http.Handler, target string) *httptest.Respon
 
 func TestPublicArticleNegativeAndVisibilityScenarios(t *testing.T) {
 	handler, _ := newArticleHandler(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	for _, target := range []string{"/api/articles/missing", "/api/articles/id/999", "/api/articles/id/not-a-number", "/api/articles/synthetic-draft"} {
+	for _, target := range []string{"/api/articles/missing", "/api/articles/id/999", "/api/articles/id/not-a-number", "/api/articles/id/301%20OR%201%3D1", "/api/articles/synthetic-draft"} {
 		response := request(t, handler, target)
 		if response.Code != 404 || response.Body.String() != `{"error":"Article not found"}` {
 			t.Errorf("%s = %d %q", target, response.Code, response.Body.String())
@@ -52,6 +52,12 @@ func TestPublicArticleNegativeAndVisibilityScenarios(t *testing.T) {
 		}
 		if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 			t.Errorf("%s CORS origin = %q", target, got)
+		}
+	}
+	for _, target := range []string{"/api/articles/id/301", "/api/articles/id/301.0", "/api/articles/id/%20301%20"} {
+		response := request(t, handler, target)
+		if response.Code != 200 || !strings.Contains(response.Body.String(), `"id":301`) {
+			t.Errorf("coerced ID %s = %d %q", target, response.Code, response.Body.String())
 		}
 	}
 	response := request(t, handler, "/api/articles/id/303")
@@ -68,9 +74,11 @@ func TestPublicArticleNegativeAndVisibilityScenarios(t *testing.T) {
 func TestPublicArticleQueryDefaultsFiltersPaginationAndClamps(t *testing.T) {
 	handler, _ := newArticleHandler(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	tests := []struct {
-		target             string
-		total, page, pages int
-		ids                []float64
+		target string
+		total  int
+		page   float64
+		pages  int
+		ids    []float64
 	}{
 		{"/api/articles", 2, 1, 1, []float64{301, 302}},
 		{"/api/articles?category=synthetic-code", 1, 1, 1, []float64{302}},
@@ -84,7 +92,6 @@ func TestPublicArticleQueryDefaultsFiltersPaginationAndClamps(t *testing.T) {
 		{"/api/articles?limit=1.9", 2, 1, 2, []float64{301}},
 		{"/api/articles?limit=0x10", 2, 1, 1, []float64{301, 302}},
 		{"/api/articles?limit=Infinity", 2, 1, 1, []float64{301, 302}},
-		{"/api/articles?page=999999999999999999999", 2, int(^uint(0) >> 1), 1, []float64{}},
 		{"/api/articles?category=missing", 0, 1, 0, []float64{}},
 		{"/api/articles?search=%20", 2, 1, 1, []float64{301, 302}},
 		{"/api/articles?search=%25", 2, 1, 1, []float64{301, 302}},
@@ -97,7 +104,7 @@ func TestPublicArticleQueryDefaultsFiltersPaginationAndClamps(t *testing.T) {
 		var body struct {
 			Articles   []map[string]any `json:"articles"`
 			Total      int              `json:"total"`
-			Page       int              `json:"page"`
+			Page       float64          `json:"page"`
 			TotalPages int              `json:"totalPages"`
 		}
 		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
@@ -114,6 +121,20 @@ func TestPublicArticleQueryDefaultsFiltersPaginationAndClamps(t *testing.T) {
 			if body.Articles[i]["id"] != id {
 				t.Errorf("%s article %d ID = %v", tt.target, i, body.Articles[i]["id"])
 			}
+		}
+	}
+	if body := request(t, handler, "/api/articles").Body.String(); !strings.Contains(body, `"page":1`) || strings.Contains(body, `"page":1.0`) {
+		t.Errorf("normal page must retain integer JSON spelling: %q", body)
+	}
+	// Node returns an Express HTML error for the same SQLite datatype mismatch.
+	// This server intentionally retains its stable, non-leaking JSON 500 envelope.
+	for _, target := range []string{
+		"/api/articles?page=9223372036854775808",
+		"/api/articles?page=999999999999999999999",
+	} {
+		response := request(t, handler, target)
+		if response.Code != 500 || response.Body.String() != `{"error":"Internal server error"}` {
+			t.Errorf("huge page %s = %d %q", target, response.Code, response.Body.String())
 		}
 	}
 	response := request(t, handler, "/api/articles/trending?limit=999")

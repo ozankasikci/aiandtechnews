@@ -23,7 +23,7 @@ func (s *stubStore) Trending(_ context.Context, limit int) ([]Article, error) {
 func (s *stubStore) PublishedBySlugAndIncrement(context.Context, string) (Article, error) {
 	return Article{}, s.err
 }
-func (s *stubStore) ByID(context.Context, int64) (Article, error) { return Article{}, s.err }
+func (s *stubStore) ByID(context.Context, string) (Article, error) { return Article{}, s.err }
 
 func TestServiceClampsQueriesAndCalculatesPages(t *testing.T) {
 	store := &stubStore{}

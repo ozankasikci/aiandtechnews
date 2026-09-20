@@ -45,7 +45,7 @@ func TestSQLiteStoreArticleReadSemantics(t *testing.T) {
 	if article.ViewCount != 42 || article.Category.Name != "Synthetic AI" || article.Author.Email != "editorial@example.invalid" {
 		t.Fatalf("article = %#v", article)
 	}
-	after, err := store.ByID(context.Background(), 301)
+	after, err := store.ByID(context.Background(), "301")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,9 +55,29 @@ func TestSQLiteStoreArticleReadSemantics(t *testing.T) {
 	if _, err := store.PublishedBySlugAndIncrement(context.Background(), "synthetic-draft"); err != content.ErrNotFound {
 		t.Fatalf("draft slug error = %v", err)
 	}
-	draft, err := store.ByID(context.Background(), 303)
+	draft, err := store.ByID(context.Background(), "303")
 	if err != nil || draft.Status != "draft" {
 		t.Fatalf("draft ID = %#v, %v", draft, err)
+	}
+}
+
+func TestSQLiteStoreByIDUsesBoundSQLiteCoercion(t *testing.T) {
+	db, _ := testutil.OpenDatabase(t)
+	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, db)
+	store := content.NewSQLiteStore(db)
+	for _, id := range []string{"301", "301.0", " 301 "} {
+		article, err := store.ByID(context.Background(), id)
+		if err != nil || article.ID != 301 {
+			t.Errorf("ByID(%q) = %#v, %v", id, article, err)
+		}
+	}
+	for _, id := range []string{"missing", "999", "301 OR 1=1"} {
+		if _, err := store.ByID(context.Background(), id); err != content.ErrNotFound {
+			t.Errorf("ByID(%q) error = %v", id, err)
+		}
 	}
 }
 

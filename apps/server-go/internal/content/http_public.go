@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,7 +17,7 @@ type publicArticleService interface {
 	List(context.Context, ListQuery) (Page, error)
 	Trending(context.Context, int) ([]Article, error)
 	BySlug(context.Context, string) (Article, error)
-	ByID(context.Context, int64) (Article, error)
+	ByID(context.Context, string) (Article, error)
 }
 
 type PublicHandler struct {
@@ -39,7 +40,7 @@ func (h *PublicHandler) MountPublic(router chi.Router) {
 
 func (h *PublicHandler) list(w http.ResponseWriter, r *http.Request) {
 	query := ListQuery{
-		Page: parseNodeInt(r.URL.Query().Get("page"), 1), Limit: parseNodeInt(r.URL.Query().Get("limit"), 12),
+		Page: parseNodeNumber(r.URL.Query().Get("page"), 1), Limit: parseNodeLimit(r.URL.Query().Get("limit"), 12, 50),
 		Category: r.URL.Query().Get("category"), Search: r.URL.Query().Get("search"),
 	}
 	page, err := h.service.List(r.Context(), query)
@@ -51,7 +52,7 @@ func (h *PublicHandler) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PublicHandler) trending(w http.ResponseWriter, r *http.Request) {
-	articles, err := h.service.Trending(r.Context(), parseNodeInt(r.URL.Query().Get("limit"), 5))
+	articles, err := h.service.Trending(r.Context(), parseNodeLimit(r.URL.Query().Get("limit"), 5, 20))
 	if err != nil {
 		h.internalError(w, r, "list trending articles", err)
 		return
@@ -77,12 +78,7 @@ func (h *PublicHandler) bySlug(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PublicHandler) byID(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Article not found"})
-		return
-	}
-	article, err := h.service.ByID(r.Context(), id)
+	article, err := h.service.ByID(r.Context(), chi.URLParam(r, "id"))
 	if errors.Is(err, ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Article not found"})
 		return
@@ -112,13 +108,14 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_, _ = w.Write(body)
 }
 
-// parseNodeInt implements the endpoint's parseInt(value) || fallback behavior.
-func parseNodeInt(value string, fallback int) int {
+// parseNodeNumber implements parseInt(value) || fallback while retaining the
+// rounded IEEE-754 Number that JavaScript passes to SQLite.
+func parseNodeNumber(value string, fallback float64) float64 {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return fallback
 	}
-	sign := 1
+	sign := 1.0
 	if value[0] == '+' || value[0] == '-' {
 		if value[0] == '-' {
 			sign = -1
@@ -142,16 +139,31 @@ func parseNodeInt(value string, fallback int) int {
 	if end == 0 {
 		return fallback
 	}
-	parsed, err := strconv.ParseUint(value[:end], base, 64)
-	if err != nil || parsed > uint64(maxInt()) {
-		if sign < 0 {
-			return -maxInt()
+	digits := value[:end]
+	var parsed float64
+	if base == 10 {
+		parsed, _ = strconv.ParseFloat(digits, 64)
+	} else {
+		integer := new(big.Int)
+		if _, ok := integer.SetString(digits, base); !ok {
+			return fallback
 		}
-		return maxInt()
+		parsed, _ = integer.Float64()
 	}
-	result := int(parsed) * sign
+	result := parsed * sign
 	if result == 0 {
 		return fallback
 	}
 	return result
+}
+
+func parseNodeLimit(value string, fallback, maximum int) int {
+	parsed := parseNodeNumber(value, float64(fallback))
+	if parsed < 1 {
+		parsed = 1
+	}
+	if parsed > float64(maximum) {
+		parsed = float64(maximum)
+	}
+	return int(parsed)
 }

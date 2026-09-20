@@ -42,7 +42,7 @@ type Author struct {
 }
 
 type ListQuery struct {
-	Page     int
+	Page     float64
 	Limit    int
 	Category string
 	Search   string

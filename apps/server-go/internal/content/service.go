@@ -3,13 +3,14 @@ package content
 import (
 	"context"
 	"fmt"
+	"math"
 )
 
 type articleStore interface {
 	List(context.Context, ListQuery) (ListResult, error)
 	Trending(context.Context, int) ([]Article, error)
 	PublishedBySlugAndIncrement(context.Context, string) (Article, error)
-	ByID(context.Context, int64) (Article, error)
+	ByID(context.Context, string) (Article, error)
 }
 
 type Service struct{ store articleStore }
@@ -19,12 +20,12 @@ func NewService(store articleStore) *Service { return &Service{store: store} }
 type Page struct {
 	Articles   []Article `json:"articles"`
 	Total      int64     `json:"total"`
-	Page       int       `json:"page"`
+	Page       float64   `json:"page"`
 	TotalPages int64     `json:"totalPages"`
 }
 
 func (s *Service) List(ctx context.Context, query ListQuery) (Page, error) {
-	query.Page = clamp(query.Page, 1, maxInt())
+	query.Page = math.Max(1, query.Page)
 	query.Limit = clamp(query.Limit, 1, 50)
 	query.Search = normalizeSearch(query.Search)
 	result, err := s.store.List(ctx, query)
@@ -50,7 +51,7 @@ func (s *Service) BySlug(ctx context.Context, slug string) (Article, error) {
 	return article, nil
 }
 
-func (s *Service) ByID(ctx context.Context, id int64) (Article, error) {
+func (s *Service) ByID(ctx context.Context, id string) (Article, error) {
 	article, err := s.store.ByID(ctx, id)
 	if err != nil {
 		return Article{}, fmt.Errorf("article by ID: %w", err)
@@ -67,5 +68,3 @@ func clamp(value, minimum, maximum int) int {
 	}
 	return value
 }
-
-func maxInt() int { return int(^uint(0) >> 1) }

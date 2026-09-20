@@ -50,14 +50,8 @@ func (s *SQLiteStore) List(ctx context.Context, query ListQuery) (ListResult, er
 	return result, nil
 }
 
-func pageOffset(page, limit int) int64 {
-	pageMinusOne := int64(page - 1)
-	limit64 := int64(limit)
-	const maxInt64 = int64(^uint64(0) >> 1)
-	if pageMinusOne > maxInt64/limit64 {
-		return maxInt64
-	}
-	return pageMinusOne * limit64
+func pageOffset(page float64, limit int) float64 {
+	return (page - 1) * float64(limit)
 }
 
 func listWhere(query ListQuery) (string, []any) {
@@ -118,7 +112,7 @@ func (s *SQLiteStore) PublishedBySlugAndIncrement(ctx context.Context, slug stri
 	return article, nil
 }
 
-func (s *SQLiteStore) ByID(ctx context.Context, id int64) (Article, error) {
+func (s *SQLiteStore) ByID(ctx context.Context, id string) (Article, error) {
 	return queryArticle(ctx, s.db, ` WHERE a.id = ?`, id)
 }
 
