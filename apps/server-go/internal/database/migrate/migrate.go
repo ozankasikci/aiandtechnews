@@ -2,9 +2,10 @@
 //
 // Migration SQL is immutable: checksums cover its exact bytes. A migration must
 // not contain transaction-control statements (BEGIN, COMMIT, ROLLBACK,
-// SAVEPOINT, RELEASE, or END) or operations SQLite forbids in a transaction,
-// such as VACUUM. The runner owns the single transaction around the complete
-// migration batch.
+// SAVEPOINT, RELEASE, or top-level END) or operations SQLite forbids in a
+// transaction, such as VACUUM. END is permitted only as the closing keyword of
+// a recognized CREATE TRIGGER body. The runner owns the single transaction
+// around the complete migration batch.
 package migrate
 
 import (
@@ -186,19 +187,37 @@ var transactionUnsafeStatements = map[string]struct{}{
 	"VACUUM":    {},
 }
 
-// validateDescriptorSQL identifies the first token of every semicolon-delimited
-// statement without interpreting tokens inside comments or SQLite's quoted
-// strings and identifiers. The migration runner, rather than descriptors, owns
-// the transaction, so transaction control and statements that cannot run in a
-// transaction are rejected.
+type triggerScanState uint8
+
+const (
+	triggerNone triggerScanState = iota
+	triggerSawCreate
+	triggerSawCreateTemp
+	triggerAwaitingBody
+	triggerBody
+	triggerEnded
+)
+
+// validateDescriptorSQL identifies statement-leading tokens without
+// interpreting tokens inside comments or SQLite's quoted strings and
+// identifiers. It has deliberately conservative, limited awareness of CREATE
+// [TEMP|TEMPORARY] TRIGGER ... BEGIN ...; ...; END so body semicolons do not
+// hide transaction control and the trigger-closing END is not mistaken for a
+// transaction statement. It is not a general SQL parser. The migration runner,
+// rather than descriptors, owns the transaction, so transaction control and
+// statements that cannot run in a transaction are rejected.
 func validateDescriptorSQL(sqlText string) error {
 	statementStart := true
+	triggerState := triggerNone
 	for i := 0; i < len(sqlText); {
 		switch sqlText[i] {
 		case ' ', '	', '\n', '\r', '\v', '\f':
 			i++
 		case ';':
 			statementStart = true
+			if triggerState != triggerBody {
+				triggerState = triggerNone
+			}
 			i++
 		case '-':
 			if i+1 < len(sqlText) && sqlText[i+1] == '-' {
@@ -231,9 +250,15 @@ func validateDescriptorSQL(sqlText string) error {
 			if err != nil {
 				return err
 			}
+			if triggerState == triggerSawCreate || triggerState == triggerSawCreateTemp {
+				triggerState = triggerNone
+			}
 			statementStart = false
 		default:
 			if !isSQLWordByte(sqlText[i]) {
+				if triggerState == triggerSawCreate || triggerState == triggerSawCreateTemp {
+					triggerState = triggerNone
+				}
 				statementStart = false
 				i++
 				continue
@@ -242,10 +267,43 @@ func validateDescriptorSQL(sqlText string) error {
 			for i < len(sqlText) && isSQLWordByte(sqlText[i]) {
 				i++
 			}
-			if statementStart {
-				keyword := strings.ToUpper(sqlText[start:i])
+			keyword := strings.ToUpper(sqlText[start:i])
+			atStatementStart := statementStart
+			if triggerState == triggerBody && atStatementStart && keyword == "END" {
+				triggerState = triggerEnded
+				statementStart = false
+				continue
+			}
+			if atStatementStart {
 				if _, unsafe := transactionUnsafeStatements[keyword]; unsafe {
 					return fmt.Errorf("statement starts with transaction-unsafe keyword %s", keyword)
+				}
+			}
+			switch triggerState {
+			case triggerNone:
+				if atStatementStart && keyword == "CREATE" {
+					triggerState = triggerSawCreate
+				}
+			case triggerSawCreate:
+				switch keyword {
+				case "TRIGGER":
+					triggerState = triggerAwaitingBody
+				case "TEMP", "TEMPORARY":
+					triggerState = triggerSawCreateTemp
+				default:
+					triggerState = triggerNone
+				}
+			case triggerSawCreateTemp:
+				if keyword == "TRIGGER" {
+					triggerState = triggerAwaitingBody
+				} else {
+					triggerState = triggerNone
+				}
+			case triggerAwaitingBody:
+				if keyword == "BEGIN" {
+					triggerState = triggerBody
+					statementStart = true
+					continue
 				}
 			}
 			statementStart = false

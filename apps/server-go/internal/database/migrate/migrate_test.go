@@ -90,6 +90,60 @@ func TestRunRollsBackAllMigrationsOnFailure(t *testing.T) {
 	assertObjectAbsent(t, db, "schema_migrations")
 }
 
+func TestRunAppliesTriggerMigrationAndRecordsLedger(t *testing.T) {
+	db, _ := openDB(t)
+	descriptor := migrate.Descriptor{
+		Version: 1,
+		Name:    "audit source inserts",
+		SQL: `CREATE TABLE source (id INTEGER PRIMARY KEY, value TEXT NOT NULL);
+		CREATE TABLE audit (source_id INTEGER NOT NULL, detail TEXT NOT NULL);
+		CREATE TRIGGER audit_source_insert
+		AFTER INSERT ON source
+		BEGIN
+			INSERT INTO audit(source_id, detail) VALUES (NEW.id, 'created; safely');
+			INSERT INTO audit(source_id, detail) VALUES (NEW.id, 'value=' || NEW.value);
+		END;`,
+	}
+
+	if err := migrate.Run(context.Background(), db, []migrate.Descriptor{descriptor}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO source(value) VALUES ('example')`); err != nil {
+		t.Fatalf("insert source row: %v", err)
+	}
+
+	rows, err := db.Query(`SELECT source_id, detail FROM audit ORDER BY rowid`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	wantDetails := []string{"created; safely", "value=example"}
+	for i, wantDetail := range wantDetails {
+		if !rows.Next() {
+			t.Fatalf("missing audit row %d", i)
+		}
+		var sourceID int64
+		var detail string
+		if err := rows.Scan(&sourceID, &detail); err != nil {
+			t.Fatal(err)
+		}
+		if sourceID != 1 || detail != wantDetail {
+			t.Errorf("audit row %d = (%d, %q), want (1, %q)", i, sourceID, detail, wantDetail)
+		}
+	}
+	if rows.Next() {
+		t.Fatal("unexpected extra audit row")
+	}
+
+	var name, checksum string
+	if err := db.QueryRow(`SELECT name, checksum FROM schema_migrations WHERE version = 1`).Scan(&name, &checksum); err != nil {
+		t.Fatalf("query ledger: %v", err)
+	}
+	if name != descriptor.Name || checksum != descriptor.Checksum() {
+		t.Fatalf("ledger row = (%q, %q), want (%q, %q)", name, checksum, descriptor.Name, descriptor.Checksum())
+	}
+}
+
 func TestRunRejectsTransactionControlBeforeDatabaseTouch(t *testing.T) {
 	descriptor := migrate.Descriptor{
 		Version: 7,
@@ -116,18 +170,20 @@ func TestRunRejectsTransactionControlBeforeDatabaseTouch(t *testing.T) {
 
 func TestRunValidatesDescriptorSQLStatementStarts(t *testing.T) {
 	rejected := map[string]string{
-		"begin":                 `BEGIN`,
-		"commit mixed case":     `cOmMiT TRANSACTION`,
-		"rollback after SQL":    `CREATE TABLE ok(id INTEGER); ROLLBACK`,
-		"savepoint comments":    "CREATE TABLE ok(id INTEGER); -- explain\n /* more */ SAVEPOINT x",
-		"release semicolons":    `;;; RELEASE x`,
-		"end":                   `END`,
-		"vacuum":                ` VACUUM main`,
-		"unterminated comment":  `CREATE TABLE ok(id INTEGER); /* never closed`,
-		"unterminated string":   `INSERT INTO ok VALUES ('never closed)`,
-		"unterminated double":   `CREATE TABLE "never closed (id INTEGER)`,
-		"unterminated backtick": "CREATE TABLE `never closed (id INTEGER)",
-		"unterminated bracket":  `CREATE TABLE [never closed (id INTEGER)`,
+		"begin":                  `BEGIN`,
+		"commit mixed case":      `cOmMiT TRANSACTION`,
+		"rollback after SQL":     `CREATE TABLE ok(id INTEGER); ROLLBACK`,
+		"savepoint comments":     "CREATE TABLE ok(id INTEGER); -- explain\n /* more */ SAVEPOINT x",
+		"release semicolons":     `;;; RELEASE x`,
+		"top-level end":          `END`,
+		"commit after trigger":   `CREATE TRIGGER safe_insert AFTER INSERT ON safe BEGIN SELECT 1; END; COMMIT`,
+		"commit in trigger body": `CREATE TRIGGER unsafe_insert AFTER INSERT ON safe BEGIN SELECT 1; COMMIT; END;`,
+		"vacuum":                 ` VACUUM main`,
+		"unterminated comment":   `CREATE TABLE ok(id INTEGER); /* never closed`,
+		"unterminated string":    `INSERT INTO ok VALUES ('never closed)`,
+		"unterminated double":    `CREATE TABLE "never closed (id INTEGER)`,
+		"unterminated backtick":  "CREATE TABLE `never closed (id INTEGER)",
+		"unterminated bracket":   `CREATE TABLE [never closed (id INTEGER)`,
 	}
 	for name, sqlText := range rejected {
 		t.Run("reject "+name, func(t *testing.T) {
@@ -149,6 +205,9 @@ func TestRunValidatesDescriptorSQLStatementStarts(t *testing.T) {
 		"keywords as identifiers":  `CREATE TABLE commit_log(begin_value TEXT, rollback_reason TEXT);`,
 		"quoted identifiers":       "CREATE TABLE \"COMMIT\" (`ROLLBACK` TEXT, [BEGIN] TEXT);",
 		"escaped quoted content":   "SELECT \"a\"\"; COMMIT\", `b``; ROLLBACK`, [c]]; VACUUM]; SELECT 1;",
+		"create trigger":           `CREATE /* prefix comment */ TRIGGER audit_insert AFTER INSERT ON ordinary BEGIN INSERT INTO ordinary VALUES (NEW.id); UPDATE ordinary SET id = id; END;`,
+		"create temp trigger":      "CREATE -- prefix comment\n TEMP TRIGGER audit_insert AFTER INSERT ON ordinary BEGIN SELECT 'END; COMMIT'; /* body ; */ SELECT 1; END;",
+		"create temporary trigger": `CREATE TEMPORARY TRIGGER audit_insert AFTER INSERT ON ordinary BEGIN SELECT 1; END;`,
 	}
 	for name, sqlText := range accepted {
 		t.Run("accept "+name, func(t *testing.T) {
