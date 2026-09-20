@@ -41,8 +41,8 @@ The service is a single binary with a `cmd/internal` layout:
 
 - `cmd/api` is the executable entry point and imports only configuration and the application composition root.
 - `internal/app` wires modules and infrastructure.
-- `internal/modules/<capability>` owns each capability's domain, repository, service, HTTP handler, and route mounting.
+- Cohesive capability packages such as `content`, `editorial`, `newsletter`, `media`, and `settings` own their domain, repository, service, HTTP handlers, and relative route mounting.
 - Narrow infrastructure packages live under `internal` and are named for their purpose.
 - Interfaces are declared by the consuming package at the point of use. Constructors return concrete types unless a consumer needs an interface.
 
-Modules do not import one another. Domain and service code remain independent of HTTP and concrete SQLite types. Do not create generic `utils`, `common`, or global service-locator packages.
+Capability packages do not import one another. Cross-capability behavior is injected through narrow interfaces owned by the consumer. Domain and service code remain independent of HTTP and concrete SQLite types. Do not create generic `utils`, `common`, or global service-locator packages.

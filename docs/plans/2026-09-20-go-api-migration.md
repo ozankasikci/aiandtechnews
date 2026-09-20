@@ -4,7 +4,7 @@
 
 **Goal:** Replace the Express request-serving API with a contract-compatible Go modular monolith under `apps/server-go`, without touching the production checkout or production process until an explicitly approved cutover.
 
-**Architecture:** One Go module and one binary, composed in `internal/app`. Business capabilities are cohesive packages under `internal/modules`; each owns its domain types, SQL repository, service, HTTP handlers, route registration, and tests. Cross-cutting runtime adapters live in narrowly named infrastructure packages. Modules do not import each other; the composition root injects the few required capabilities through consumer-owned interfaces.
+**Architecture:** One Go module and one binary, composed in `internal/app`. Business capabilities are cohesive packages directly under `internal`; each owns its domain types, SQL repository, service, HTTP handlers, route registration, migrations, and tests. Cross-cutting runtime adapters live in narrowly named infrastructure packages. Capability packages do not import one another; the composition root injects the few required behaviors through consumer-owned interfaces.
 
 **Tech Stack:** Go 1.25, `net/http`, `github.com/go-chi/chi/v5`, `database/sql`, `modernc.org/sqlite`, `golang-jwt/jwt/v5`, `golang.org/x/crypto/bcrypt`, embedded SQL migrations, standard `testing`/`httptest`.
 
@@ -36,16 +36,12 @@ apps/server-go/
 │   │   ├── server.go
 │   │   ├── middleware/
 │   │   └── response/
-│   ├── modules/
-│   │   ├── health/
-│   │   ├── articles/
-│   │   ├── categories/
-│   │   ├── authors/
-│   │   ├── auth/
-│   │   ├── media/
-│   │   ├── settings/
-│   │   └── newsletter/
-│   ├── publishing/
+│   ├── health/
+│   ├── editorial/       # authors, principals, login, JWT and bcrypt
+│   ├── content/         # articles, categories and publishing policy
+│   ├── media/           # media metadata and file storage
+│   ├── settings/
+│   ├── newsletter/
 │   └── indexnow/
 ├── testutil/
 ├── Makefile
@@ -54,10 +50,10 @@ apps/server-go/
 └── go.sum
 ```
 
-Every HTTP-facing module uses the same internal shape without forced subpackages:
+Every HTTP-facing capability uses the same internal shape without forced subpackages:
 
 ```text
-module.go       constructor and MountPublic/MountProtected
+http.go         handlers and relative route mounting
 model.go        domain and response models
 repository.go   SQL implementation
 service.go      use cases and business rules
@@ -65,13 +61,13 @@ handler.go      HTTP parsing and response mapping
 *_test.go       behavior tests colocated with code
 ```
 
-A module may omit files/layers it does not need. No `utils`, `common`, `interfaces`, global service locator, or framework-style base classes.
+A capability may omit files/layers it does not need. No `utils`, `common`, `interfaces`, global service locator, or framework-style base classes. Keep one ordinary Go package per capability until an actual import cycle or independent reuse justifies a subpackage.
 
 ## Dependency rules
 
 1. `cmd/api` imports only `internal/app` and `internal/config`.
 2. `internal/app` is the composition root and may import every module and adapter.
-3. Modules may import `database/sql`, narrowly named transport helpers, and standard/third-party libraries, but never another module.
+3. Capability packages may import `database/sql`, narrowly named transport helpers, and standard/third-party libraries, but never another capability package.
 4. Interfaces are declared by consumers at the point of use and kept minimal.
 5. Domain and service code do not depend on `http.Request`, `http.ResponseWriter`, Chi, or concrete SQLite types.
 6. HTTP handlers translate transport values into service calls and map typed errors to the existing JSON contract.
@@ -104,8 +100,8 @@ A module may omit files/layers it does not need. No `utils`, `common`, `interfac
 **Objective:** Produce a runnable binary with graceful shutdown and a contract-compatible `GET /api/health` endpoint.
 
 **Files:**
-- Create: `apps/server-go/internal/modules/health/module_test.go`
-- Create: `apps/server-go/internal/modules/health/module.go`
+- Create: `apps/server-go/internal/health/http_test.go`
+- Create: `apps/server-go/internal/health/http.go`
 - Create: `apps/server-go/internal/httpserver/router_test.go`
 - Create: `apps/server-go/internal/httpserver/router.go`
 - Create: `apps/server-go/internal/httpserver/server.go`
@@ -165,14 +161,13 @@ A module may omit files/layers it does not need. No `utils`, `common`, `interfac
 **Objective:** Port article list, trending, slug lookup, and ID lookup with exact response compatibility.
 
 **Files:**
-- Create: `apps/server-go/internal/modules/articles/model.go`
-- Create: `apps/server-go/internal/modules/articles/repository_test.go`
-- Create: `apps/server-go/internal/modules/articles/repository.go`
-- Create: `apps/server-go/internal/modules/articles/service_test.go`
-- Create: `apps/server-go/internal/modules/articles/service.go`
-- Create: `apps/server-go/internal/modules/articles/handler_test.go`
-- Create: `apps/server-go/internal/modules/articles/handler.go`
-- Create: `apps/server-go/internal/modules/articles/module.go`
+- Create: `apps/server-go/internal/content/model.go`
+- Create: `apps/server-go/internal/content/sqlite_test.go`
+- Create: `apps/server-go/internal/content/sqlite.go`
+- Create: `apps/server-go/internal/content/service_test.go`
+- Create: `apps/server-go/internal/content/service.go`
+- Create: `apps/server-go/internal/content/http_public_test.go`
+- Create: `apps/server-go/internal/content/http_public.go`
 
 **TDD cycle:** Test pagination boundaries, search/category filtering, sort order, nested category/author JSON, missing articles, mixed date formats, and the view-count side effect before implementation. Run contract tests after every endpoint.
 
@@ -181,8 +176,8 @@ A module may omit files/layers it does not need. No `utils`, `common`, `interfac
 **Objective:** Port category and author listing with existing ordering and response shapes.
 
 **Files:**
-- Create module files/tests under `internal/modules/categories`
-- Create module files/tests under `internal/modules/authors`
+- Extend `internal/content` for category reads
+- Create module files/tests under `internal/editorial` for author reads
 
 **TDD cycle:** Test ordering, empty results, field names, and privacy behavior matching the compatibility decision. Implement, run contracts, commit.
 
@@ -191,7 +186,7 @@ A module may omit files/layers it does not need. No `utils`, `common`, `interfac
 **Objective:** Preserve bcrypt and JWT compatibility while failing closed on configuration.
 
 **Files:**
-- Create module files/tests under `internal/modules/auth`
+- Extend module files/tests under `internal/editorial`
 - Create auth middleware/tests under `internal/httpserver/middleware`
 
 **TDD cycle:** Add golden tests for existing bcrypt hashes and JWT claim/signature compatibility. Test missing secret, malformed bearer header, expiration, login failure, `/auth/me`, and logout. Never add a fallback production secret.
@@ -201,8 +196,8 @@ A module may omit files/layers it does not need. No `utils`, `common`, `interfac
 **Objective:** Preserve every source, normalization, AI-only, copy, HTML, and length rule.
 
 **Files:**
-- Create: `internal/publishing/policy.go`
-- Create: `internal/publishing/policy_test.go`
+- Create: `internal/content/policy.go`
+- Create: `internal/content/policy_test.go`
 
 **TDD cycle:** Translate the existing TypeScript vectors first, verify failures, then implement policy behavior. Keep `NEWS_PUBLISHING_POLICY.md` and tests synchronized.
 
@@ -210,7 +205,7 @@ A module may omit files/layers it does not need. No `utils`, `common`, `interfac
 
 **Objective:** Port authenticated article administration, policy validation, duplicate handling, editorial author assignment, and publication timestamps.
 
-**Files:** Extend `internal/modules/articles/*` and add integration tests.
+**Files:** Extend `internal/content/*` and add integration tests.
 
 **TDD cycle:** Cover create/update/delete, partial updates, invalid categories, duplicate slug/source URL, publication rules, and transaction rollback. Commit only after contract parity.
 
@@ -218,7 +213,7 @@ A module may omit files/layers it does not need. No `utils`, `common`, `interfac
 
 **Objective:** Port protected category CRUD and settings allowlisted upsert behavior.
 
-**Files:** Extend categories module; create settings module and tests.
+**Files:** Extend `internal/content`; create `internal/settings` and tests.
 
 **TDD cycle:** Test category-in-use deletion, uniqueness conflicts, no-op updates, boolean serialization, ignored unknown settings, and transactional upserts.
 
@@ -226,7 +221,7 @@ A module may omit files/layers it does not need. No `utils`, `common`, `interfac
 
 **Objective:** Port listing, upload, serving, and deletion behind a storage interface.
 
-**Files:** Create module files/tests under `internal/modules/media`.
+**Files:** Create module files/tests under `internal/media`.
 
 **TDD cycle:** Use temporary directories. Test maximum size, allowed content, filename generation with `crypto/rand`, path containment, cleanup on DB failure, and missing-file deletion. Preserve `/uploads/*` URLs.
 
@@ -234,7 +229,7 @@ A module may omit files/layers it does not need. No `utils`, `common`, `interfac
 
 **Objective:** Port subscription, token compatibility, edition archive, digest selection, idempotent delivery, retries, and unsubscribe behavior.
 
-**Files:** Create module files/tests under `internal/modules/newsletter`.
+**Files:** Create module files/tests under `internal/newsletter`.
 
 **TDD cycle:** Start with golden HMAC token vectors and existing newsletter scenarios. Use an `httptest.Server` for Resend; test retry classes, idempotency keys, Istanbul edition dates, delivery state transitions, and cancellation.
 
