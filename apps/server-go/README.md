@@ -8,7 +8,7 @@ Development configuration is deliberately isolated:
 
 - `SERVER_ADDR` defaults to `127.0.0.1:4401`.
 - `DATABASE_PATH` defaults to `data/technews.db` beneath the worktree root supplied by the composition root.
-- Port `4001` and `/Users/ozan/Projects/technews/apps/server/data/technews.db` are rejected unless `APP_ENV=production` is explicitly set.
+- Ports `3001` and `3002` are always rejected. Port `4001` and `/Users/ozan/Projects/technews/apps/server/data/technews.db` are rejected unless `APP_ENV=production` is explicitly set.
 - Development and tests must never use the production checkout or database. Tests should use temporary databases.
 
 The production override is a cutover guard, not a development convenience. Do not set `APP_ENV=production` without explicit cutover approval.
@@ -37,11 +37,12 @@ make fmt        # format Go sources
 
 ## Architecture
 
-The service is a single binary with a `cmd/internal` layout:
+The service is a single binary with a `cmd` plus `internal` layout:
 
 - `cmd/api` is the executable entry point and imports only configuration and the application composition root.
-- `internal/app` wires modules and infrastructure.
-- Cohesive capability packages such as `content`, `editorial`, `newsletter`, `media`, and `settings` own their domain, repository, service, HTTP handlers, and relative route mounting.
+- `internal/app` wires modules and infrastructure, including gathering capability-owned migration descriptors in execution order.
+- Cohesive capability packages such as `content`, `editorial`, `newsletter`, `media`, and `settings` own their domain, repository, service, HTTP handlers, relative route mounting, and migration SQL.
+- `internal/database/migrate` owns only the migration ledger and runner; it does not own capability schema SQL.
 - Narrow infrastructure packages live under `internal` and are named for their purpose.
 - Interfaces are declared by the consuming package at the point of use. Constructors return concrete types unless a consumer needs an interface.
 

@@ -28,8 +28,7 @@ apps/server-go/
 │   │   ├── sqlite.go
 │   │   ├── sqlite_test.go
 │   │   ├── migrate.go
-│   │   ├── migrate_test.go
-│   │   └── migrations/*.sql
+│   │   └── migrate_test.go
 │   ├── httpserver/
 │   │   ├── router.go
 │   │   ├── router_test.go
@@ -37,11 +36,11 @@ apps/server-go/
 │   │   ├── middleware/
 │   │   └── response/
 │   ├── health/
-│   ├── editorial/       # authors, principals, login, JWT and bcrypt
-│   ├── content/         # articles, categories and publishing policy
-│   ├── media/           # media metadata and file storage
-│   ├── settings/
-│   ├── newsletter/
+│   ├── editorial/       # authors, principals, login, JWT, bcrypt, migrations/*.sql
+│   ├── content/         # articles, categories, publishing policy, migrations/*.sql
+│   ├── media/           # media metadata, file storage, migrations/*.sql
+│   ├── settings/        # settings behavior and migrations/*.sql
+│   ├── newsletter/      # newsletter behavior and migrations/*.sql
 │   └── indexnow/
 ├── testutil/
 ├── Makefile
@@ -73,6 +72,7 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 6. HTTP handlers translate transport values into service calls and map typed errors to the existing JSON contract.
 7. All request-bound operations accept `context.Context` as the first parameter.
 8. Constructors return concrete types unless a consumer requires an interface.
+9. Each capability embeds and owns its migration SQL. `internal/database/migrate` owns only the migration ledger and runner; `internal/app` gathers capability migration descriptors in deterministic execution order.
 
 ---
 
@@ -118,24 +118,25 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 6. Run `go test ./...` and a temporary-port smoke test.
 7. Commit.
 
-### Task 3: Add SQLite adapter and versioned baseline migrations
+### Task 3: Add SQLite adapter and migration runner
 
-**Objective:** Open safe SQLite databases with compatible pragmas and a deterministic migration ledger.
+**Objective:** Open safe SQLite databases with compatible pragmas and provide a deterministic migration ledger and runner for ordered descriptors supplied by the application composition root.
 
 **Files:**
 - Create: `apps/server-go/internal/database/sqlite_test.go`
 - Create: `apps/server-go/internal/database/sqlite.go`
 - Create: `apps/server-go/internal/database/migrate_test.go`
 - Create: `apps/server-go/internal/database/migrate.go`
-- Create: `apps/server-go/internal/database/migrations/0001_baseline.sql`
+- Extend: `apps/server-go/internal/app/app_test.go`
+- Extend: `apps/server-go/internal/app/app.go`
 - Create: `apps/server-go/testutil/database.go`
 
 **TDD cycle:**
 1. Test WAL, foreign keys, busy timeout, connection limits, and ping.
-2. Test clean schema creation in a temporary database.
+2. Test ordered descriptor execution in a temporary database.
 3. Test migration idempotency and rollback-on-failure.
-4. Test the schema against a copied/sanitized legacy database fixture.
-5. Implement embedded ordered migrations and a migration ledger.
+4. Test duplicate/out-of-order descriptor rejection and ledger compatibility.
+5. Implement the descriptor runner and migration ledger without embedding capability schema SQL; have `internal/app` gather the ordered descriptors.
 6. Run `go test -race ./...`.
 7. Commit.
 
@@ -161,6 +162,7 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 **Objective:** Port article list, trending, slug lookup, and ID lookup with exact response compatibility.
 
 **Files:**
+- Create: `apps/server-go/internal/content/migrations/*.sql`
 - Create: `apps/server-go/internal/content/model.go`
 - Create: `apps/server-go/internal/content/sqlite_test.go`
 - Create: `apps/server-go/internal/content/sqlite.go`
@@ -168,6 +170,7 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 - Create: `apps/server-go/internal/content/service.go`
 - Create: `apps/server-go/internal/content/http_public_test.go`
 - Create: `apps/server-go/internal/content/http_public.go`
+- Extend: `apps/server-go/internal/app` to add the content migration descriptor in order
 
 **TDD cycle:** Test pagination boundaries, search/category filtering, sort order, nested category/author JSON, missing articles, mixed date formats, and the view-count side effect before implementation. Run contract tests after every endpoint.
 
@@ -176,8 +179,9 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 **Objective:** Port category and author listing with existing ordering and response shapes.
 
 **Files:**
-- Extend `internal/content` for category reads
-- Create module files/tests under `internal/editorial` for author reads
+- Extend `internal/content`, including capability-owned migration SQL, for category reads
+- Create module files/tests and `internal/editorial/migrations/*.sql` for author reads
+- Extend `internal/app` to add the editorial migration descriptor in order
 
 **TDD cycle:** Test ordering, empty results, field names, and privacy behavior matching the compatibility decision. Implement, run contracts, commit.
 
@@ -213,7 +217,7 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 
 **Objective:** Port protected category CRUD and settings allowlisted upsert behavior.
 
-**Files:** Extend `internal/content`; create `internal/settings` and tests.
+**Files:** Extend `internal/content`; create `internal/settings`, capability-owned migration SQL, and tests; extend `internal/app` to add new descriptors in order.
 
 **TDD cycle:** Test category-in-use deletion, uniqueness conflicts, no-op updates, boolean serialization, ignored unknown settings, and transactional upserts.
 
@@ -221,7 +225,7 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 
 **Objective:** Port listing, upload, serving, and deletion behind a storage interface.
 
-**Files:** Create module files/tests under `internal/media`.
+**Files:** Create module files/tests and capability-owned migration SQL under `internal/media`; extend `internal/app` to add the media descriptor in order.
 
 **TDD cycle:** Use temporary directories. Test maximum size, allowed content, filename generation with `crypto/rand`, path containment, cleanup on DB failure, and missing-file deletion. Preserve `/uploads/*` URLs.
 
@@ -229,7 +233,7 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 
 **Objective:** Port subscription, token compatibility, edition archive, digest selection, idempotent delivery, retries, and unsubscribe behavior.
 
-**Files:** Create module files/tests under `internal/newsletter`.
+**Files:** Create module files/tests and capability-owned migration SQL under `internal/newsletter`; extend `internal/app` to add the newsletter descriptor in order.
 
 **TDD cycle:** Start with golden HMAC token vectors and existing newsletter scenarios. Use an `httptest.Server` for Resend; test retry classes, idempotency keys, Istanbul edition dates, delivery state transitions, and cancellation.
 

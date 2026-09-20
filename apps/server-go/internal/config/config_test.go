@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -56,43 +57,102 @@ func TestLoadRejectsInvalidServerAddress(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsProductionResourcesOutsideProductionMode(t *testing.T) {
+func TestLoadRejectsReservedPorts(t *testing.T) {
 	tests := []struct {
-		name string
-		env  map[string]string
+		name    string
+		mode    Mode
+		address string
 	}{
-		{
-			name: "production port",
-			env:  map[string]string{"SERVER_ADDR": "127.0.0.1:4001"},
-		},
-		{
-			name: "production port on another interface",
-			env:  map[string]string{"SERVER_ADDR": "0.0.0.0:4001"},
-		},
-		{
-			name: "production port with leading zeroes",
-			env:  map[string]string{"SERVER_ADDR": "127.0.0.1:04001"},
-		},
-		{
-			name: "production database",
-			env:  map[string]string{"DATABASE_PATH": ProductionDatabasePath},
-		},
+		{name: "dashboard port in development", mode: ModeDevelopment, address: "127.0.0.1:3001"},
+		{name: "dashboard port in production", mode: ModeProduction, address: "0.0.0.0:3001"},
+		{name: "dashboard port alias", mode: ModeDevelopment, address: ":03001"},
+		{name: "other reserved port in development", mode: ModeDevelopment, address: "localhost:3002"},
+		{name: "other reserved port in production", mode: ModeProduction, address: "[::1]:3002"},
+		{name: "other reserved port with leading zeroes", mode: ModeProduction, address: "127.0.0.1:03002"},
+		{name: "production port in development", mode: ModeDevelopment, address: "127.0.0.1:4001"},
+		{name: "production port alias in development", mode: ModeDevelopment, address: "0.0.0.0:04001"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := Load(mapLookup(tt.env), t.TempDir())
+			_, err := Load(mapLookup(map[string]string{
+				"APP_ENV":     string(tt.mode),
+				"SERVER_ADDR": tt.address,
+			}), t.TempDir())
 			if err == nil {
-				t.Fatal("Load() error = nil, want safety validation error")
+				t.Fatal("Load() error = nil, want reserved port error")
 			}
 		})
 	}
 }
 
+func TestLoadRejectsProductionDatabaseAliasesOutsideProductionMode(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	relativeAlias, err := filepath.Rel(cwd, ProductionDatabasePath)
+	if err != nil {
+		t.Fatalf("Rel() error = %v", err)
+	}
+
+	symlinkAlias := filepath.Join(t.TempDir(), "production.db")
+	if err := os.Symlink(ProductionDatabasePath, symlinkAlias); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "canonical path", path: ProductionDatabasePath},
+		{name: "relative alias", path: relativeAlias},
+		{name: "symlink alias", path: symlinkAlias},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load(mapLookup(map[string]string{"DATABASE_PATH": tt.path}), t.TempDir())
+			if err == nil {
+				t.Fatal("Load() error = nil, want production database safety error")
+			}
+		})
+	}
+}
+
+func TestLoadCanonicalizesNonexistentDevelopmentPathFromExistingAncestor(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "not", "created", "development.db")
+
+	cfg, err := Load(mapLookup(map[string]string{"DATABASE_PATH": path}), root)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DatabasePath != path {
+		t.Errorf("DatabasePath = %q, want %q", cfg.DatabasePath, path)
+	}
+}
+
+func TestLoadFailsClosedWhenDatabasePathCannotBeCanonicalized(t *testing.T) {
+	root := t.TempDir()
+	loop := filepath.Join(root, "loop")
+	if err := os.Symlink("loop", loop); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+
+	_, err := Load(mapLookup(map[string]string{
+		"DATABASE_PATH": filepath.Join(loop, "development.db"),
+	}), root)
+	if err == nil {
+		t.Fatal("Load() error = nil, want canonicalization error")
+	}
+}
+
 func TestLoadAllowsProductionResourcesOnlyInExplicitProductionMode(t *testing.T) {
+	wantAddress := "0.0.0.0:4001"
 	cfg, err := Load(mapLookup(map[string]string{
 		"APP_ENV":       string(ModeProduction),
-		"SERVER_ADDR":   "0.0.0.0:4001",
+		"SERVER_ADDR":   wantAddress,
 		"DATABASE_PATH": ProductionDatabasePath,
 	}), t.TempDir())
 	if err != nil {
@@ -100,6 +160,33 @@ func TestLoadAllowsProductionResourcesOnlyInExplicitProductionMode(t *testing.T)
 	}
 	if cfg.Mode != ModeProduction {
 		t.Errorf("Mode = %q, want %q", cfg.Mode, ModeProduction)
+	}
+	if cfg.Address != wantAddress {
+		t.Errorf("Address = %q, want %q", cfg.Address, wantAddress)
+	}
+	if cfg.DatabasePath != ProductionDatabasePath {
+		t.Errorf("DatabasePath = %q, want %q", cfg.DatabasePath, ProductionDatabasePath)
+	}
+}
+
+func TestLoadRejectsInvalidMode(t *testing.T) {
+	_, err := Load(mapLookup(map[string]string{"APP_ENV": "staging"}), t.TempDir())
+	if err == nil {
+		t.Fatal("Load() error = nil, want unsupported APP_ENV error")
+	}
+}
+
+func TestLoadRejectsNilLookup(t *testing.T) {
+	_, err := Load(nil, t.TempDir())
+	if err == nil {
+		t.Fatal("Load() error = nil, want lookup error")
+	}
+}
+
+func TestLoadRejectsEmptyWorktreeRoot(t *testing.T) {
+	_, err := Load(func(string) string { return "" }, "")
+	if err == nil {
+		t.Fatal("Load() error = nil, want worktree root error")
 	}
 }
 
