@@ -136,9 +136,10 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 2. Test ordered descriptor execution in a temporary database.
 3. Test migration idempotency and rollback-on-failure.
 4. Test duplicate/out-of-order descriptor rejection and ledger compatibility.
-5. Implement the descriptor runner and migration ledger without embedding capability schema SQL; have `internal/app` gather the ordered descriptors.
-6. Run `go test -race ./...`.
-7. Commit.
+5. Implement the descriptor runner and migration ledger without embedding capability schema SQL. Keep it standalone: no capability descriptors exist yet, and API startup must not open or migrate a database.
+6. Defer descriptor gathering in `internal/app` until Task 5 introduces the first capability-owned migration; run migrations only through an explicit deployment command, never from API startup.
+7. Run `go test -race ./...`.
+8. Commit.
 
 ### Task 4: Capture and automate the Node HTTP contract
 
