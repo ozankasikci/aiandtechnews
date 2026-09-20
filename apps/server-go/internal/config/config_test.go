@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -96,27 +98,84 @@ func TestLoadRejectsProductionDatabaseAliasesOutsideProductionMode(t *testing.T)
 		t.Fatalf("Rel() error = %v", err)
 	}
 
-	symlinkAlias := filepath.Join(t.TempDir(), "production.db")
-	if err := os.Symlink(ProductionDatabasePath, symlinkAlias); err != nil {
-		t.Fatalf("Symlink() error = %v", err)
-	}
-
 	tests := []struct {
 		name string
 		path string
 	}{
 		{name: "canonical path", path: ProductionDatabasePath},
 		{name: "relative alias", path: relativeAlias},
-		{name: "symlink alias", path: symlinkAlias},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := Load(mapLookup(map[string]string{"DATABASE_PATH": tt.path}), t.TempDir())
-			if err == nil {
-				t.Fatal("Load() error = nil, want production database safety error")
+			if !errors.Is(err, ErrProductionDatabaseAlias) {
+				t.Fatalf("Load() error = %v, want errors.Is(err, ErrProductionDatabaseAlias)", err)
 			}
 		})
+	}
+
+	t.Run("symlink alias", func(t *testing.T) {
+		if _, err := os.Stat(ProductionDatabasePath); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				t.Skip("production database does not exist")
+			}
+			t.Fatalf("Stat(production database) error = %v", err)
+		}
+
+		symlinkAlias := filepath.Join(t.TempDir(), "production.db")
+		if err := os.Symlink(ProductionDatabasePath, symlinkAlias); err != nil {
+			t.Skipf("symlink creation is unsupported: %v", err)
+		}
+
+		_, err := Load(mapLookup(map[string]string{"DATABASE_PATH": symlinkAlias}), t.TempDir())
+		if !errors.Is(err, ErrProductionDatabaseAlias) {
+			t.Fatalf("Load() error = %v, want errors.Is(err, ErrProductionDatabaseAlias)", err)
+		}
+	})
+}
+
+func TestLoadRejectsCaseVariantOfProductionDatabaseOnCaseInsensitiveFilesystem(t *testing.T) {
+	caseVariant := strings.Replace(ProductionDatabasePath, "/Users/", "/users/", 1)
+	if caseVariant == ProductionDatabasePath {
+		t.Fatal("test setup did not create a case-variant path")
+	}
+
+	productionInfo, err := os.Stat(ProductionDatabasePath)
+	if err != nil {
+		t.Skipf("production database is unavailable: %v", err)
+	}
+	variantInfo, err := os.Stat(caseVariant)
+	if err != nil {
+		t.Skipf("filesystem does not resolve the case variant: %v", err)
+	}
+	if !os.SameFile(productionInfo, variantInfo) {
+		t.Skip("case-variant path does not resolve to the production database")
+	}
+
+	_, err = Load(mapLookup(map[string]string{"DATABASE_PATH": caseVariant}), t.TempDir())
+	if !errors.Is(err, ErrProductionDatabaseAlias) {
+		t.Fatalf("Load() error = %v, want errors.Is(err, ErrProductionDatabaseAlias)", err)
+	}
+}
+
+func TestPathsEquivalentDetectsHardLinks(t *testing.T) {
+	root := t.TempDir()
+	original := filepath.Join(root, "original.db")
+	if err := os.WriteFile(original, []byte("temporary test database"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	hardLink := filepath.Join(root, "hard-link.db")
+	if err := os.Link(original, hardLink); err != nil {
+		t.Skipf("hard-link creation is unsupported: %v", err)
+	}
+
+	equivalent, err := pathsEquivalent(original, hardLink)
+	if err != nil {
+		t.Fatalf("pathsEquivalent() error = %v", err)
+	}
+	if !equivalent {
+		t.Fatal("pathsEquivalent() = false, want true for hard links to the same temporary file")
 	}
 }
 
@@ -137,7 +196,7 @@ func TestLoadFailsClosedWhenDatabasePathCannotBeCanonicalized(t *testing.T) {
 	root := t.TempDir()
 	loop := filepath.Join(root, "loop")
 	if err := os.Symlink("loop", loop); err != nil {
-		t.Fatalf("Symlink() error = %v", err)
+		t.Skipf("symlink creation is unsupported: %v", err)
 	}
 
 	_, err := Load(mapLookup(map[string]string{

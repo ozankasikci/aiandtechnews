@@ -19,6 +19,8 @@ const (
 	ProductionDatabasePath = "/Users/ozan/Projects/technews/apps/server/data/technews.db"
 )
 
+var ErrProductionDatabaseAlias = errors.New("production database path is forbidden outside APP_ENV=production")
+
 type Config struct {
 	Mode         Mode
 	Address      string
@@ -76,19 +78,45 @@ func (c Config) Validate() error {
 		return errors.New("port 4001 is reserved for production; set APP_ENV=production explicitly to use it")
 	}
 	if c.Mode != ModeProduction {
-		databasePath, err := canonicalPath(c.DatabasePath)
+		equivalent, err := pathsEquivalent(c.DatabasePath, ProductionDatabasePath)
 		if err != nil {
-			return fmt.Errorf("canonicalize DATABASE_PATH: %w", err)
+			return fmt.Errorf("compare DATABASE_PATH with production database: %w", err)
 		}
-		productionDatabasePath, err := canonicalPath(ProductionDatabasePath)
-		if err != nil {
-			return fmt.Errorf("canonicalize production database path: %w", err)
-		}
-		if databasePath == productionDatabasePath {
-			return errors.New("production database path is forbidden outside APP_ENV=production")
+		if equivalent {
+			return fmt.Errorf("%w: %q", ErrProductionDatabaseAlias, c.DatabasePath)
 		}
 	}
 	return nil
+}
+
+// pathsEquivalent compares canonical names first, then file identity when both
+// targets exist. The identity check catches aliases that canonical names do not,
+// including hard links and case variants on case-insensitive filesystems.
+func pathsEquivalent(first, second string) (bool, error) {
+	canonicalFirst, err := canonicalPath(first)
+	if err != nil {
+		return false, fmt.Errorf("canonicalize first path: %w", err)
+	}
+	canonicalSecond, err := canonicalPath(second)
+	if err != nil {
+		return false, fmt.Errorf("canonicalize second path: %w", err)
+	}
+	if canonicalFirst == canonicalSecond {
+		return true, nil
+	}
+
+	firstInfo, firstErr := os.Stat(canonicalFirst)
+	secondInfo, secondErr := os.Stat(canonicalSecond)
+	if firstErr != nil && !errors.Is(firstErr, os.ErrNotExist) {
+		return false, fmt.Errorf("stat first path: %w", firstErr)
+	}
+	if secondErr != nil && !errors.Is(secondErr, os.ErrNotExist) {
+		return false, fmt.Errorf("stat second path: %w", secondErr)
+	}
+	if firstErr != nil || secondErr != nil {
+		return false, nil
+	}
+	return os.SameFile(firstInfo, secondInfo), nil
 }
 
 // canonicalPath resolves symlinks in the deepest existing ancestor, then
