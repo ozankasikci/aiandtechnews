@@ -47,10 +47,15 @@ func NewWithDatabase(cfg config.Config, logger *slog.Logger, db *sql.DB) (*App, 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	articles := content.NewPublicHandler(content.NewService(content.NewSQLiteStore(db)), logger)
+	contentStore := content.NewSQLiteStore(db)
+	articles := content.NewPublicHandler(content.NewService(contentStore), logger)
+	categories := content.NewCategoryPublicHandler(content.NewCategoryService(contentStore), logger)
+	authors := editorial.NewPublicHandler(editorial.NewService(editorial.NewSQLiteStore(db)), logger)
 	handler := httpserver.NewRouter(logger, func(router chi.Router) {
 		health.MountPublic(router)
 		articles.MountPublic(router)
+		categories.MountPublic(router)
+		authors.MountPublic(router)
 	})
 	server := httpserver.NewServer(cfg.Address, handler, logger)
 	return &App{address: cfg.Address, handler: handler, server: server}, nil

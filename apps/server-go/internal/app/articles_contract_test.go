@@ -15,7 +15,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/testutil"
 )
 
-func TestArticlesMatchApprovedNodeContractsInCaptureOrder(t *testing.T) {
+func TestPublicReadsMatchApprovedNodeContractsInCanonicalOperationOrder(t *testing.T) {
 	db, _ := testutil.OpenDatabase(t)
 	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {
 		t.Fatal(err)
@@ -30,7 +30,8 @@ func TestArticlesMatchApprovedNodeContractsInCaptureOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"articles.list", "articles.trending", "articles.getBySlug", "articles.getById"} {
+	// Preserve canonical stateful order: slug increments the view count before ID.
+	for _, id := range []string{"articles.list", "articles.trending", "articles.getBySlug", "categories.list", "authors.list", "articles.getById"} {
 		op, ok := contract.Operation(id)
 		if !ok {
 			t.Fatalf("%s missing", id)

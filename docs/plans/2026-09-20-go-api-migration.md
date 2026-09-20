@@ -180,6 +180,8 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 
 ### Task 6: Implement categories and authors public reads
 
+**Status:** Complete at the migration-slice level. Public category and author reads have focused store/service/HTTP coverage and replay the approved success contracts; this does not imply production or cutover readiness.
+
 **Objective:** Port category and author listing with existing ordering and response shapes.
 
 **Files:**

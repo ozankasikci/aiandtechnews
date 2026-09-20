@@ -14,6 +14,28 @@ type SQLiteStore struct{ db *sql.DB }
 
 func NewSQLiteStore(db *sql.DB) *SQLiteStore { return &SQLiteStore{db: db} }
 
+// ListCategories returns the public category shape in SQLite's default name
+// ordering. No extra tie-breaker is added because the Node query has none.
+func (s *SQLiteStore) ListCategories(ctx context.Context) ([]Category, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, slug, description, color FROM categories ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list categories: %w", err)
+	}
+	defer rows.Close()
+	categories := make([]Category, 0)
+	for rows.Next() {
+		var category Category
+		if err := rows.Scan(&category.ID, &category.Name, &category.Slug, &category.Description, &category.Color); err != nil {
+			return nil, fmt.Errorf("scan category: %w", err)
+		}
+		categories = append(categories, category)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate categories: %w", err)
+	}
+	return categories, nil
+}
+
 const articleColumns = `a.id, a.title, a.slug, a.excerpt, a.content, a.featured_image,
 	a.category_id, a.author_id, a.status, a.published_at, a.meta_title, a.meta_description,
 	a.source, a.source_url, a.view_count, a.created_at, a.updated_at,
