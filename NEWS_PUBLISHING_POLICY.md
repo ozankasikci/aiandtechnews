@@ -20,6 +20,13 @@ Use RSS items from these publications only:
 | 404 Media | `https://www.404media.co/rss/` |
 | Rest of World | `https://restofworld.org/feed/` |
 | Decrypt | `https://decrypt.co/feed` |
+| The Decoder | `https://the-decoder.com/feed/` |
+| ZDNET | `https://www.zdnet.com/topic/artificial-intelligence/rss.xml` |
+| InfoQ | `https://feed.infoq.com/ai-ml-data-eng/` |
+| IEEE Spectrum | `https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss` |
+| SiliconANGLE | `https://siliconangle.com/category/ai/feed/` |
+| AI Business | `https://aibusiness.com/rss.xml` |
+| ScienceDaily | `https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml` |
 
 - Never use Hacker News as a source or discovery feed.
 - Do not create or publish a Deals category.

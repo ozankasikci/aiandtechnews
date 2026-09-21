@@ -11,6 +11,13 @@ export const APPROVED_FEEDS = [
   { source: "404 Media", url: "https://www.404media.co/rss/" },
   { source: "Rest of World", url: "https://restofworld.org/feed/" },
   { source: "Decrypt", url: "https://decrypt.co/feed" },
+  { source: "The Decoder", url: "https://the-decoder.com/feed/" },
+  { source: "ZDNET", url: "https://www.zdnet.com/topic/artificial-intelligence/rss.xml" },
+  { source: "InfoQ", url: "https://feed.infoq.com/ai-ml-data-eng/" },
+  { source: "IEEE Spectrum", url: "https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss" },
+  { source: "SiliconANGLE", url: "https://siliconangle.com/category/ai/feed/" },
+  { source: "AI Business", url: "https://aibusiness.com/rss.xml" },
+  { source: "ScienceDaily", url: "https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml" },
 ] as const;
 
 export const EDITORIAL_AUTHOR = {
@@ -45,6 +52,13 @@ const SOURCE_HOSTS: Record<string, string[]> = {
   "404 Media": ["404media.co"],
   "Rest of World": ["restofworld.org"],
   Decrypt: ["decrypt.co"],
+  "The Decoder": ["the-decoder.com"],
+  ZDNET: ["zdnet.com"],
+  InfoQ: ["infoq.com"],
+  "IEEE Spectrum": ["spectrum.ieee.org"],
+  SiliconANGLE: ["siliconangle.com"],
+  "AI Business": ["aibusiness.com"],
+  ScienceDaily: ["sciencedaily.com"],
 };
 
 const PROMOTIONAL_PATTERNS = [

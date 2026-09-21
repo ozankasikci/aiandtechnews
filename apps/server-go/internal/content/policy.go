@@ -50,6 +50,13 @@ var approvedFeeds = [...]ApprovedFeed{
 	{"404 Media", "https://www.404media.co/rss/"},
 	{"Rest of World", "https://restofworld.org/feed/"},
 	{"Decrypt", "https://decrypt.co/feed"},
+	{"The Decoder", "https://the-decoder.com/feed/"},
+	{"ZDNET", "https://www.zdnet.com/topic/artificial-intelligence/rss.xml"},
+	{"InfoQ", "https://feed.infoq.com/ai-ml-data-eng/"},
+	{"IEEE Spectrum", "https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss"},
+	{"SiliconANGLE", "https://siliconangle.com/category/ai/feed/"},
+	{"AI Business", "https://aibusiness.com/rss.xml"},
+	{"ScienceDaily", "https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml"},
 }
 
 var sourceHosts = [...]struct {
@@ -68,6 +75,13 @@ var sourceHosts = [...]struct {
 	{"404 Media", "404media.co"},
 	{"Rest of World", "restofworld.org"},
 	{"Decrypt", "decrypt.co"},
+	{"The Decoder", "the-decoder.com"},
+	{"ZDNET", "zdnet.com"},
+	{"InfoQ", "infoq.com"},
+	{"IEEE Spectrum", "spectrum.ieee.org"},
+	{"SiliconANGLE", "siliconangle.com"},
+	{"AI Business", "aibusiness.com"},
+	{"ScienceDaily", "sciencedaily.com"},
 }
 
 func ApprovedFeeds() []ApprovedFeed {

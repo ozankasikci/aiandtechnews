@@ -42,6 +42,13 @@ func TestPolicyConstantsAndApprovedFeeds(t *testing.T) {
 		{"404 Media", "https://www.404media.co/rss/"},
 		{"Rest of World", "https://restofworld.org/feed/"},
 		{"Decrypt", "https://decrypt.co/feed"},
+		{"The Decoder", "https://the-decoder.com/feed/"},
+		{"ZDNET", "https://www.zdnet.com/topic/artificial-intelligence/rss.xml"},
+		{"InfoQ", "https://feed.infoq.com/ai-ml-data-eng/"},
+		{"IEEE Spectrum", "https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss"},
+		{"SiliconANGLE", "https://siliconangle.com/category/ai/feed/"},
+		{"AI Business", "https://aibusiness.com/rss.xml"},
+		{"ScienceDaily", "https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml"},
 	}
 	if got := ApprovedFeeds(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ApprovedFeeds() = %#v, want %#v", got, want)
@@ -77,6 +84,13 @@ func TestSourceForURLParity(t *testing.T) {
 		{"https://www.404media.co/example", "404 Media", true},
 		{"https://restofworld.org/2026/example", "Rest of World", true},
 		{"https://decrypt.co/378101/example", "Decrypt", true},
+		{"https://the-decoder.com/example", "The Decoder", true},
+		{"https://www.zdnet.com/article/example", "ZDNET", true},
+		{"https://www.infoq.com/news/example", "InfoQ", true},
+		{"https://spectrum.ieee.org/example", "IEEE Spectrum", true},
+		{"https://siliconangle.com/example", "SiliconANGLE", true},
+		{"https://aibusiness.com/example", "AI Business", true},
+		{"https://www.sciencedaily.com/releases/example.htm", "ScienceDaily", true},
 		{"https://labs.techcrunch.com/example", "TechCrunch", true},
 		{"https://WWW.THEVERGE.COM/example", "The Verge", true},
 		{"http://techcrunch.com:80/example", "TechCrunch", true},

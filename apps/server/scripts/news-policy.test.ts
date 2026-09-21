@@ -34,6 +34,13 @@ test("recognizes only approved publication domains", () => {
   assert.equal(sourceForUrl("https://www.404media.co/example"), "404 Media");
   assert.equal(sourceForUrl("https://restofworld.org/2026/example"), "Rest of World");
   assert.equal(sourceForUrl("https://decrypt.co/378101/example"), "Decrypt");
+  assert.equal(sourceForUrl("https://the-decoder.com/example"), "The Decoder");
+  assert.equal(sourceForUrl("https://www.zdnet.com/article/example"), "ZDNET");
+  assert.equal(sourceForUrl("https://www.infoq.com/news/example"), "InfoQ");
+  assert.equal(sourceForUrl("https://spectrum.ieee.org/example"), "IEEE Spectrum");
+  assert.equal(sourceForUrl("https://siliconangle.com/example"), "SiliconANGLE");
+  assert.equal(sourceForUrl("https://aibusiness.com/example"), "AI Business");
+  assert.equal(sourceForUrl("https://www.sciencedaily.com/releases/example.htm"), "ScienceDaily");
   assert.equal(sourceForUrl("https://news.ycombinator.com/item?id=1"), null);
 });
 
@@ -53,6 +60,13 @@ test("includes the expanded approved RSS feed set", () => {
       "404 Media",
       "Rest of World",
       "Decrypt",
+      "The Decoder",
+      "ZDNET",
+      "InfoQ",
+      "IEEE Spectrum",
+      "SiliconANGLE",
+      "AI Business",
+      "ScienceDaily",
     ],
   );
 });
