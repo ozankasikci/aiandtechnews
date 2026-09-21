@@ -6,10 +6,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -80,29 +82,58 @@ func TestAuthMatchesApprovedContractSequence(t *testing.T) {
 	handler, db := authApplication(t)
 	defer db.Close()
 
-	fixed := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
-	tokens, err := editorial.NewJWT(authTestSecret, func() time.Time { return fixed })
-	if err != nil {
-		t.Fatal(err)
-	}
-	token, err := tokens.Sign(editorial.Identity{ID: 201, Email: "editorial@example.invalid", Role: "admin"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest := sha256.Sum256([]byte(token))
-	if got := hex.EncodeToString(digest[:]); got != "f075310d5db836008907399e2d08f182b0d5734e870aa3db14b715c69be4ae56" {
-		t.Fatalf("token SHA-256 = %s", got)
-	}
-
 	contract, err := contracttest.Load(filepath.Join("..", "..", "contracts", "fixtures", "node-contracts.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	bindings := map[string]string{
-		"$PASSWORD":      authTestPassword,
-		"$JWT":           token,
-		"$AUTHORIZATION": "Bearer " + token,
+	passwordBinding, err := authBinding(contract.Replay.Bindings, "$PASSWORD")
+	if err != nil {
+		t.Fatal(err)
 	}
+	password, err := resolveAuthSecret(passwordBinding, map[string]string{"CONTRACT_TEST_PASSWORD": authTestPassword})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	login, ok := contract.Operation("auth.login")
+	if !ok {
+		t.Fatal("operation auth.login missing")
+	}
+	resolvedLoginRequest, err := resolveAuthOperation(login, map[string]string{"$PASSWORD": password})
+	if err != nil {
+		t.Fatalf("resolve auth.login request: %v", err)
+	}
+	loginResponse := executeAuthOperation(t, handler, resolvedLoginRequest)
+
+	jwtBinding, err := authBinding(contract.Replay.Bindings, "$JWT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := resolveAuthResponse(jwtBinding, login.OperationID, loginResponse.Body.Bytes())
+	if err != nil {
+		t.Fatalf("resolve $JWT from login response: %v", err)
+	}
+	if err := verifyAuthBindingVector(jwtBinding, token); err != nil {
+		t.Fatal(err)
+	}
+
+	bindings := map[string]string{"$PASSWORD": password, "$JWT": token}
+	resolvedLogin, err := resolveAuthOperation(login, bindings)
+	if err != nil {
+		t.Fatalf("resolve auth.login fixture: %v", err)
+	}
+	assertRecordedContractResponse(t, loginResponse, resolvedLogin)
+
+	authorizationBinding, err := authBinding(contract.Replay.Bindings, "$AUTHORIZATION")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorization, err := resolveAuthTemplate(authorizationBinding, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings["$AUTHORIZATION"] = authorization
+
 	previous := -1
 	for _, id := range []string{"auth.login", "auth.me", "auth.logout"} {
 		op, ok := contract.Operation(id)
@@ -113,6 +144,9 @@ func TestAuthMatchesApprovedContractSequence(t *testing.T) {
 			t.Fatalf("operation %s is not in canonical order", id)
 		} else {
 			previous = index
+		}
+		if id == "auth.login" {
+			continue
 		}
 		resolved, err := resolveAuthOperation(op, bindings)
 		if err != nil {
@@ -126,7 +160,131 @@ func TestAuthMatchesApprovedContractSequence(t *testing.T) {
 	}
 
 	// Logout is client-side only and must not revoke a stateless JWT.
-	assertAuthResponse(t, request(t, handler, http.MethodGet, "/api/auth/me", "", "Bearer "+token), http.StatusOK, `{"user":{"id":201,"email":"editorial@example.invalid","role":"admin","iat":1789905600,"exp":1790510400}}`)
+	me, _ := contract.Operation("auth.me")
+	resolvedMe, err := resolveAuthOperation(me, bindings)
+	if err != nil {
+		t.Fatalf("resolve post-logout auth.me fixture: %v", err)
+	}
+	if err := contracttest.Replay(handler, resolvedMe); err != nil {
+		t.Fatal("logout revoked the response-derived JWT (details redacted)")
+	}
+}
+
+func authBinding(bindings []contracttest.Binding, placeholder string) (contracttest.Binding, error) {
+	for _, binding := range bindings {
+		if binding.Placeholder == placeholder {
+			return binding, nil
+		}
+	}
+	return contracttest.Binding{}, fmt.Errorf("binding %s missing", placeholder)
+}
+
+func resolveAuthSecret(binding contracttest.Binding, secrets map[string]string) (string, error) {
+	resolver := binding.Resolver
+	if resolver.Type != "secretRef" || resolver.Name == "" || resolver != (contracttest.Resolver{Type: "secretRef", Name: resolver.Name}) {
+		return "", fmt.Errorf("binding %s has unsupported secret resolver", binding.Placeholder)
+	}
+	value, ok := secrets[resolver.Name]
+	if !ok {
+		return "", fmt.Errorf("binding %s references an unavailable test secret", binding.Placeholder)
+	}
+	return value, nil
+}
+
+func resolveAuthResponse(binding contracttest.Binding, operationID string, body []byte) (string, error) {
+	resolver := binding.Resolver
+	want := contracttest.Resolver{Type: "responseJsonPointer", OperationID: operationID, Pointer: "/token"}
+	if resolver != want {
+		return "", fmt.Errorf("binding %s has unsupported response resolver", binding.Placeholder)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	var response map[string]any
+	if err := decoder.Decode(&response); err != nil {
+		return "", fmt.Errorf("binding %s response is not valid JSON", binding.Placeholder)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return "", fmt.Errorf("binding %s response has trailing JSON data", binding.Placeholder)
+	}
+	value, ok := response["token"].(string)
+	if !ok || value == "" {
+		return "", fmt.Errorf("binding %s response pointer did not resolve to a string", binding.Placeholder)
+	}
+	return value, nil
+}
+
+func verifyAuthBindingVector(binding contracttest.Binding, value string) error {
+	var vector struct {
+		SHA256 string `json:"sha256"`
+	}
+	if len(binding.Vector) == 0 || json.Unmarshal(binding.Vector, &vector) != nil || vector.SHA256 == "" {
+		return fmt.Errorf("binding %s has no supported SHA-256 vector", binding.Placeholder)
+	}
+	digest := sha256.Sum256([]byte(value))
+	if got := hex.EncodeToString(digest[:]); got != vector.SHA256 {
+		return fmt.Errorf("binding %s SHA-256 does not match its approved vector", binding.Placeholder)
+	}
+	return nil
+}
+
+func resolveAuthTemplate(binding contracttest.Binding, values map[string]string) (string, error) {
+	resolver := binding.Resolver
+	if resolver.Type != "template" || resolver.Value == "" || resolver != (contracttest.Resolver{Type: "template", Value: resolver.Value}) {
+		return "", fmt.Errorf("binding %s has unsupported template resolver", binding.Placeholder)
+	}
+	if len(binding.DependsOn) != 1 || binding.DependsOn[0] != "$JWT" {
+		return "", fmt.Errorf("binding %s has unsupported template dependencies", binding.Placeholder)
+	}
+	value := resolver.Value
+	for _, dependency := range binding.DependsOn {
+		resolved, ok := values[dependency]
+		if !ok {
+			return "", fmt.Errorf("binding %s has unresolved dependency %s", binding.Placeholder, dependency)
+		}
+		value = strings.ReplaceAll(value, "${"+dependency+"}", resolved)
+	}
+	if strings.Contains(value, "${") {
+		return "", fmt.Errorf("binding %s template remains unresolved", binding.Placeholder)
+	}
+	return value, nil
+}
+
+func executeAuthOperation(t *testing.T, handler http.Handler, operation contracttest.Operation) *httptest.ResponseRecorder {
+	t.Helper()
+	target := operation.Request.Path
+	if operation.Request.ActualPath != "" {
+		target = operation.Request.ActualPath
+	}
+	if len(operation.Request.Query) > 0 {
+		query := make(url.Values, len(operation.Request.Query))
+		for name, value := range operation.Request.Query {
+			query.Set(name, value)
+		}
+		target += "?" + query.Encode()
+	}
+	request := httptest.NewRequest(operation.Request.Method, target, bytes.NewReader(operation.Request.Body))
+	for name, value := range operation.Request.Headers {
+		request.Header.Set(name, value)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func assertRecordedContractResponse(t *testing.T, response *httptest.ResponseRecorder, operation contracttest.Operation) {
+	t.Helper()
+	recorded := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		for name, values := range response.Header() {
+			for _, value := range values {
+				writer.Header().Add(name, value)
+			}
+		}
+		writer.WriteHeader(response.Code)
+		_, _ = writer.Write(response.Body.Bytes())
+	})
+	if err := contracttest.Replay(recorded, operation); err != nil {
+		t.Fatalf("%s contract response mismatch (details redacted)", operation.OperationID)
+	}
 }
 
 func resolveAuthOperation(operation contracttest.Operation, bindings map[string]string) (contracttest.Operation, error) {

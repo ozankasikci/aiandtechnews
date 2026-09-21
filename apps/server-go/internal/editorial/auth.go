@@ -37,6 +37,7 @@ type Claims struct {
 	Role      string `json:"role"`
 	IssuedAt  int64  `json:"iat"`
 	ExpiresAt int64  `json:"exp"`
+	NotBefore *int64 `json:"nbf,omitempty"`
 }
 
 type JWT struct {
@@ -98,7 +99,8 @@ func (j *JWT) Verify(token string) (Claims, error) {
 		return Claims{}, ErrInvalidToken
 	}
 	var claims Claims
-	if err := decodeTokenJSON(payload, &claims); err != nil || claims.ID <= 0 || claims.Email == "" || claims.Role == "" || claims.IssuedAt <= 0 || claims.ExpiresAt <= 0 || claims.ExpiresAt <= j.now().Unix() {
+	now := j.now().Unix()
+	if err := decodeTokenJSON(payload, &claims); err != nil || claims.ID <= 0 || claims.Email == "" || claims.Role == "" || claims.IssuedAt <= 0 || claims.ExpiresAt <= 0 || claims.ExpiresAt <= now || claims.NotBefore != nil && now < *claims.NotBefore {
 		return Claims{}, ErrInvalidToken
 	}
 	return claims, nil

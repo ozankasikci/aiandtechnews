@@ -102,6 +102,55 @@ func TestJWTRejectsUnsafeAndInvalidTokens(t *testing.T) {
 	}
 }
 
+func TestJWTEnforcesOptionalNotBeforeClaim(t *testing.T) {
+	now := time.Unix(1789905600, 0)
+	tokens, err := NewJWT(contractSecret, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name    string
+		payload string
+		valid   bool
+	}{
+		{
+			name:    "before activation",
+			payload: `{"id":201,"email":"editorial@example.invalid","role":"admin","iat":1789905600,"exp":1790510400,"nbf":1789905601}`,
+		},
+		{
+			name:    "activation boundary",
+			payload: `{"id":201,"email":"editorial@example.invalid","role":"admin","iat":1789905600,"exp":1790510400,"nbf":1789905600}`,
+			valid:   true,
+		},
+		{
+			name:    "fractional",
+			payload: `{"id":201,"email":"editorial@example.invalid","role":"admin","iat":1789905600,"exp":1790510400,"nbf":1789905599.5}`,
+		},
+		{
+			name:    "non-numeric",
+			payload: `{"id":201,"email":"editorial@example.invalid","role":"admin","iat":1789905600,"exp":1790510400,"nbf":"1789905600"}`,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			claims, err := tokens.Verify(signedTestToken(t, contractSecret, test.payload))
+			if !test.valid {
+				if err == nil {
+					t.Fatal("Verify() error = nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Verify() error = %v", err)
+			}
+			if claims.NotBefore == nil || *claims.NotBefore != now.Unix() {
+				t.Fatal("Verify() did not preserve the activation boundary")
+			}
+		})
+	}
+}
+
 func signedTestToken(t *testing.T, secret, payload string) string {
 	t.Helper()
 	return signedTestTokenWithHeader(t, secret, `{"alg":"HS256","typ":"JWT"}`, payload)
