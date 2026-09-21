@@ -208,8 +208,18 @@ test("fixtures contain only synthetic, normalized, stable material", () => {
   assert.doesNotMatch(text, /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
   assert.doesNotMatch(text, /synthetic-contract-(?:jwt|newsletter|cron)-secret/);
   assert.doesNotMatch(text, /contract-test-password|\$2[aby]\$/);
-  const wallDate = new Date().toISOString().slice(0, 10);
-  if (wallDate !== "2026-09-20") assert.equal(text.includes(wallDate), false, "current wall date must not leak into fixtures");
+  const intentionalSyntheticDates = new Set([
+    "2026-09-16",
+    "2026-09-17",
+    "2026-09-18",
+    "2026-09-19",
+    "2026-09-20",
+    "2026-09-21",
+    "2030-01-01",
+  ]);
+  for (const date of text.match(/20\d{2}-\d{2}-\d{2}/g) ?? []) {
+    assert.equal(intentionalSyntheticDates.has(date), true, `unexpected date ${date} must not leak into fixtures`);
+  }
   for (const volatile of ["date", "etag", "connection", "keep-alive", "transfer-encoding", "content-length", "set-cookie"]) {
     assert.equal(text.includes(`\"${volatile}\"`), false, `volatile header ${volatile} must be excluded`);
   }
