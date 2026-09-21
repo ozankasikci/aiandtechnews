@@ -41,7 +41,7 @@ func TestNewComposesHealthAPIWithoutOpeningDatabase(t *testing.T) {
 }
 
 func TestNewRejectsInvalidCompositionInputs(t *testing.T) {
-	valid := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4401", DatabasePath: filepath.Join(t.TempDir(), "dev.db")}
+	valid := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4401", DatabasePath: filepath.Join(t.TempDir(), "dev.db"), JWTSecret: "synthetic-test-secret"}
 	if _, err := New(valid, nil); err == nil {
 		t.Fatal("New() with nil logger error = nil")
 	}
@@ -54,7 +54,7 @@ func TestNewRejectsInvalidCompositionInputs(t *testing.T) {
 }
 
 func TestNewWithDatabaseValidatesDependenciesWithoutDatabaseIOOrOwnership(t *testing.T) {
-	valid := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4401", DatabasePath: filepath.Join(t.TempDir(), "dev.db")}
+	valid := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4401", DatabasePath: filepath.Join(t.TempDir(), "dev.db"), JWTSecret: "synthetic-test-secret"}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	if _, err := NewWithDatabase(valid, logger, nil); err == nil {
 		t.Fatal("NewWithDatabase() with nil database error = nil")
@@ -74,5 +74,15 @@ func TestNewWithDatabaseValidatesDependenciesWithoutDatabaseIOOrOwnership(t *tes
 	}
 	if err := db.PingContext(context.Background()); err != nil {
 		t.Fatalf("caller-owned database was closed: %v", err)
+	}
+
+	missingSecret := valid
+	missingSecret.JWTSecret = ""
+	if _, err := NewWithDatabase(missingSecret, logger, db); err == nil {
+		t.Fatal("NewWithDatabase() with empty JWT secret error = nil")
+	}
+
+	if _, err := NewWithDatabaseAt(valid, logger, db, nil); err == nil {
+		t.Fatal("NewWithDatabaseAt() with nil clock error = nil")
 	}
 }

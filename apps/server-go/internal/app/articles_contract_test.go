@@ -21,7 +21,7 @@ func TestPublicReadsMatchApprovedNodeContractsInCanonicalOperationOrder(t *testi
 		t.Fatal(err)
 	}
 	seedContractArticles(t, db)
-	cfg := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4402", DatabasePath: filepath.Join(t.TempDir(), "unused.db")}
+	cfg := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4402", DatabasePath: filepath.Join(t.TempDir(), "unused.db"), JWTSecret: "synthetic-test-secret"}
 	application, err := app.NewWithDatabase(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), db)
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func seedContractArticles(t *testing.T, db interface {
 (103,'Synthetic Startups','synthetic-startups','Synthetic startup fixtures','#333333'),
 (104,'Synthetic Unused','synthetic-unused','Intentionally unused contract category','#444444')`,
 		`INSERT INTO authors(id,name,email,password_hash,avatar,bio,role) VALUES
-(201,'TechNews Editorial','editorial@example.invalid','fake','/uploads/synthetic-contract-image.png','Synthetic editorial contract fixture.','admin'),
+(201,'TechNews Editorial','editorial@example.invalid','$2a$04$abcdefghijklmnopqrstuu.GAp6e4m7hQ19qGCjMlGaXpbrUyvyq6','/uploads/synthetic-contract-image.png','Synthetic editorial contract fixture.','admin'),
 (202,'Synthetic Reporter','reporter@example.invalid','fake',NULL,NULL,'editor')`,
 		`INSERT INTO articles(id,title,slug,excerpt,content,featured_image,category_id,author_id,status,published_at,meta_title,meta_description,source,source_url,view_count,created_at,updated_at) VALUES
 (301,'Synthetic Published Newer','synthetic-published-newer','Newer synthetic excerpt','<p>Entirely synthetic contract article content.</p>','/uploads/synthetic-contract-image.png',101,201,'published','2026-09-19T12:00:00.000Z','Synthetic meta title','Synthetic meta description','Synthetic Wire','https://news.example.invalid/newer',42,'2026-09-19T10:00:00.000Z','2026-09-19T12:00:00.000Z'),

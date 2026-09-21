@@ -193,13 +193,17 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 
 ### Task 7: Implement authentication
 
+**Status (2026-09-21): Complete for the preserved migration slice; this does not establish production or cutover readiness.**
+
 **Objective:** Preserve bcrypt and JWT compatibility while failing closed on configuration.
 
 **Files:**
-- Extend module files/tests under `internal/editorial`
-- Create auth middleware/tests under `internal/httpserver/middleware`
+- Extended `internal/editorial` with bcrypt verification, strict HS256 JWT signing/verification, login service, SQLite login lookup, and auth HTTP handlers/tests
+- Extended `internal/app` with database-backed auth composition and executable replay of the three approved auth fixture operations
+- Extended `internal/config` with `JWT_SECRET` loading and redacted `String`/`GoString` formatting
+- Updated the Go module dependency metadata and `apps/server-go/README.md`
 
-**TDD cycle:** Add golden tests for existing bcrypt hashes and JWT claim/signature compatibility. Test missing secret, malformed bearer header, expiration, login failure, `/auth/me`, and logout. Never add a fallback production secret.
+**TDD cycle:** Golden bcrypt and external JWT digest vectors, fixture replay, required integer claims, single-document JSON, HS256, signature and expiration boundary rejection, missing secret, malformed bearer headers, service error identity, non-leaking database failures, `/auth/me`, and stateless logout are covered. Database-backed composition fails closed without `JWT_SECRET`; health-only composition remains unaffected. The 100 KiB malformed-body response is intentional hardening. No fallback secret was added.
 
 ### Task 8: Port publishing policy
 

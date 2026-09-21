@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -239,6 +240,34 @@ func TestLoadRejectsNilLookup(t *testing.T) {
 	_, err := Load(nil, t.TempDir())
 	if err == nil {
 		t.Fatal("Load() error = nil, want lookup error")
+	}
+}
+
+func TestLoadReadsJWTSecretWithoutRequiringIt(t *testing.T) {
+	const secret = "synthetic-config-secret"
+	cfg, err := Load(mapLookup(map[string]string{"JWT_SECRET": secret}), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.JWTSecret != secret {
+		t.Fatal("JWT_SECRET was not loaded")
+	}
+	without, err := Load(func(string) string { return "" }, t.TempDir())
+	if err != nil {
+		t.Fatalf("migration-compatible config rejected empty JWT secret: %v", err)
+	}
+	if without.JWTSecret != "" {
+		t.Fatal("empty JWT secret was not preserved")
+	}
+}
+
+func TestConfigFormattingRedactsJWTSecret(t *testing.T) {
+	const secret = "secret-that-must-never-be-formatted"
+	cfg := Config{Mode: ModeDevelopment, Address: DefaultAddress, DatabasePath: "/tmp/synthetic.db", JWTSecret: secret}
+	for _, formatted := range []string{fmt.Sprint(cfg), fmt.Sprintf("%+v", cfg), fmt.Sprintf("%#v", cfg)} {
+		if strings.Contains(formatted, secret) {
+			t.Fatalf("formatted config leaked secret: %s", formatted)
+		}
 	}
 }
 

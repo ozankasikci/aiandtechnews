@@ -10,6 +10,17 @@ type SQLiteStore struct{ db *sql.DB }
 
 func NewSQLiteStore(db *sql.DB) *SQLiteStore { return &SQLiteStore{db: db} }
 
+func (s *SQLiteStore) AuthorByEmail(ctx context.Context, email string) (LoginAuthor, error) {
+	var author LoginAuthor
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, name, email, role, password_hash FROM authors WHERE email = ?`, email,
+	).Scan(&author.ID, &author.Name, &author.Email, &author.Role, &author.PasswordHash)
+	if err != nil {
+		return LoginAuthor{}, fmt.Errorf("author by email: %w", err)
+	}
+	return author, nil
+}
+
 // ListAuthors intentionally exposes only the six public compatibility columns.
 func (s *SQLiteStore) ListAuthors(ctx context.Context) ([]Author, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, email, avatar, bio, role FROM authors ORDER BY name`)

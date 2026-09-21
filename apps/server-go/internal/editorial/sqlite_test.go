@@ -36,6 +36,36 @@ func TestSQLiteStoreListsAuthorsInSQLiteNameOrderWithNulls(t *testing.T) {
 	}
 }
 
+func TestSQLiteStoreAuthorByEmailPrivateRowAndErrors(t *testing.T) {
+	db, _ := testutil.OpenDatabase(t)
+	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO authors(id,name,email,password_hash,role) VALUES (201,'Editor','editor@example.invalid','private-hash','admin')`); err != nil {
+		t.Fatal(err)
+	}
+	store := editorial.NewSQLiteStore(db)
+	author, err := store.AuthorByEmail(context.Background(), "editor@example.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if author.ID != 201 || author.Name != "Editor" || author.Email != "editor@example.invalid" || author.Role != "admin" || author.PasswordHash != "private-hash" {
+		t.Fatalf("login author = %#v", author)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := store.AuthorByEmail(ctx, "editor@example.invalid"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled error = %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AuthorByEmail(context.Background(), "editor@example.invalid"); err == nil {
+		t.Fatal("closed database error = nil")
+	}
+}
+
 func TestSQLiteStoreListAuthorsReturnsNonNilEmptyAndErrors(t *testing.T) {
 	db, _ := testutil.OpenDatabase(t)
 	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {

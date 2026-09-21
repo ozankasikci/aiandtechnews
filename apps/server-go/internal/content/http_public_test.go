@@ -25,7 +25,7 @@ func newArticleHandler(t *testing.T, logger *slog.Logger) (http.Handler, interfa
 		t.Fatal(err)
 	}
 	seed(t, db)
-	cfg := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4402", DatabasePath: filepath.Join(t.TempDir(), "unused.db")}
+	cfg := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4402", DatabasePath: filepath.Join(t.TempDir(), "unused.db"), JWTSecret: "synthetic-test-secret"}
 	application, err := app.NewWithDatabase(cfg, logger, db)
 	if err != nil {
 		t.Fatal(err)

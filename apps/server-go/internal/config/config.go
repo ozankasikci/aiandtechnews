@@ -25,7 +25,14 @@ type Config struct {
 	Mode         Mode
 	Address      string
 	DatabasePath string
+	JWTSecret    string
 }
+
+func (c Config) String() string {
+	return fmt.Sprintf("Config{Mode:%q Address:%q DatabasePath:%q JWTSecret:[REDACTED]}", c.Mode, c.Address, c.DatabasePath)
+}
+
+func (c Config) GoString() string { return c.String() }
 
 // Load builds configuration from environment values supplied by lookup.
 // worktreeRoot is explicit so callers and tests control where development data lives.
@@ -51,6 +58,7 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	if value := lookup("DATABASE_PATH"); value != "" {
 		cfg.DatabasePath = value
 	}
+	cfg.JWTSecret = lookup("JWT_SECRET")
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

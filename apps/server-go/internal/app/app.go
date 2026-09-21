@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/config"
@@ -38,6 +39,12 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 // NewWithDatabase composes database-backed routes around a caller-owned pool.
 // It does not ping, migrate, seed, or close the database.
 func NewWithDatabase(cfg config.Config, logger *slog.Logger, db *sql.DB) (*App, error) {
+	return NewWithDatabaseAt(cfg, logger, db, time.Now)
+}
+
+// NewWithDatabaseAt is the deterministic database-backed composition seam.
+// Production uses NewWithDatabase, which supplies time.Now.
+func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now func() time.Time) (*App, error) {
 	if logger == nil {
 		return nil, errors.New("logger is required")
 	}
@@ -47,15 +54,22 @@ func NewWithDatabase(cfg config.Config, logger *slog.Logger, db *sql.DB) (*App, 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	tokens, err := editorial.NewJWT(cfg.JWTSecret, now)
+	if err != nil {
+		return nil, err
+	}
 	contentStore := content.NewSQLiteStore(db)
 	articles := content.NewPublicHandler(content.NewService(contentStore), logger)
 	categories := content.NewCategoryPublicHandler(content.NewCategoryService(contentStore), logger)
-	authors := editorial.NewPublicHandler(editorial.NewService(editorial.NewSQLiteStore(db)), logger)
+	editorialStore := editorial.NewSQLiteStore(db)
+	authors := editorial.NewPublicHandler(editorial.NewService(editorialStore), logger)
+	auth := editorial.NewAuthHandler(editorial.NewLoginService(editorialStore, editorial.NewBcryptVerifier(), tokens), tokens, logger)
 	handler := httpserver.NewRouter(logger, func(router chi.Router) {
 		health.MountPublic(router)
 		articles.MountPublic(router)
 		categories.MountPublic(router)
 		authors.MountPublic(router)
+		auth.Mount(router)
 	})
 	server := httpserver.NewServer(cfg.Address, handler, logger)
 	return &App{address: cfg.Address, handler: handler, server: server}, nil

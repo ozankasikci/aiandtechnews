@@ -2,7 +2,7 @@
 
 This directory is an isolated Go module for the API migration. It does not share a Go module or developer commands with the existing Node server.
 
-Tasks 5 and 6 currently provide the four public article reads plus public category and author listings. This is a migration slice, not a claim of production or cutover readiness; the remaining capabilities and cutover verification are still pending.
+Tasks 5 through 7 currently provide the four public article reads, public category and author listings, and compatible login, current-user, and logout endpoints. This is a migration slice, not a claim of production or cutover readiness; the remaining capabilities and cutover verification are still pending.
 
 ## Safety defaults
 
@@ -37,8 +37,11 @@ Review contract changes in this order:
 | `APP_ENV` | `development` | Typed runtime mode: `development` or `production` |
 | `SERVER_ADDR` | `127.0.0.1:4401` | HTTP listen address |
 | `DATABASE_PATH` | `<worktree>/data/technews.db` | SQLite database path |
+| `JWT_SECRET` | none | Required by database-backed composition for signing and verifying authentication tokens |
 
-Configuration is represented by `internal/config.Config` and validated before runtime resources are opened.
+Configuration is represented by `internal/config.Config` and validated before runtime resources are opened. String and Go-syntax formatting redact `JWT_SECRET`. Health-only `app.New` does not require the secret, while database-backed composition fails before serving when it is absent.
+
+Authentication preserves the reviewed Node bcrypt hashes, HS256 JWT shape, seven-day lifetime, and stateless logout behavior. JWT verification requires all identity and timestamp claims, exact integer numeric claims, a single JSON document in each segment, an HS256 header, a valid signature, and `exp` strictly after the current time. Login parsing intentionally caps request bodies at 100 KiB and returns the same stable JSON error for oversized and otherwise malformed bodies. Secrets, passwords, and raw JWTs are not included in client errors or compatibility-test failure output.
 
 ## Developer commands
 
@@ -55,7 +58,7 @@ make contracts-accept  # explicitly accept the reviewed canonical Node fixture
 go run ./cmd/migrate   # explicitly migrate the guarded configured database
 ```
 
-`cmd/api` opens and closes its configured database but never migrates or seeds it. Run `cmd/migrate` as an explicit deployment step first. `app.New` remains a no-I/O health-only composition; `app.NewWithDatabase` audibly mounts article, category, and author routes around a caller-owned database.
+`cmd/api` opens and closes its configured database but never migrates or seeds it. Run `cmd/migrate` as an explicit deployment step first. `app.New` remains a no-I/O health-only composition; `app.NewWithDatabase` audibly mounts article, category, author, and authentication routes around a caller-owned database.
 
 The migration runner supports fresh databases and databases already managed by its ledger. It intentionally cannot stamp or adopt an existing unmanaged database initialized by the Node server, although `cmd/api` can read that compatible schema. Cutover requires a future explicit full-schema verifier/adoption command; do not weaken `migrate.Run` or partially stamp an unmanaged database.
 
