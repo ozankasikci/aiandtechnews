@@ -2,7 +2,7 @@
 
 This directory is an isolated Go module for the API migration. It does not share a Go module or developer commands with the existing Node server.
 
-Tasks 5 through 7 currently provide the four public article reads, public category and author listings, and compatible login, current-user, and logout endpoints. This is a migration slice, not a claim of production or cutover readiness; the remaining capabilities and cutover verification are still pending.
+Tasks 5 through 8 currently provide the four public article reads, public category and author listings, compatible login, current-user, and logout endpoints, and a pure Go port of the retained publishing policy. This is a migration slice, not a claim of production or cutover readiness; the remaining capabilities and cutover verification are still pending.
 
 ## Safety defaults
 
@@ -42,6 +42,8 @@ Review contract changes in this order:
 Configuration is represented by `internal/config.Config` and validated before runtime resources are opened. String and Go-syntax formatting redact `JWT_SECRET`. Health-only `app.New` does not require the secret, while database-backed composition fails before serving when it is absent.
 
 Authentication preserves the reviewed Node bcrypt hashes, HS256 JWT shape, seven-day lifetime, and stateless logout behavior. JWT verification requires all identity and timestamp claims, exact integer numeric claims, a single JSON document in each segment, an HS256 header, a valid signature, and `exp` strictly after the current time. Login parsing intentionally caps request bodies at 100 KiB and returns the same stable JSON error for oversized and otherwise malformed bodies. Secrets, passwords, and raw JWTs are not included in client errors or compatibility-test failure output.
+
+The pure `internal/content` publishing policy mirrors the retained TypeScript source allowlist, URL normalization, item rejection, AI-only gate, and rewritten-article validation. It performs no network, database, HTTP, or listener work. Dashboard publication routes and policy integration remain part of a later migration task.
 
 ## Developer commands
 

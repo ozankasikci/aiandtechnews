@@ -207,13 +207,16 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 
 ### Task 8: Port publishing policy
 
+**Status (2026-09-21): Complete for the pure policy slice; dashboard route integration and production or cutover readiness remain pending.**
+
 **Objective:** Preserve every source, normalization, AI-only, copy, HTML, and length rule.
 
 **Files:**
-- Create: `internal/content/policy.go`
-- Create: `internal/content/policy_test.go`
+- Created `internal/content/policy.go` with typed, side-effect-free feed, author, URL, rejection, and article-validation APIs
+- Created `internal/content/policy_test.go` with exact retained and expanded parity vectors
+- Updated `apps/server-go/README.md` with the bounded Task 8 capability statement
 
-**TDD cycle:** Translate the existing TypeScript vectors first, verify failures, then implement policy behavior. Keep `NEWS_PUBLISHING_POLICY.md` and tests synchronized.
+**TDD cycle:** Exact tables cover feed order, domains and subdomains, normalization, rejection ordering, AI signals, old-year boundaries, text helpers, HTML structure, paragraph and word boundaries, source footers, and stable validation errors. Focused RED runs were captured before correcting default-port and non-hierarchical URL normalization, JavaScript whitespace handling, sentence counting, and byte-order-mark trimming. `NEWS_PUBLISHING_POLICY.md` required no change because no policy drift was found.
 
 ### Task 9: Implement dashboard article CRUD
 
