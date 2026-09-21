@@ -34,6 +34,7 @@ Use RSS items from these publications only:
 - Reject product reviews, hands-on pieces, buying guides, editorial roundups, and recurring mixed-topic columns such as Installer. The site publishes news, not review or recommendation content.
 - Reject Show HN posts, PDFs, videos presented as the item itself, abstracts, arXiv-style entries, and obviously old reposts.
 - A manual article must also originate from one of the approved RSS feeds. A permitted domain by itself is not enough.
+- Exception for explicit human approval: an article that was presented from an approved feed and explicitly selected by Ozan may still be imported after it ages out of that feed's current item window, but only through the dedicated `--approved-aged-out` path with its approved source headline and original publication timestamp. Those assertions must match authoritative metadata fetched from the canonical article page, the item must be no more than seven days old, and it must pass every other source, AI-topic, format, accessibility, image, content, and duplicate check. This exception never applies to automatic imports or unapproved substitutes.
 - **Every publication path is AI-only.** Both automatic and manual imports must have an explicit AI signal in the RSS headline or a specific AI section in the canonical URL. Accepted signals include AI, artificial intelligence, machine learning, LLMs, major AI labs or assistants, neural networks, and foundation or frontier models.
 - Generic technology signals such as software, cybersecurity, chips, apps, startups, robotics, or a `/tech/` section are not sufficient unless the story is clearly about AI.
 - General technology, science, space, entertainment, business, and other non-AI stories must be rejected even when they appear in an approved publication's RSS feed.
@@ -108,7 +109,7 @@ The scheduler is external to this repository. Its operational status is a snapsh
 
 Before publishing manually:
 
-1. Confirm the item is clearly AI-related, came from a current approved RSS feed, and is not a rejected item type.
+1. Confirm the item is clearly AI-related, came from a current approved RSS feed, and is not a rejected item type. If an explicitly selected item has since aged out of the feed window, use only the bounded approved-aged-out path described above.
 2. Confirm it is news, not a deal or promotion.
 3. Check the canonical `source_url` and proposed slug for duplicates.
 4. Verify every factual claim and quotation against the source.

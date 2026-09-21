@@ -16,11 +16,17 @@ import {
   validateRewrittenArticle,
 } from "./news-policy";
 
-interface FeedArticle {
+export interface FeedArticle {
   title: string;
   url: string;
   source: string;
   publishedAt: string | null;
+  verifyPageMetadata?: boolean;
+}
+
+export interface ApprovedAgedOutCandidate {
+  title: string;
+  publishedAt: string;
 }
 
 interface FetchResult {
@@ -48,6 +54,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const LOCK_PATH = process.env.NEWS_IMPORT_LOCK_PATH || path.join(os.tmpdir(), "technews-news-import.lock");
 const LOCK_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
+const MAX_APPROVED_AGED_OUT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 let db: DatabaseConnection;
 
 function decodeHtmlEntities(value: string): string {
@@ -105,23 +112,72 @@ function acquireImporterLock(): () => void {
   };
 }
 
-async function fetchText(url: string, timeoutMs = 20_000): Promise<FetchResult | null> {
+export function resolveApprovedArticleRedirect(
+  currentUrl: string,
+  location: string,
+  expectedSource: string,
+): string {
+  let nextUrl: string;
+  try {
+    nextUrl = new URL(location, currentUrl).toString();
+  } catch {
+    throw new Error(`Invalid redirect from ${expectedSource}`);
+  }
+  if (sourceForUrl(nextUrl) !== expectedSource) {
+    throw new Error(`Redirect outside ${expectedSource}: ${nextUrl}`);
+  }
+  return nextUrl;
+}
+
+async function fetchText(
+  url: string,
+  timeoutMs = 20_000,
+  expectedSource?: string,
+): Promise<FetchResult | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        Accept: "text/html,application/xhtml+xml,application/rss+xml,application/atom+xml;q=0.9,*/*;q=0.8",
-        "User-Agent": "TechNews-Editorial-Importer/2.0",
-      },
-    });
-    if (!response.ok) {
-      console.error(`Fetch failed with ${response.status}: ${url}`);
-      return null;
+    let currentUrl = url;
+    for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
+      if (expectedSource && sourceForUrl(currentUrl) !== expectedSource) {
+        console.error(`Fetch blocked outside ${expectedSource}: ${currentUrl}`);
+        return null;
+      }
+      const response = await fetch(currentUrl, {
+        redirect: expectedSource ? "manual" : "follow",
+        signal: controller.signal,
+        headers: {
+          Accept: "text/html,application/xhtml+xml,application/rss+xml,application/atom+xml;q=0.9,*/*;q=0.8",
+          "User-Agent": "TechNews-Editorial-Importer/2.0",
+        },
+      });
+      if (expectedSource && response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        await response.body?.cancel();
+        if (!location || redirectCount === 5) {
+          console.error(`Fetch redirect failed closed: ${currentUrl}`);
+          return null;
+        }
+        try {
+          currentUrl = resolveApprovedArticleRedirect(currentUrl, location, expectedSource);
+        } catch (error) {
+          console.error(error instanceof Error ? error.message : error);
+          return null;
+        }
+        continue;
+      }
+      if (!response.ok) {
+        console.error(`Fetch failed with ${response.status}: ${currentUrl}`);
+        return null;
+      }
+      const finalUrl = response.url || currentUrl;
+      if (expectedSource && sourceForUrl(finalUrl) !== expectedSource) {
+        console.error(`Fetch final URL blocked outside ${expectedSource}: ${finalUrl}`);
+        return null;
+      }
+      return { body: await response.text(), finalUrl };
     }
-    return { body: await response.text(), finalUrl: response.url || url };
+    return null;
   } catch (error) {
     console.error(`Fetch failed: ${url}`, error instanceof Error ? error.message : error);
     return null;
@@ -204,11 +260,150 @@ async function fetchApprovedFeedItems(automaticOnly: boolean): Promise<FeedArtic
   });
 }
 
+export function createApprovedAgedOutCandidate(
+  articleUrl: string,
+  approval: ApprovedAgedOutCandidate,
+  now = new Date(),
+): FeedArticle {
+  let normalizedUrl: string;
+  try {
+    normalizedUrl = normalizeSourceUrl(articleUrl);
+  } catch {
+    throw new Error("Approved aged-out import URL is invalid");
+  }
+  const source = sourceForUrl(normalizedUrl);
+  if (!source) throw new Error("Approved aged-out imports must use an approved RSS publisher");
+
+  const title = approval.title.trim();
+  if (!title) throw new Error("Approved aged-out imports require the approved title");
+
+  const publishedTime = Date.parse(approval.publishedAt);
+  if (!Number.isFinite(publishedTime)) {
+    throw new Error("Approved aged-out imports require a valid publication timestamp");
+  }
+  const age = now.getTime() - publishedTime;
+  if (age < 0) throw new Error("Approved aged-out publication timestamp cannot be in the future");
+  if (age > MAX_APPROVED_AGED_OUT_AGE_MS) {
+    throw new Error("Approved aged-out imports must be no more than seven days old");
+  }
+
+  const rejection = getItemRejectionReason(title, normalizedUrl, source, now);
+  if (rejection) throw new Error(`Approved aged-out item failed policy: ${rejection}`);
+
+  return {
+    title,
+    url: normalizedUrl,
+    source,
+    publishedAt: new Date(publishedTime).toISOString(),
+    verifyPageMetadata: true,
+  };
+}
+
+export function selectManualCandidate(
+  normalizedRequestedUrl: string,
+  feedItems: FeedArticle[],
+  approvedAgedOut?: ApprovedAgedOutCandidate,
+  now = new Date(),
+): FeedArticle | undefined {
+  if (approvedAgedOut) {
+    return createApprovedAgedOutCandidate(normalizedRequestedUrl, approvedAgedOut, now);
+  }
+  return feedItems.find((item) => item.url === normalizedRequestedUrl);
+}
+
 function extractMetaContent(html: string, attribute: "property" | "name", value: string): string | null {
   const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const first = html.match(new RegExp(`<meta[^>]*${attribute}=["']${escapedValue}["'][^>]*content=["']([^"']+)["'][^>]*>`, "i"));
   const second = html.match(new RegExp(`<meta[^>]*content=["']([^"']+)["'][^>]*${attribute}=["']${escapedValue}["'][^>]*>`, "i"));
   return decodeHtmlEntities(first?.[1] || second?.[1] || "") || null;
+}
+
+function extractJsonLdIdentity(html: string): { title: string | null; publishedAt: string | null } {
+  const scripts = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi) || [];
+  const findArticle = (value: unknown): { title: string | null; publishedAt: string | null } | null => {
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        const result = findArticle(child);
+        if (result) return result;
+      }
+      return null;
+    }
+    if (!value || typeof value !== "object") return null;
+    const record = value as Record<string, unknown>;
+    const rawType = record["@type"];
+    const types = Array.isArray(rawType) ? rawType : [rawType];
+    if (types.some((type) => typeof type === "string" && /article/i.test(type))) {
+      return {
+        title: typeof record.headline === "string" ? decodeHtmlEntities(record.headline) : null,
+        publishedAt: typeof record.datePublished === "string" ? record.datePublished : null,
+      };
+    }
+    for (const child of Object.values(record)) {
+      const result = findArticle(child);
+      if (result) return result;
+    }
+    return null;
+  };
+
+  for (const script of scripts) {
+    const rawJson = script.replace(/^<script[^>]*>/i, "").replace(/<\/script>$/i, "").trim();
+    try {
+      const result = findArticle(JSON.parse(rawJson));
+      if (result) return result;
+    } catch {
+      continue;
+    }
+  }
+  return { title: null, publishedAt: null };
+}
+
+function normalizeHeadline(value: string): string {
+  return decodeHtmlEntities(value)
+    .normalize("NFKC")
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase("en-US");
+}
+
+export function verifyApprovedAgedOutPageMetadata(
+  html: string,
+  item: FeedArticle,
+  now = new Date(),
+): string | null {
+  if (!item.verifyPageMetadata) return null;
+  const jsonLd = extractJsonLdIdentity(html);
+  const pageTitle = extractMetaContent(html, "property", "og:title") || jsonLd.title;
+  const pagePublishedAt = extractMetaContent(html, "property", "article:published_time") || jsonLd.publishedAt;
+  if (!pageTitle || !pagePublishedAt) return "authoritative article metadata is missing";
+  if (normalizeHeadline(pageTitle) !== normalizeHeadline(item.title)) {
+    return "authoritative page headline does not match the approved headline";
+  }
+  const approvedTime = item.publishedAt ? Date.parse(item.publishedAt) : Number.NaN;
+  const pageTime = Date.parse(pagePublishedAt);
+  if (!Number.isFinite(approvedTime) || !Number.isFinite(pageTime)) {
+    return "authoritative publication timestamp is invalid";
+  }
+  if (Math.abs(pageTime - approvedTime) > 5 * 60 * 1000) {
+    return "authoritative publication timestamp does not match the approved timestamp";
+  }
+  const pageAge = now.getTime() - pageTime;
+  if (pageAge < 0 || pageAge > MAX_APPROVED_AGED_OUT_AGE_MS) {
+    return "authoritative publication timestamp is outside the seven-day freshness window";
+  }
+  return null;
+}
+
+export function parseManualImporterArgs(args: string[]): {
+  articleUrl: string;
+  approval?: ApprovedAgedOutCandidate;
+} {
+  if (args.length === 1 && args[0]) return { articleUrl: args[0], approval: undefined };
+  if (args.length === 4 && args[0] && args[1] === "--approved-aged-out" && args[2] && args[3]) {
+    return { articleUrl: args[0], approval: { publishedAt: args[2], title: args[3] } };
+  }
+  throw new Error("Usage: <article-url> [--approved-aged-out <published-at> <quoted-approved-title>]");
 }
 
 function extractCanonicalUrl(html: string, pageUrl: string): string {
@@ -525,8 +720,17 @@ async function importFeedItem(item: FeedArticle, automaticOnly: boolean, minWord
   }
 
   console.log(`Fetching article: ${item.url}`);
-  const fetched = await fetchText(item.url);
+  const fetched = await fetchText(item.url, 20_000, item.source);
   if (!fetched) return false;
+  if (sourceForUrl(fetched.finalUrl) !== item.source) {
+    console.log(`Rejected fetched final URL outside ${item.source}: ${fetched.finalUrl}`);
+    return false;
+  }
+  const metadataRejection = verifyApprovedAgedOutPageMetadata(fetched.body, item);
+  if (metadataRejection) {
+    console.log(`Rejected approved aged-out item (${metadataRejection}): ${item.title}`);
+    return false;
+  }
   const canonicalUrl = extractCanonicalUrl(fetched.body, fetched.finalUrl);
   const canonicalSource = sourceForUrl(canonicalUrl);
   if (canonicalSource !== item.source) {
@@ -669,7 +873,10 @@ export async function runDailyImporter(): Promise<number> {
   });
 }
 
-export async function runManualImporter(articleUrl: string): Promise<number> {
+export async function runManualImporter(
+  articleUrl: string,
+  approvedAgedOut?: ApprovedAgedOutCandidate,
+): Promise<number> {
   return runWithLock(async () => {
     let normalizedRequestedUrl: string;
     try {
@@ -682,7 +889,7 @@ export async function runManualImporter(articleUrl: string): Promise<number> {
     }
 
     const feedItems = await fetchApprovedFeedItems(false);
-    const candidate = feedItems.find((item) => item.url === normalizedRequestedUrl);
+    const candidate = selectManualCandidate(normalizedRequestedUrl, feedItems, approvedAgedOut);
     if (!candidate) {
       throw new Error("Manual imports must originate from an item currently present in an approved RSS feed");
     }

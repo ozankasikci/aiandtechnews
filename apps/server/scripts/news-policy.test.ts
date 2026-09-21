@@ -9,7 +9,14 @@ import {
   sourceForUrl,
   validateRewrittenArticle,
 } from "./news-policy";
-import { extractSourceText } from "./news-importer";
+import {
+  createApprovedAgedOutCandidate,
+  extractSourceText,
+  parseManualImporterArgs,
+  resolveApprovedArticleRedirect,
+  selectManualCandidate,
+  verifyApprovedAgedOutPageMetadata,
+} from "./news-importer";
 
 const validParagraph = "The company shared a detailed product update with customers and developers today. The release changes how teams use the service while keeping its existing tools available. Executives described the update without announcing new pricing or making unsupported performance claims. Customers can review the published documentation before deciding whether the changes fit their work.";
 
@@ -69,6 +76,132 @@ test("includes the expanded approved RSS feed set", () => {
       "ScienceDaily",
     ],
   );
+});
+
+test("allows an explicitly approved fresh item that aged out of its RSS window", () => {
+  const candidate = createApprovedAgedOutCandidate(
+    "https://the-decoder.com/simulated-students-that-make-realistic-mistakes-help-ai-tutors-learn-faster/",
+    {
+      title: "Simulated students that make realistic mistakes help AI tutors learn faster",
+      publishedAt: "2026-09-20T09:50:32.000Z",
+    },
+    new Date("2026-09-21T18:30:00.000Z"),
+  );
+  assert.deepEqual(candidate, {
+    title: "Simulated students that make realistic mistakes help AI tutors learn faster",
+    url: "https://the-decoder.com/simulated-students-that-make-realistic-mistakes-help-ai-tutors-learn-faster",
+    source: "The Decoder",
+    publishedAt: "2026-09-20T09:50:32.000Z",
+    verifyPageMetadata: true,
+  });
+});
+
+test("explicit aged-out approval remains bounded by source, metadata, and freshness", () => {
+  const now = new Date("2026-09-21T18:30:00.000Z");
+  assert.throws(
+    () => createApprovedAgedOutCandidate("https://example.com/ai-story", { title: "AI story", publishedAt: "2026-09-21T10:00:00Z" }, now),
+    /approved RSS publisher/,
+  );
+  assert.throws(
+    () => createApprovedAgedOutCandidate("https://the-decoder.com/ai-story", { title: "", publishedAt: "2026-09-21T10:00:00Z" }, now),
+    /approved title/,
+  );
+  assert.throws(
+    () => createApprovedAgedOutCandidate("https://the-decoder.com/ai-story", { title: "AI story", publishedAt: "invalid" }, now),
+    /valid publication timestamp/,
+  );
+  assert.throws(
+    () => createApprovedAgedOutCandidate("https://the-decoder.com/ai-story", { title: "AI story", publishedAt: "2026-09-14T18:29:59Z" }, now),
+    /seven days/,
+  );
+  assert.throws(
+    () => createApprovedAgedOutCandidate("https://the-decoder.com/ai-story", { title: "AI story", publishedAt: "2026-09-21T18:31:00Z" }, now),
+    /future/,
+  );
+});
+
+test("aged-out approval metadata must match authoritative page metadata", () => {
+  const item = createApprovedAgedOutCandidate(
+    "https://the-decoder.com/ai-story",
+    { title: "AI tutors learn from simulated students", publishedAt: "2026-09-20T09:50:32Z" },
+    new Date("2026-09-21T18:30:00Z"),
+  );
+  const html = `
+    <meta property="og:title" content="AI tutors learn from simulated students">
+    <meta property="article:published_time" content="2026-09-20T09:50:32+00:00">
+  `;
+  assert.equal(verifyApprovedAgedOutPageMetadata(html, item, new Date("2026-09-21T18:30:00Z")), null);
+  assert.match(verifyApprovedAgedOutPageMetadata(html.replace("AI tutors", "Robots"), item, new Date("2026-09-21T18:30:00Z")) || "", /headline/i);
+  assert.match(verifyApprovedAgedOutPageMetadata(html.replace("2026-09-20T09:50:32+00:00", "2026-09-10T09:50:32+00:00"), item, new Date("2026-09-21T18:30:00Z")) || "", /timestamp/i);
+  assert.match(verifyApprovedAgedOutPageMetadata("<html></html>", item, new Date("2026-09-21T18:30:00Z")) || "", /metadata/i);
+});
+
+test("manual importer CLI fails closed on malformed or split approval arguments", () => {
+  assert.deepEqual(parseManualImporterArgs(["https://the-decoder.com/ai-story"]), {
+    articleUrl: "https://the-decoder.com/ai-story",
+    approval: undefined,
+  });
+  assert.deepEqual(parseManualImporterArgs([
+    "https://the-decoder.com/ai-story",
+    "--approved-aged-out",
+    "2026-09-20T09:50:32Z",
+    "AI tutors learn from simulated students",
+  ]), {
+    articleUrl: "https://the-decoder.com/ai-story",
+    approval: {
+      publishedAt: "2026-09-20T09:50:32Z",
+      title: "AI tutors learn from simulated students",
+    },
+  });
+  assert.throws(() => parseManualImporterArgs([]), /Usage/);
+  assert.throws(() => parseManualImporterArgs(["https://the-decoder.com/ai-story", "extra"]), /Usage/);
+  assert.throws(() => parseManualImporterArgs([
+    "https://the-decoder.com/ai-story",
+    "--approved-aged-out",
+    "2026-09-20T09:50:32Z",
+    "AI",
+    "tutors",
+  ]), /Usage/);
+});
+
+test("approved article redirects fail closed before requesting an unapproved destination", () => {
+  assert.equal(
+    resolveApprovedArticleRedirect(
+      "https://the-decoder.com/ai-story",
+      "/canonical-ai-story",
+      "The Decoder",
+    ),
+    "https://the-decoder.com/canonical-ai-story",
+  );
+  assert.throws(
+    () => resolveApprovedArticleRedirect(
+      "https://the-decoder.com/ai-story",
+      "http://127.0.0.1:8000/private",
+      "The Decoder",
+    ),
+    /outside The Decoder/,
+  );
+  assert.throws(
+    () => resolveApprovedArticleRedirect(
+      "https://the-decoder.com/ai-story",
+      "https://example.com/spoofed-article",
+      "The Decoder",
+    ),
+    /outside The Decoder/,
+  );
+});
+
+test("aged-out approval assertions take precedence even if the URL remains in the feed", () => {
+  const url = "https://the-decoder.com/ai-story";
+  const feedItems = [{ title: "AI feed title", url, source: "The Decoder", publishedAt: "2026-09-20T09:00:00Z" }];
+  const selected = selectManualCandidate(
+    url,
+    feedItems,
+    { title: "AI explicitly approved title", publishedAt: "2026-09-20T10:00:00Z" },
+    new Date("2026-09-21T18:30:00Z"),
+  );
+  assert.equal(selected?.title, "AI explicitly approved title");
+  assert.equal(selected?.verifyPageMetadata, true);
 });
 
 test("extracts the richest article scope when a short article card precedes the real story", () => {
