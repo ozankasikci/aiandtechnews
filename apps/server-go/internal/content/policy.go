@@ -821,6 +821,9 @@ func ValidateRewrittenArticle(article RewrittenArticle, options ArticleValidatio
 	return errorsFound
 }
 
+// JavaScriptLength counts UTF-16 code units, matching JavaScript's String.length.
+func JavaScriptLength(s string) int { return javascriptLength(s) }
+
 func javascriptLength(value string) int {
 	return len(utf16.Encode([]rune(value)))
 }

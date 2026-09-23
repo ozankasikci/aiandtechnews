@@ -84,5 +84,7 @@ func (c *Client) SubmitSlugs(ctx context.Context, slugs []string) error {
 		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
 		return fmt.Errorf("IndexNow rejected %d URL(s) with %d: %s", len(urls), resp.StatusCode, strings.TrimSpace(string(detail)))
 	}
+	// Drain so the connection can be reused.
+	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
 }

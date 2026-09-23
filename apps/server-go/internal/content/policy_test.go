@@ -441,3 +441,9 @@ func containsString(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestJavaScriptLengthCountsUTF16CodeUnits(t *testing.T) {
+	if got := JavaScriptLength("aé😀"); got != 4 {
+		t.Fatalf("JavaScriptLength = %d, want 4 like String.length", got)
+	}
+}
