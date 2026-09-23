@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -322,6 +323,15 @@ func TestFetchReference(t *testing.T) {
 			w.Header().Set("Content-Type", "image/png")
 			w.Header().Set("Content-Length", "9000000")
 			_, _ = w.Write(png)
+		case "/undeclared-big":
+			w.Header().Set("Content-Type", "image/png")
+			chunk := bytes.Repeat([]byte{0}, 1<<20)
+			for written := 0; written <= illustration.MaxReferenceBytes; written += len(chunk) {
+				if _, err := w.Write(chunk); err != nil {
+					return
+				}
+				w.(http.Flusher).Flush()
+			}
 		}
 	}))
 	defer server.Close()
@@ -330,19 +340,81 @@ func TestFetchReference(t *testing.T) {
 	if data, err := illustration.FetchReference(context.Background(), client, server.URL+"/png"); err != nil || !bytes.Equal(data, png) {
 		t.Fatalf("png: data=%v err=%v", data, err)
 	}
-	if data, err := illustration.FetchReference(context.Background(), client, server.URL+"/svg"); err != nil || data != nil {
-		t.Fatalf("svg: data=%v err=%v", data, err)
-	}
-	if data, err := illustration.FetchReference(context.Background(), client, server.URL+"/html"); err != nil || data != nil {
-		t.Fatalf("html: data=%v err=%v", data, err)
-	}
-	if data, err := illustration.FetchReference(context.Background(), client, server.URL+"/notfound"); err != nil || data != nil {
-		t.Fatalf("404: data=%v err=%v", data, err)
-	}
-	if data, err := illustration.FetchReference(context.Background(), client, server.URL+"/big"); err != nil || data != nil {
-		t.Fatalf("big: data=%v err=%v", data, err)
+	for path, reason := range map[string]string{
+		"/svg":            "content type",
+		"/html":           "content type",
+		"/notfound":       "HTTP 404",
+		"/big":            "declares",
+		"/undeclared-big": "exceeds",
+	} {
+		data, err := illustration.FetchReference(context.Background(), client, server.URL+path)
+		if data != nil || !errors.Is(err, illustration.ErrUnusableReference) || !strings.Contains(err.Error(), reason) {
+			t.Fatalf("%s: data=%d bytes err=%v, want unusable (%s)", path, len(data), err, reason)
+		}
 	}
 	if data, err := illustration.FetchReference(context.Background(), client, ""); err != nil || data != nil {
 		t.Fatalf("empty: data=%v err=%v", data, err)
+	}
+}
+
+func TestReferenceDialGuard(t *testing.T) {
+	for _, address := range []string{
+		"127.0.0.1:80", "10.0.0.1:443", "172.16.5.4:80", "192.168.1.1:80", "169.254.169.254:80",
+		"[::1]:443", "[fe80::1]:80", "[fc00::1]:80", "224.0.0.1:80", "0.0.0.0:80", "[::]:80",
+		"[::ffff:127.0.0.1]:80", "not-an-ip:80",
+	} {
+		if err := illustration.CheckReferenceDialAddress("tcp", address, nil); err == nil {
+			t.Errorf("%s: dial allowed, want rejected", address)
+		}
+	}
+	for _, address := range []string{"93.184.216.34:443", "[2606:2800:220:1:248:1893:25c8:1946]:443"} {
+		if err := illustration.CheckReferenceDialAddress("tcp", address, nil); err != nil {
+			t.Errorf("%s: %v, want allowed", address, err)
+		}
+	}
+}
+
+func TestReferenceClientRejectsLoopbackTargets(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG(t))
+	}))
+	defer server.Close()
+	_, err := illustration.FetchReference(context.Background(), illustration.NewReferenceClient(), server.URL+"/png")
+	if !errors.Is(err, illustration.ErrUnusableReference) || !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("err = %v, want the loopback dial refused", err)
+	}
+}
+
+func TestReferenceClientRedirectPolicy(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/file":
+			http.Redirect(w, r, "file:///etc/passwd", http.StatusFound)
+		case strings.HasPrefix(r.URL.Path, "/hop/"):
+			var remaining int
+			_, _ = fmt.Sscanf(r.URL.Path, "/hop/%d", &remaining)
+			if remaining == 0 {
+				w.Header().Set("Content-Type", "image/png")
+				_, _ = w.Write(tinyPNG(t))
+				return
+			}
+			http.Redirect(w, r, fmt.Sprintf("%s/hop/%d", server.URL, remaining-1), http.StatusFound)
+		}
+	}))
+	defer server.Close()
+	client := illustration.NewReferenceClientAllowingAnyAddress()
+
+	if _, err := client.Get(server.URL + "/file"); err == nil || !strings.Contains(err.Error(), "scheme") {
+		t.Fatalf("file redirect: err = %v, want scheme rejected", err)
+	}
+	resp, err := client.Get(server.URL + "/hop/3")
+	if err != nil {
+		t.Fatalf("3 redirects: %v", err)
+	}
+	_ = resp.Body.Close()
+	if _, err := client.Get(server.URL + "/hop/4"); err == nil || !strings.Contains(err.Error(), "redirects") {
+		t.Fatalf("4 redirects: err = %v, want rejected", err)
 	}
 }

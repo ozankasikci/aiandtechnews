@@ -33,7 +33,10 @@ func NewS3Illustrator(generator *Generator, store ImageStore, httpClient *http.C
 }
 
 func (s *S3Illustrator) Illustrate(ctx context.Context, request publisher.IllustrationRequest) (publisher.Illustration, error) {
-	reference, _ := FetchReference(ctx, s.http, request.ReferenceImageURL)
+	reference, err := FetchReference(ctx, s.http, request.ReferenceImageURL)
+	if err != nil {
+		s.logger.InfoContext(ctx, "reference image unusable; generating from text", "url", request.ReferenceImageURL, "reason", err)
+	}
 	image, err := s.generator.Generate(ctx, Article{Title: request.Title, Excerpt: request.Excerpt}, reference)
 	if err != nil {
 		if errors.Is(err, ErrNoCompliantImage) {
