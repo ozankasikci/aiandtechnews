@@ -13,11 +13,12 @@ import (
 
 func TestApplicationMigrationsHaveStableGlobalOrderAndAreIdempotent(t *testing.T) {
 	descriptors := app.Migrations()
-	if len(descriptors) != 4 ||
+	if len(descriptors) != 5 ||
 		descriptors[0].Version != 1 || descriptors[0].Name != "editorial authors" ||
 		descriptors[1].Version != 2 || descriptors[1].Name != "content categories and articles" ||
 		descriptors[2].Version != 3 || descriptors[2].Name != "newsroom candidates" ||
-		descriptors[3].Version != 4 || descriptors[3].Name != "newsroom published index" {
+		descriptors[3].Version != 4 || descriptors[3].Name != "newsroom published index" ||
+		descriptors[4].Version != 5 || descriptors[4].Name != "media library" {
 		t.Fatalf("descriptors = %#v", descriptors)
 	}
 	firstChecksum, secondChecksum := descriptors[0].Checksum(), descriptors[1].Checksum()
@@ -84,6 +85,16 @@ func assertSchemaCompatibility(t *testing.T, db *sql.DB) {
 	}
 	if !containsSQL(indexSQL, "CREATE INDEX idx_candidates_status_published ON candidates(status, published_at)") {
 		t.Errorf("candidate published index = %s", indexSQL)
+	}
+
+	var mediaSQL string
+	if err := db.QueryRow(`SELECT sql FROM sqlite_schema WHERE type='table' AND name='media'`).Scan(&mediaSQL); err != nil {
+		t.Fatalf("media table: %v", err)
+	}
+	for _, fragment := range []string{"id INTEGER PRIMARY KEY AUTOINCREMENT", "filename TEXT NOT NULL", "url TEXT NOT NULL", "mime_type TEXT NOT NULL", "size INTEGER NOT NULL", "uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))"} {
+		if !containsSQL(mediaSQL, fragment) {
+			t.Errorf("media schema missing %q: %s", fragment, mediaSQL)
+		}
 	}
 
 	if _, err := db.Exec(`INSERT INTO authors(id,name,email,password_hash) VALUES (1,'Author','author@example.invalid','hash')`); err != nil {

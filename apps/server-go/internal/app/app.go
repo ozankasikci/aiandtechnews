@@ -162,7 +162,8 @@ func newPublisherNotifier(cfg config.Config, logger *slog.Logger) publisher.Noti
 func Migrations() []migrate.Descriptor {
 	descriptors := editorial.Migrations()
 	descriptors = append(descriptors, content.Migrations()...)
-	return append(descriptors, newsroom.Migrations()...)
+	descriptors = append(descriptors, newsroom.Migrations()...)
+	return append(descriptors, media.Migrations()...)
 }
 
 func (a *App) Address() string       { return a.address }
