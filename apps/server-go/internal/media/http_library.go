@@ -60,8 +60,16 @@ var allowedExtensions = map[string]map[string]bool{
 
 // acceptedImage reports whether the declared type and the original name pass
 // the upload filter. The stored name keeps the extension's original case.
+// The comparison is ASCII-only: Unicode case mapping would otherwise accept
+// lookalikes such as ".GİF" (U+0130 lowercases to "i").
 func acceptedImage(mimeType, originalName string) bool {
-	return allowedExtensions[mimeType][strings.ToLower(nodeExtname(originalName))]
+	extension := nodeExtname(originalName)
+	for i := 0; i < len(extension); i++ {
+		if extension[i] >= 0x80 {
+			return false
+		}
+	}
+	return allowedExtensions[mimeType][strings.ToLower(extension)]
 }
 
 // Messages of the multer errors that Express turns into a 500 page.

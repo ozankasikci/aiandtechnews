@@ -248,6 +248,7 @@ func TestUploadRejectionsAnswer500WithMulterMessagesAndLeaveNoFiles(t *testing.T
 		{"png extension declared as jpeg", []part{{name: "file", filename: "p.png", contentType: "image/jpeg", content: "x"}}, invalidType},
 		{"jpeg extension declared as png", []part{{name: "file", filename: "p.jpeg", contentType: "image/png", content: "x"}}, invalidType},
 		{"gif extension declared as webp", []part{{name: "file", filename: "p.gif", contentType: "image/webp", content: "x"}}, invalidType},
+		{"non-ASCII extension via filename*", []part{{name: "file", rawDisposition: `Content-Disposition: form-data; name="file"; filename*=UTF-8''a.G%C4%B0F`, contentType: "image/gif", content: "x"}}, invalidType},
 		{"double extension", []part{{name: "file", filename: "p.png.html", contentType: "image/png", content: "x"}}, invalidType},
 		{"type is checked before the size", []part{{name: "file", filename: "big.html", contentType: "image/png", content: strings.Repeat("a", media.MaxUploadBytes)}}, invalidType},
 		{"wrong field", []part{{name: "image", filename: "w.png", contentType: "image/png", content: "x"}}, `{"error":"Unexpected field"}`},
