@@ -52,6 +52,63 @@ func TestSeedCreatesLoginAndReviewableCandidates(t *testing.T) {
 	}
 }
 
+// TestSeedInsertsDefaultSiteSettings ports Node's seedDefaults (db.ts:184-198):
+// a fresh database gets the same eight default site settings rows, inserted
+// with INSERT OR IGNORE so re-seeding or a row an editor already changed is
+// left alone.
+func TestSeedInsertsDefaultSiteSettings(t *testing.T) {
+	db, _ := testutil.OpenDatabase(t)
+	ctx := context.Background()
+	if err := migrate.Run(ctx, db, app.Migrations()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := devseed.Seed(ctx, db, now, "dev-password"); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"site_name":              "TechNews",
+		"site_description":       "AI & Tech News, Daily.",
+		"social_twitter":         "",
+		"social_linkedin":        "",
+		"social_github":          "",
+		"newsletter_enabled":     "false",
+		"newsletter_provider":    "none",
+		"newsletter_webhook_url": "",
+	}
+	for key, expected := range want {
+		var value string
+		if err := db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&value); err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		if value != expected {
+			t.Errorf("%s = %q, want %q", key, value, expected)
+		}
+	}
+}
+
+// TestSeedDefaultSiteSettingsDoNotOverwriteExisting proves INSERT OR IGNORE:
+// an editor's change to a default setting survives re-seeding.
+func TestSeedDefaultSiteSettingsDoNotOverwriteExisting(t *testing.T) {
+	db, _ := testutil.OpenDatabase(t)
+	ctx := context.Background()
+	if err := migrate.Run(ctx, db, app.Migrations()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES ('site_name', 'Edited')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := devseed.Seed(ctx, db, now, "dev-password"); err != nil {
+		t.Fatal(err)
+	}
+	var value string
+	if err := db.QueryRow(`SELECT value FROM settings WHERE key = 'site_name'`).Scan(&value); err != nil {
+		t.Fatal(err)
+	}
+	if value != "Edited" {
+		t.Errorf("site_name = %q, want unchanged %q", value, "Edited")
+	}
+}
+
 func TestSeedIsIdempotentAndResetsPassword(t *testing.T) {
 	db, _ := testutil.OpenDatabase(t)
 	ctx := context.Background()

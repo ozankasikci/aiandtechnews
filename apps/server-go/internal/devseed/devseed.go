@@ -63,6 +63,10 @@ func Seed(ctx context.Context, db *sql.DB, now time.Time, password string) (Summ
 		return Summary{}, fmt.Errorf("upsert dev editor: %w", err)
 	}
 
+	if err := seedDefaultSettings(ctx, db); err != nil {
+		return Summary{}, err
+	}
+
 	store := newsroom.NewSQLiteStore(db)
 	summary := Summary{Email: Email}
 	for i, fixture := range Candidates {
@@ -106,6 +110,33 @@ func setFixtureStatus(ctx context.Context, db *sql.DB, id int64, fromEnd int, no
 	}
 	if err != nil {
 		return fmt.Errorf("set fixture status for candidate %d: %w", id, err)
+	}
+	return nil
+}
+
+// defaultSettings mirrors Node's seedDefaults (apps/server/src/db.ts:184-198)
+// in the exact key order Node inserts them.
+var defaultSettings = []struct{ key, value string }{
+	{"site_name", "TechNews"},
+	{"site_description", "AI & Tech News, Daily."},
+	{"social_twitter", ""},
+	{"social_linkedin", ""},
+	{"social_github", ""},
+	{"newsletter_enabled", "false"},
+	{"newsletter_provider", "none"},
+	{"newsletter_webhook_url", ""},
+}
+
+// seedDefaultSettings inserts Node's default site settings with INSERT OR
+// IGNORE, exactly like Node's seedDefaults: a fresh database gets them, and
+// a row an editor already changed (or a prior seed run left behind) is never
+// overwritten.
+func seedDefaultSettings(ctx context.Context, db *sql.DB) error {
+	for _, setting := range defaultSettings {
+		if _, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`,
+			setting.key, setting.value); err != nil {
+			return fmt.Errorf("seed default setting %s: %w", setting.key, err)
+		}
 	}
 	return nil
 }
