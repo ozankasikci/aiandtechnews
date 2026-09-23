@@ -268,6 +268,8 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 
 ### Task 14: Integration, security, and cutover readiness
 
+**Status (2026-09-24): Cutover readiness complete via `docs/superpowers/plans/2026-09-24-go-cutover.md` (branch `go-cutover`). Target changed from the plan below: Go alone on a Mac mini, Node retired (not Go on the MacBook beside Node). Delivered: production configuration with explicit absolute `DATABASE_PATH`/`UPLOADS_DIR`, any production port, no repository checkout needed, and the `.technews-production` data marker that production requires and development refuses (the hardcoded MacBook paths remain only as development guards); `migrate.Adopt` and `cmd/adopt` (read-only dry run by default with a rehearsal on a copy; `--apply` backs up with `VACUUM INTO`, then records the present migrations and runs the pending ones in one transaction; idempotent), tested against schemas recorded from Node's own `initializeDatabase`; `scripts/smoke-local.sh`; `docs/cutover.md`, `docs/rollback.md`, a launchd template, and an env template. Not done here, by design: anything on the production machines (backup, adoption, launchd, tunnel switch) and `govulncheck` (not installed locally). Steps 8 and 9 below are superseded by the runbook's freeze and verification steps.**
+
 **Objective:** Prove the Go implementation is safe and behaviorally compatible without affecting production.
 
 **Files:**

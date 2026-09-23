@@ -2,19 +2,20 @@
 
 This directory is an isolated Go module for the API migration. It does not share a Go module or developer commands with the existing Node server.
 
-Tasks 5 through 12 currently provide the four public article reads, public category and author listings, compatible login, current-user, and logout endpoints, a pure Go port of the retained publishing policy, the authenticated dashboard content administration (dashboard article list/get/create/update/delete, category list/create/update/delete, and site settings get/put), the dashboard media library (media list/upload/delete plus static `/uploads/*` serving from a local directory), and the newsletter (signup, confirm and unsubscribe links, the edition archive, and the daily digest delivered through Resend). This is a migration slice, not a claim of production or cutover readiness; cutover verification is still pending.
+Tasks 5 through 12 currently provide the four public article reads, public category and author listings, compatible login, current-user, and logout endpoints, a pure Go port of the retained publishing policy, the authenticated dashboard content administration (dashboard article list/get/create/update/delete, category list/create/update/delete, and site settings get/put), the dashboard media library (media list/upload/delete plus static `/uploads/*` serving from a local directory), and the newsletter (signup, confirm and unsubscribe links, the edition archive, and the daily digest delivered through Resend). Migration task 14 adds cutover readiness: explicit production configuration guarded by a data marker, the `cmd/adopt` command that verifies and adopts the Node-created production database, a local smoke script, and the Mac mini runbooks in [`docs/cutover.md`](docs/cutover.md) and [`docs/rollback.md`](docs/rollback.md). The cutover itself is a manual, approved operation on the production machines.
 
 ## Safety defaults
 
 Development configuration is deliberately isolated:
 
-- `SERVER_ADDR` defaults to `127.0.0.1:4401`.
-- `DATABASE_PATH` defaults to `data/technews.db` beneath the worktree root supplied by the composition root.
-- `UPLOADS_DIR` defaults to `data/uploads` beneath the worktree root (git-ignored). Production has no default: `cmd/api` refuses to start with `APP_ENV=production` unless `UPLOADS_DIR` is set explicitly. The Node MacBook uploads directory `/Users/ozan/Projects/technews/apps/server/uploads` (any alias of it, and any directory above or below it) is rejected unless `APP_ENV=production` is set. `UPLOADS_DIR` must be absolute and must never contain `DATABASE_PATH` (it may not be the database's directory or an ancestor of it), in every mode.
-- Ports `3001` and `3002` are always rejected. Port `4001` and `/Users/ozan/Projects/technews/apps/server/data/technews.db` are rejected unless `APP_ENV=production` is explicitly set.
-- Development and tests must never use the production checkout or database. Tests should use temporary databases.
+- `SERVER_ADDR` defaults to `127.0.0.1:4401`. In development, ports `3001`, `3002`, and `4001` are rejected; production (`APP_ENV=production`) accepts any port.
+- `DATABASE_PATH` defaults to `data/technews.db` and `UPLOADS_DIR` to `data/uploads` beneath the worktree root (git-ignored). **Production has no defaults:** `APP_ENV=production` requires both, as absolute paths, and needs no repository checkout (the commands skip the worktree lookup). `UPLOADS_DIR` must be absolute and must never contain `DATABASE_PATH` (it may not be the database's directory or an ancestor of it), in every mode.
+- **Production marker.** A file named `.technews-production` marks a production data root. With `APP_ENV=production`, `DATABASE_PATH` and `UPLOADS_DIR` must both lie inside a directory that contains it; in development, any database or uploads path inside such a directory is refused (`ErrProductionDatabaseAlias` / `ErrProductionUploadsAlias`). The check runs on the symlink-resolved path and walks every ancestor, so aliases and not-yet-created files below a marked directory are refused too. The marker travels with the data, so no environment has to remember a guard, and production cannot run without it being in place.
+- Optional extra development guards: `PRODUCTION_DATABASE_PATH` (a `DATABASE_PATH` equivalent to it by name, symlink, hard link, or case variant is refused) and `PRODUCTION_UPLOADS_DIR` (an `UPLOADS_DIR` equal to, inside, or containing it is refused). Production ignores both.
+- The Node MacBook paths `/Users/ozan/Projects/technews/apps/server/data/technews.db` and `/Users/ozan/Projects/technews/apps/server/uploads` (the rollback copy after cutover) stay refused in development, including aliases and overlapping directories.
+- Development and tests must never use the production checkout or database. Tests use temporary databases.
 
-The production override is a cutover guard, not a development convenience. Do not set `APP_ENV=production` without explicit cutover approval.
+`APP_ENV=production` is for the production host (see `docs/cutover.md`), not a development convenience.
 
 ## HTTP compatibility
 
@@ -36,10 +37,11 @@ Review contract changes in this order:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `APP_ENV` | `development` | Typed runtime mode: `development` or `production` |
-| `SERVER_ADDR` | `127.0.0.1:4401` | HTTP listen address |
-| `DATABASE_PATH` | `<worktree>/data/technews.db` | SQLite database path |
+| `SERVER_ADDR` | `127.0.0.1:4401` | HTTP listen address (any port in production) |
+| `DATABASE_PATH` | `<worktree>/data/technews.db` in development; **none in production** | SQLite database path; production requires an absolute path inside a directory marked with `.technews-production` |
+| `PRODUCTION_DATABASE_PATH`, `PRODUCTION_UPLOADS_DIR` | none | Optional development guards (see Safety defaults); ignored in production |
 | `JWT_SECRET` | none | Required by database-backed composition for signing and verifying authentication tokens |
-| `UPLOADS_DIR` | `<worktree>/data/uploads` in development; **none in production** | Absolute path of the dashboard media library directory, served at `/uploads/*`. `cmd/api` creates it at startup (like Node's `index.ts`) and requires it explicitly when `APP_ENV=production` |
+| `UPLOADS_DIR` | `<worktree>/data/uploads` in development; **none in production** | Absolute path of the dashboard media library directory, served at `/uploads/*`. `cmd/api` creates it at startup (like Node's `index.ts`). Production requires it explicitly, inside a marked directory |
 | `MEDIA_STORAGE` | `local` | Where new dashboard media uploads go: `local` (`UPLOADS_DIR`, URLs `/uploads/<file>`) or `s3` (the feature-image bucket, absolute public URLs). Strictly parsed; anything else is a configuration error. `/uploads/*` keeps serving `UPLOADS_DIR` either way |
 | `MEDIA_S3_PREFIX` | `uploads` | S3 key prefix of media uploads when `MEDIA_STORAGE=s3`; must not overlap `S3_FEATURE_IMAGE_PREFIX` |
 | `COLLECTOR_ENABLED` | `0` | Enables the feed collector loop and `POST /api/newsroom/collect` |
@@ -84,23 +86,33 @@ make fmt        # format Go sources
 make contracts-check   # verify mirror drift and focused executable contract tests
 make contracts-accept  # explicitly accept the reviewed canonical Node fixture
 go run ./cmd/migrate   # explicitly migrate the guarded configured database
+go run ./cmd/adopt     # read-only: verify a Node-created database against the Go migrations
+go run ./cmd/adopt --apply  # back up with VACUUM INTO, then adopt it into the ledger
+scripts/smoke-local.sh <database> [uploads-dir]  # smoke-test the API on a temporary copy
 ```
 
 `cmd/api` opens and closes its configured database but never migrates or seeds it. Run `cmd/migrate` as an explicit deployment step first. `cmd/api` also creates `UPLOADS_DIR` if it is missing. `app.New` remains a no-I/O health-only composition; `app.NewWithDatabase` audibly mounts article, category, author, authentication, newsroom, authenticated `/api/dashboard` content, settings, and media routes, the public newsletter routes, and the static `/uploads/*` files around a caller-owned database and uploads directory.
 
-The migration runner supports fresh databases and databases already managed by its ledger. It intentionally cannot stamp or adopt an existing unmanaged database initialized by the Node server, although `cmd/api` can read that compatible schema. Cutover requires a future explicit full-schema verifier/adoption command; do not weaken `migrate.Run` or partially stamp an unmanaged database.
+The migration runner supports fresh databases and databases already managed by its ledger; `migrate.Run` still refuses an unmanaged database (`ErrUnmanagedDatabase`). Databases created by the Node server are brought under the ledger only by `cmd/adopt`:
+
+- **Default: read-only dry run.** It opens the database with `mode=ro` (never creating it), compares it with a reference built by applying the Go migrations to a scratch database, runs `integrity_check` and `foreign_key_check`, prints a report, then rehearses the whole adoption on a `VACUUM INTO` copy in a temporary directory. Exit `0` when adoptable, `1` on any mismatch.
+- **How compatibility is decided.** A migration is *present* when every object it creates exists, *pending* otherwise. Every Go object that exists is compared: columns as a set by name (order is ignored, since older databases got columns via `ALTER TABLE`) with declared type, NOT NULL, default, primary-key position, and hidden kind; CHECK constraints (token-normalized); foreign keys (including ON DELETE/UPDATE); UNIQUE/PRIMARY KEY constraints and named indexes (columns, order, collation, partial WHERE); AUTOINCREMENT, WITHOUT ROWID, STRICT. The only accepted deviation is the known Node variant `subscribers.created_at`/`updated_at` as nullable `TEXT` without a default (Node's `ALTER TABLE`; Go always writes both columns). Extra tables, views, nullable or defaulted columns, and non-unique indexes are listed and left alone; extra NOT NULL columns without a default, extra UNIQUE indexes, CHECKs, foreign keys, and triggers on Go tables are mismatches. A failed `integrity_check` is a mismatch; foreign key violations are warnings.
+- **`--apply`** writes `<DATABASE_PATH>.pre-adopt-<UTC timestamp>.db` with `VACUUM INTO` (refusing an existing file) and checks it, then calls `migrate.Adopt`: in one `BEGIN IMMEDIATE` transaction it verifies again, creates the ledger, records the present migrations with their exact names and checksums, and runs the pending ones (for a Node database: newsroom 3 and 4). Recording 1, 2, 5, 6 and then calling `migrate.Run` would fail with `ErrHistoryGap`, hence the single transaction. `migrate.Run` afterwards is a no-op, and the result is verified against the reference again. Nothing is dropped, rewritten, or deleted; migration 3 adds its two `newsroom.*` settings rows.
+- **Idempotent:** a database with a ledger reports `already managed` and exits `0` without writing.
+
+The Node schema fixtures come from Node itself: `internal/database/adopt/testdata/record-node-schema.ts` runs `apps/server/src/db.ts` `initializeDatabase` on in-memory databases and writes `node-schema.json` (a fresh database, and a legacy one whose `articles.source`/`source_url` and `subscribers` columns Node added with `ALTER TABLE`).
 
 ## Architecture
 
 The service is a single binary with a `cmd` plus `internal` layout:
 
-- `cmd/api` loads guarded configuration, opens and owns the SQLite pool, injects it into the application, and closes it after shutdown. `cmd/migrate` is the only schema deployment entry point.
+- `cmd/api` loads guarded configuration, opens and owns the SQLite pool, injects it into the application, and closes it after shutdown. `cmd/migrate` is the only schema deployment entry point for managed databases; `cmd/adopt` (with `internal/database/adopt`) is the one-time entry point for the Node-created production database.
 - `internal/app` wires modules and infrastructure, including gathering capability-owned migration descriptors in execution order.
 - `editorial` owns the foundational v1 authors schema and public author read stack, while `content` owns the v2 categories/articles schema and the public article and category read stacks. Their public handlers mount relative route manifests from the composition root.
 - `settings` owns the dashboard site-settings behavior but no migration: newsroom migration 3 creates the shared `settings` table with Node's schema.
 - `media` owns both article-image stores: generated feature images in S3 and the dashboard media library (migration 5, Node's `media` table), whose files live in `UPLOADS_DIR`.
 - `newsletter` owns migration 6 (Node's `subscribers`, `newsletter_deliveries`, and `newsletter_editions` tables) and the public newsletter routes; it only reads `articles` and `categories`. Like every capability it owns its domain, repository, service, HTTP handlers, relative route mounting, and migration SQL.
-- `internal/database/migrate` owns only the migration ledger and runner; it does not own capability schema SQL. The runner owns migration transaction boundaries, so descriptors must not contain transaction control, `VACUUM`, `ATTACH`, `DETACH`, or `PRAGMA` statements. `ATTACH`, `DETACH`, and `PRAGMA` are rejected because their file, attachment, or connection effects can survive a rollback.
+- `internal/database/migrate` owns only the migration ledger, the runner, and `Adopt`; it does not own capability schema SQL. The runner owns migration transaction boundaries, so descriptors must not contain transaction control, `VACUUM`, `ATTACH`, `DETACH`, or `PRAGMA` statements. `ATTACH`, `DETACH`, and `PRAGMA` are rejected because their file, attachment, or connection effects can survive a rollback.
 - Narrow infrastructure packages live under `internal` and are named for their purpose.
 - Interfaces are declared by the consuming package at the point of use. Constructors return concrete types unless a consumer needs an interface.
 
@@ -150,7 +162,7 @@ Go-only behavior: digest runs are serialized within the process, so overlapping 
 
 **Same-day re-runs.** A second digest run for an edition (a manual `POST` after the cron) re-selects the articles, replaces the archived edition's subject and articles (keeping its `created_at`), skips subscribers already `sent`, and retries the rest with the same idempotency keys. Within 24 hours Resend treats a repeated key with an identical request as the original send and one with a different request (for example, a new lead story changed the subject) as a conflict (`409`), which is recorded as `failed` without sending: nobody gets two copies of one edition.
 
-**Supported databases.** Go expects a database created by its own migrations or last opened by the current Node server (which adds any missing `subscribers` columns at startup). An older `subscribers` table without `status` makes migration 6's SQL fail (`no such column: status`, on `idx_subscribers_status`) instead of being patched silently; start the current Node server once (or add the columns) before adopting such a database.
+**Supported databases.** Go expects a database created by its own migrations or last opened by the current Node server (which adds any missing `subscribers` columns at startup). An older `subscribers` table without `status` is reported by `cmd/adopt` as a missing column (and would make migration 6's SQL fail on `idx_subscribers_status`) instead of being patched silently; start the current Node server once (or add the columns) before adopting such a database.
 
 **Node and Go on one database.** Only one of them should serve the digest: the Vercel cron calls whatever `API_URL` points at, so switching `API_URL` switches the digest. If both ever ran a digest for the same edition, the per-row `sent` check is not a lock between processes; what prevents a second email is Resend's idempotency key, which both use in the same format with byte-identical payloads: for 24 hours Resend answers a repeated key with the original send instead of sending again (a different payload under the same key is refused with `409` and recorded as failed). No test or code path in this repository calls the real Resend API: tests use `httptest` servers or fakes.
 
