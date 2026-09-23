@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-23-ai-tech-news-newsroom-design.md` (phase 1 of 5).
 
+> **Status: executed on branch `newsroom-go-foundation`.** Review follow-ups changed code after these tasks were written (migration adds `published_at`, `ON DELETE SET NULL` + `idx_candidates_article`, queued-schedule CHECK; store/service/handler hardening). The code in the repo is authoritative; do not copy SQL or Go from the task blocks below.
+
 **Working directory for all commands:** `apps/server-go` (run from the repo root: `cd apps/server-go`).
 
 **Commit style for this repo owner:** plain sentence messages, no `feat:`-style prefixes, no co-author trailers.

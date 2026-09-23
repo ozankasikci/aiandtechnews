@@ -1,7 +1,7 @@
 # AI & Tech News Newsroom — Design
 
 Date: 2026-09-23
-Status: Approved in brainstorming, pending spec review
+Status: Approved; phase 1 implemented
 Repos: `omni-control-app` (iOS), `aiandtechnews` (`apps/server-go`)
 
 ## Goal
@@ -56,7 +56,7 @@ the public site and `articles.status` CHECK stay untouched.
 | `published_at` | TEXT | RFC 3339 UTC; set when status becomes published |
 | `updated_at` | TEXT NOT NULL | RFC 3339 UTC |
 
-Indexes: `(status, scheduled_for)`, `(status, discovered_at)`.
+Indexes: `(status, scheduled_for)`, `(status, discovered_at)`, `(article_id)`.
 
 ### Lifecycle
 
@@ -75,6 +75,7 @@ rejected                              failed ──retry──▶ queued
   also skipped by the collector (covers articles published before this change).
 - All transitions are guarded updates (`UPDATE … WHERE id=? AND status=?`);
   zero rows affected means the transition is rejected as stale.
+- A CHECK guarantees every `queued` row has `scheduled_for`.
 
 ### Queue scheduling
 
@@ -85,6 +86,16 @@ rejected                              failed ──retry──▶ queued
 - Settings live in the existing `settings` key/value table:
   `newsroom.publish_delay_min_minutes` = `30`, `newsroom.publish_delay_max_minutes` = `40`.
   Validation: min and max are between 1 and 1440, and min is not above max.
+- All timestamps are written through one formatter (RFC 3339 UTC, second
+  precision, `Z` suffix); comparisons such as `published_today` rely on text
+  ordering.
+- **Minimum gap (publisher):** before claiming the next due item, the
+  publisher also requires `now - latest published_at ≥ min` minutes. This
+  keeps spacing when transient retries (`now + 5 min`) or crash recovery
+  reschedule items outside the queue tail, and prevents a burst after
+  downtime (overdue items then go out one per `min` minutes).
+- The publisher shares the same `newsroom.Service` instance as the HTTP
+  handler (its scheduling mutex is per instance).
 
 ### Failure handling
 
@@ -140,6 +151,19 @@ allowlist, AI-only gate and rewrite validation are unchanged. The previous
 "max 1 article per run / ~4 slots per day" rule is replaced by the queue
 spacing. (Per `AGENTS.md`, this is the explicit decision required to change
 publication limits.)
+
+### Store seams for later phases
+
+- Collector `Insert` must also skip URLs present in `articles.source_url`;
+  do it inside the store with `NOT EXISTS`.
+- `SetLastCollected(ctx, t)`.
+- Publisher store methods:
+  - Atomic claim: `UPDATE … SET status='processing' WHERE id = (SELECT id …
+    WHERE status='queued' AND scheduled_for <= ? ORDER BY scheduled_for, id
+    LIMIT 1) AND status='queued' RETURNING id`.
+  - `MarkPublished(id, articleID, now)` setting `published_at`.
+  - `MarkFailed(id, reason, now)` clearing `scheduled_for`.
+  - `ResetProcessing`.
 
 ## 3. API contract
 

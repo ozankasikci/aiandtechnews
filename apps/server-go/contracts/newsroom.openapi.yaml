@@ -33,6 +33,7 @@ paths:
                 next_publish_at: '2026-09-23T15:40:00Z'
                 last_collected_at: '2026-09-23T15:00:00Z'
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/newsroom/candidates:
     get:
       operationId: newsroom.candidates.list
@@ -73,6 +74,7 @@ paths:
                 totalPages: 1
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/newsroom/candidates/publish:
     post:
       operationId: newsroom.candidates.publish
@@ -94,6 +96,7 @@ paths:
                   skipped: { type: array, items: { $ref: '#/components/schemas/Skipped' } }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/newsroom/candidates/reject:
     post:
       operationId: newsroom.candidates.reject
@@ -115,6 +118,7 @@ paths:
                   skipped: { type: array, items: { $ref: '#/components/schemas/Skipped' } }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/newsroom/candidates/{id}/unqueue:
     post:
       operationId: newsroom.candidates.unqueue
@@ -124,6 +128,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/newsroom/candidates/{id}/retry:
     post:
       operationId: newsroom.candidates.retry
@@ -133,6 +138,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/newsroom/collect:
     post:
       operationId: newsroom.collect
@@ -152,12 +158,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/newsroom/settings:
     get:
       operationId: newsroom.settings.get
       responses:
         '200': { $ref: '#/components/responses/Settings' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
     put:
       operationId: newsroom.settings.update
       requestBody:
@@ -169,6 +177,7 @@ paths:
         '200': { $ref: '#/components/responses/Settings' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -204,6 +213,9 @@ components:
       content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
     Conflict:
       description: Candidate is not in the required status, or a collection is running
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    InternalError:
+      description: Unexpected server error; batch operations may have been partially applied
       content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
   schemas:
     Error:

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -213,6 +215,147 @@ func TestNewsroomInputValidation(t *testing.T) {
 		if response.Code != tc.code || response.Body.String() != tc.response {
 			t.Errorf("%s %s %s = %d %s, want %d %s", tc.method, tc.path, tc.body, response.Code, response.Body.String(), tc.code, tc.response)
 		}
+	}
+}
+
+// TestNewsroomResponsesMatchContractSchemas proves every newsroom response
+// this handler actually sends carries exactly the JSON keys its OpenAPI
+// schema declares required — no more, no less.
+func TestNewsroomResponsesMatchContractSchemas(t *testing.T) {
+	handler, db, auth := newsroomApplication(t)
+	seedCandidates(t, db, "https://example.com/1", "https://example.com/2")
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "newsroom.openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := yaml.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+
+	overview := decodeBody[map[string]any](t, request(t, handler, http.MethodGet, "/api/newsroom/overview", "", auth).Body.String())
+	assertKeySet(t, "overview", overview, schemaRequired(t, document, "Overview"))
+
+	candidatePage := decodeBody[map[string]any](t, request(t, handler, http.MethodGet, "/api/newsroom/candidates", "", auth).Body.String())
+	assertKeySet(t, "candidate page", candidatePage, schemaRequired(t, document, "CandidatePage"))
+	candidates := asObjectList(t, "candidates", candidatePage["candidates"])
+	if len(candidates) == 0 {
+		t.Fatal("expected at least one candidate")
+	}
+	for _, candidate := range candidates {
+		assertKeySet(t, "candidate", candidate, schemaRequired(t, document, "Candidate"))
+	}
+
+	publish := decodeBody[map[string]any](t, request(t, handler, http.MethodPost, "/api/newsroom/candidates/publish", `{"ids":[1]}`, auth).Body.String())
+	assertKeySet(t, "publish response", publish, []string{"queued", "skipped"})
+	queued := asObjectList(t, "queued", publish["queued"])
+	if len(queued) == 0 {
+		t.Fatal("expected at least one queued candidate")
+	}
+	assertKeySet(t, "queued[0]", queued[0], schemaRequired(t, document, "Candidate"))
+
+	unqueue := decodeBody[map[string]any](t, request(t, handler, http.MethodPost, "/api/newsroom/candidates/1/unqueue", "", auth).Body.String())
+	assertKeySet(t, "unqueue response", unqueue, []string{"candidate"})
+	unqueuedCandidate, ok := unqueue["candidate"].(map[string]any)
+	if !ok {
+		t.Fatalf("unqueue response candidate is not an object: %#v", unqueue["candidate"])
+	}
+	assertKeySet(t, "unqueue candidate", unqueuedCandidate, schemaRequired(t, document, "Candidate"))
+
+	reject := decodeBody[map[string]any](t, request(t, handler, http.MethodPost, "/api/newsroom/candidates/reject", `{"ids":[1]}`, auth).Body.String())
+	assertKeySet(t, "reject response", reject, []string{"rejected", "skipped"})
+
+	settings := decodeBody[map[string]any](t, request(t, handler, http.MethodGet, "/api/newsroom/settings", "", auth).Body.String())
+	assertKeySet(t, "settings", settings, schemaRequired(t, document, "PublishDelay"))
+
+	overviewExample := responseExample(t, document, "/api/newsroom/overview", "get", "200")
+	assertKeySet(t, "overview example", overviewExample, schemaRequired(t, document, "Overview"))
+
+	candidatesExample := responseExample(t, document, "/api/newsroom/candidates", "get", "200")
+	exampleCandidates := asObjectList(t, "example candidates", candidatesExample["candidates"])
+	if len(exampleCandidates) == 0 {
+		t.Fatal("expected at least one example candidate")
+	}
+	assertKeySet(t, "example candidates[0]", exampleCandidates[0], schemaRequired(t, document, "Candidate"))
+}
+
+// schemaRequired resolves components.schemas.<name> (following a $ref chain
+// if the schema itself is one) and returns its `required` key list.
+func schemaRequired(t *testing.T, document map[string]any, name string) []string {
+	t.Helper()
+	schema := resolveSchema(t, document, name)
+	rawRequired, _ := schema["required"].([]any)
+	required := make([]string, len(rawRequired))
+	for i, value := range rawRequired {
+		required[i], _ = value.(string)
+	}
+	return required
+}
+
+func resolveSchema(t *testing.T, document map[string]any, name string) map[string]any {
+	t.Helper()
+	components, _ := document["components"].(map[string]any)
+	schemas, _ := components["schemas"].(map[string]any)
+	schema, ok := schemas[name].(map[string]any)
+	if !ok {
+		t.Fatalf("schema %s not found in contract", name)
+	}
+	if ref, ok := schema["$ref"].(string); ok {
+		return resolveSchema(t, document, strings.TrimPrefix(ref, "#/components/schemas/"))
+	}
+	return schema
+}
+
+// responseExample returns the `example` object under
+// paths.<path>.<method>.responses.<code>.content.application/json.
+func responseExample(t *testing.T, document map[string]any, path, method, code string) map[string]any {
+	t.Helper()
+	paths, _ := document["paths"].(map[string]any)
+	pathItem, _ := paths[path].(map[string]any)
+	operation, _ := pathItem[method].(map[string]any)
+	responses, _ := operation["responses"].(map[string]any)
+	response, _ := responses[code].(map[string]any)
+	content, _ := response["content"].(map[string]any)
+	appJSON, _ := content["application/json"].(map[string]any)
+	example, ok := appJSON["example"].(map[string]any)
+	if !ok {
+		t.Fatalf("no example for %s %s -> %s", method, path, code)
+	}
+	return example
+}
+
+// asObjectList type-asserts a decoded JSON array field into a slice of
+// generic objects, failing the test with the field name on mismatch.
+func asObjectList(t *testing.T, field string, value any) []map[string]any {
+	t.Helper()
+	raw, ok := value.([]any)
+	if !ok {
+		t.Fatalf("%s is not an array: %#v", field, value)
+	}
+	list := make([]map[string]any, len(raw))
+	for i, item := range raw {
+		object, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("%s[%d] is not an object: %#v", field, i, item)
+		}
+		list[i] = object
+	}
+	return list
+}
+
+// assertKeySet fails the test unless body's keys are exactly want, as sets.
+func assertKeySet(t *testing.T, label string, body map[string]any, want []string) {
+	t.Helper()
+	got := make([]string, 0, len(body))
+	for key := range body {
+		got = append(got, key)
+	}
+	sort.Strings(got)
+	wantSorted := append([]string(nil), want...)
+	sort.Strings(wantSorted)
+	if !reflect.DeepEqual(got, wantSorted) {
+		t.Errorf("%s keys = %v, want %v", label, got, wantSorted)
 	}
 }
 

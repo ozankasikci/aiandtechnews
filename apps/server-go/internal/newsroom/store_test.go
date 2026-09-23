@@ -357,6 +357,15 @@ func TestOverviewOnEmptyTable(t *testing.T) {
 	}
 }
 
+func TestQueuedRequiresScheduledFor(t *testing.T) {
+	store, db := openStore(t)
+	id := insert(t, store, "https://example.com/a", t0)
+	_, err := db.Exec(`UPDATE candidates SET status = 'queued', scheduled_for = NULL WHERE id = ?`, id)
+	if err == nil {
+		t.Fatal("update to queued with NULL scheduled_for: want error")
+	}
+}
+
 func assertIDs(t *testing.T, candidates []newsroom.Candidate, want ...int64) {
 	t.Helper()
 	got := make([]int64, len(candidates))

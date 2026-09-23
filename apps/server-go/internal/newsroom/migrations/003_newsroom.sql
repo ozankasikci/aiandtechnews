@@ -24,7 +24,8 @@ CREATE TABLE candidates (
     last_error TEXT,
     article_id INTEGER REFERENCES articles(id) ON DELETE SET NULL,
     published_at TEXT,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    CHECK (status <> 'queued' OR scheduled_for IS NOT NULL)
 );
 
 CREATE INDEX idx_candidates_status_scheduled ON candidates(status, scheduled_for);
