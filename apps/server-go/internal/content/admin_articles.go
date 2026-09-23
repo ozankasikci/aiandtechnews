@@ -2,6 +2,7 @@ package content
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -203,6 +204,152 @@ func (s *AdminService) CreateArticle(ctx context.Context, body jsonbody.Object) 
 		if published {
 			change.IndexNowSlugs = []string{slug.JSString()}
 		}
+		return nil
+	})
+	if err != nil {
+		return ArticleChange{}, err
+	}
+	return change, nil
+}
+
+// UpdateArticle ports dashboard.ts:316-462: a partial update in which every
+// defined property is written (null included), with the publishing policy
+// applied to the merged next state.
+func (s *AdminService) UpdateArticle(ctx context.Context, id string, body jsonbody.Object) (ArticleChange, error) {
+	var change ArticleChange
+	err := s.store.inAdminTx(ctx, func(tx adminTx) error {
+		existing, err := tx.storedArticle(ctx, id)
+		if errors.Is(err, ErrNotFound) {
+			return articleNotFound()
+		}
+		if err != nil {
+			return err
+		}
+
+		sourceURL := body.Get("source_url")
+		normalizedSourceURL := existing.SourceURL
+		if sourceURL.Defined() {
+			if sourceURL.IsNull() || sourceURL.Is("") {
+				normalizedSourceURL = nil
+			} else {
+				normalized, err := NormalizeSourceURL(sourceURL.JSString())
+				if err != nil {
+					return badRequest("Source URL is invalid")
+				}
+				normalizedSourceURL = &normalized
+			}
+		}
+
+		existingSource := jsonbody.Null()
+		if existing.Source != nil {
+			existingSource = jsonbody.String(*existing.Source)
+		}
+		status, categoryID := body.Get("status"), body.Get("category_id")
+		nextTitle := body.Get("title").Or(jsonbody.String(existing.Title))
+		nextSlug := body.Get("slug").Or(jsonbody.String(existing.Slug))
+		nextExcerpt := body.Get("excerpt").Or(jsonbody.String(existing.Excerpt))
+		nextContent := body.Get("content").Or(jsonbody.String(existing.Content))
+		nextSource := body.Get("source").Or(existingSource)
+		nextPublished := status.Or(jsonbody.String(existing.Status)).Is("published")
+
+		var nextCategoryID any = existing.CategoryID
+		if !categoryID.Nullish() {
+			if nextCategoryID, err = categoryID.Bind(); err != nil {
+				return fmt.Errorf("bind category_id: %w", err)
+			}
+		}
+		if err := checkCategory(ctx, tx, nextCategoryID); err != nil {
+			return err
+		}
+
+		if nextPublished {
+			if !nextSource.Truthy() || normalizedSourceURL == nil {
+				return badRequest("Published articles require source and source_url")
+			}
+			errs := validatePublishedArticle(nextTitle.StringOrEmpty(), nextExcerpt.StringOrEmpty(), nextContent.StringOrEmpty(), nextSource, *normalizedSourceURL)
+			if len(errs) > 0 {
+				return policyFailure(errs)
+			}
+		}
+
+		boundSlug, err := nextSlug.Bind()
+		if err != nil {
+			return fmt.Errorf("bind slug: %w", err)
+		}
+		duplicate, err := tx.articleConflict(ctx, &id, boundSlug, normalizedSourceURL)
+		if err != nil {
+			return err
+		}
+		if duplicate {
+			return duplicateArticle()
+		}
+
+		now := s.now().UTC()
+		publishedAt := body.Get("published_at")
+		if status.Is("published") && !publishedAt.Truthy() {
+			publishedAt = jsonbody.String(now.Format(javaScriptISO))
+		}
+		source := body.Get("source")
+		if source.Defined() && !source.Truthy() {
+			source = jsonbody.Null() // source || null
+		}
+
+		type field struct {
+			column string
+			value  jsonbody.Value
+		}
+		fields := make([]field, 0, 11)
+		for _, candidate := range []field{
+			{"title", body.Get("title")}, {"slug", body.Get("slug")}, {"excerpt", body.Get("excerpt")},
+			{"content", body.Get("content")}, {"featured_image", body.Get("featured_image")},
+			{"category_id", categoryID}, {"status", status}, {"published_at", publishedAt},
+			{"meta_title", body.Get("meta_title")}, {"meta_description", body.Get("meta_description")},
+			{"source", source},
+		} {
+			if candidate.value.Defined() {
+				fields = append(fields, candidate)
+			}
+		}
+		var authorID int64
+		if nextPublished {
+			if authorID, err = requireEditorialAuthor(ctx, tx); err != nil {
+				return err
+			}
+		}
+		if len(fields) == 0 && !sourceURL.Defined() && !nextPublished {
+			return badRequest("No fields to update")
+		}
+
+		assignments := make([]assignment, 0, len(fields)+3)
+		for _, f := range fields {
+			value, err := f.value.Bind()
+			if err != nil {
+				return fmt.Errorf("bind %s: %w", f.column, err)
+			}
+			assignments = append(assignments, assignment{f.column, value})
+		}
+		if sourceURL.Defined() {
+			assignments = append(assignments, assignment{"source_url", nullableString(normalizedSourceURL)})
+		}
+		if nextPublished {
+			assignments = append(assignments, assignment{"author_id", authorID})
+		}
+		assignments = append(assignments, assignment{"updated_at", now.Format(sqliteTimestamp)})
+		if err := tx.updateRow(ctx, "articles", id, assignments); err != nil {
+			return err
+		}
+		if change.Article, err = tx.article(ctx, id); err != nil {
+			return err
+		}
+
+		var slugs []string
+		if existing.Status == "published" {
+			slugs = append(slugs, existing.Slug)
+		}
+		if nextPublished {
+			slugs = append(slugs, nextSlug.JSString())
+		}
+		change.IndexNowSlugs = uniqueStrings(slugs)
 		return nil
 	})
 	if err != nil {

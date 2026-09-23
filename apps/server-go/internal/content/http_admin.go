@@ -14,6 +14,7 @@ type adminService interface {
 	ListArticles(context.Context, DashboardQuery) (Page, error)
 	GetArticle(context.Context, string) (Article, error)
 	CreateArticle(context.Context, jsonbody.Object) (ArticleChange, error)
+	UpdateArticle(context.Context, string, jsonbody.Object) (ArticleChange, error)
 	ListCategories(context.Context) ([]CategoryWithCount, error)
 }
 
@@ -41,6 +42,7 @@ func (h *AdminHandler) Mount(router chi.Router) {
 	router.Get("/articles", h.listArticles)
 	router.Get("/articles/{id}", h.getArticle)
 	router.Post("/articles", h.createArticle)
+	router.Put("/articles/{id}", h.updateArticle)
 	router.Get("/categories", h.listCategories)
 }
 
@@ -92,6 +94,20 @@ func (h *AdminHandler) createArticle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, articleEnvelope{change.Article})
+	h.notify(change.IndexNowSlugs)
+}
+
+func (h *AdminHandler) updateArticle(w http.ResponseWriter, r *http.Request) {
+	body, ok := h.decode(w, r)
+	if !ok {
+		return
+	}
+	change, err := h.service.UpdateArticle(r.Context(), chi.URLParam(r, "id"), body)
+	if err != nil {
+		h.fail(w, r, "update dashboard article", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, articleEnvelope{change.Article})
 	h.notify(change.IndexNowSlugs)
 }
 
