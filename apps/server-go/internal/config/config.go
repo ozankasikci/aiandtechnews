@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -218,11 +219,15 @@ func (c Config) validatePublisher() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("PUBLISHER_ENABLED requires %s", strings.Join(missing, ", "))
 	}
-	if c.S3Prefix == "" {
+	prefix := strings.Trim(c.S3Prefix, "/")
+	if prefix == "" {
 		return errors.New("S3_FEATURE_IMAGE_PREFIX must not be empty")
 	}
-	if !strings.HasPrefix(c.S3PublicURL, "https://") {
-		return errors.New("S3_FEATURE_IMAGE_PUBLIC_URL must be an https URL")
+	if strings.Contains(prefix, "..") {
+		return errors.New(`S3_FEATURE_IMAGE_PREFIX must not contain ".."`)
+	}
+	if parsed, err := url.Parse(c.S3PublicURL); err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return errors.New("S3_FEATURE_IMAGE_PUBLIC_URL must be an https URL with a host")
 	}
 	return nil
 }

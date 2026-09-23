@@ -12,6 +12,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -26,6 +27,9 @@ const (
 	MaxImageBytes = 10 << 20
 	cacheControl  = "public, max-age=31536000, immutable"
 	verifyTimeout = 20 * time.Second
+	// cleanupTimeout bounds deleting an object that failed verification; it
+	// runs detached from the caller's (possibly cancelled) context.
+	cleanupTimeout = 10 * time.Second
 )
 
 type Config struct {
@@ -50,13 +54,26 @@ func (c Config) Validate() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("feature image storage is not configured; missing %s", strings.Join(missing, ", "))
 	}
-	if c.Prefix == "" {
+	prefix := strings.Trim(c.Prefix, "/")
+	if prefix == "" {
 		return errors.New("S3_FEATURE_IMAGE_PREFIX must not be empty")
 	}
-	if !strings.HasPrefix(c.PublicBaseURL, "https://") {
-		return errors.New("S3_FEATURE_IMAGE_PUBLIC_URL must be an https URL")
+	if strings.Contains(prefix, "..") {
+		return errors.New(`S3_FEATURE_IMAGE_PREFIX must not contain ".."`)
+	}
+	if parsed, err := url.Parse(c.PublicBaseURL); err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return errors.New("S3_FEATURE_IMAGE_PUBLIC_URL must be an https URL with a host")
 	}
 	return nil
+}
+
+// PublicStatusError reports that the public URL answered verification with a
+// non-200 status. 403 and 404 usually mean a misconfigured public URL or
+// bucket policy rather than a passing outage.
+type PublicStatusError struct{ Status int }
+
+func (e *PublicStatusError) Error() string {
+	return fmt.Sprintf("public URL returned HTTP %d", e.Status)
 }
 
 // ObjectAPI is the subset of the S3 client the store uses.
@@ -132,7 +149,9 @@ func (s *Store) StoreWebP(ctx context.Context, slug string, data []byte) (Stored
 		return Stored{}, fmt.Errorf("upload feature image: %w", err)
 	}
 	if err := s.verify(ctx, url, sha, len(data)); err != nil {
-		_ = s.Delete(context.WithoutCancel(ctx), key)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		_ = s.Delete(cleanupCtx, key)
+		cancel()
 		return Stored{}, fmt.Errorf("uploaded feature image failed public verification: %w", err)
 	}
 	return Stored{Key: key, URL: url}, nil
@@ -154,7 +173,7 @@ func (s *Store) verify(ctx context.Context, url, sha string, size int) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("public URL returned HTTP %d", resp.StatusCode)
+		return &PublicStatusError{Status: resp.StatusCode}
 	}
 	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if mediaType != "image/webp" {

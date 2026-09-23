@@ -3,6 +3,7 @@ package media_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -31,7 +32,10 @@ type putCall struct {
 	body                                             []byte
 }
 
-type deleteCall struct{ bucket, key string }
+type deleteCall struct {
+	bucket, key string
+	deadline    bool
+}
 
 type fakeObjectAPI struct {
 	mu      sync.Mutex
@@ -57,11 +61,12 @@ func (f *fakeObjectAPI) PutObject(_ context.Context, input *s3.PutObjectInput, _
 	return &s3.PutObjectOutput{}, nil
 }
 
-func (f *fakeObjectAPI) DeleteObject(_ context.Context, input *s3.DeleteObjectInput, _ ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
+func (f *fakeObjectAPI) DeleteObject(ctx context.Context, input *s3.DeleteObjectInput, _ ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.objects, *input.Key)
-	f.deletes = append(f.deletes, deleteCall{bucket: *input.Bucket, key: *input.Key})
+	_, deadline := ctx.Deadline()
+	f.deletes = append(f.deletes, deleteCall{bucket: *input.Bucket, key: *input.Key, deadline: deadline})
 	return &s3.DeleteObjectOutput{}, nil
 }
 
@@ -177,6 +182,13 @@ func TestStoreWebPVerificationFailureDeletesObject(t *testing.T) {
 			if len(api.deletes) != 1 || api.deletes[0].key != api.puts[0].key {
 				t.Fatalf("deletes = %+v puts = %+v", api.deletes, api.puts)
 			}
+			if !api.deletes[0].deadline {
+				t.Fatal("cleanup delete ran without a timeout")
+			}
+			var statusErr *media.PublicStatusError
+			if gotStatus := errors.As(err, &statusErr); gotStatus != tc.notFound || (tc.notFound && statusErr.Status != http.StatusNotFound) {
+				t.Fatalf("err = %v, want PublicStatusError only for the 404 case", err)
+			}
 		})
 	}
 }
@@ -237,5 +249,30 @@ func TestSanitizeSlug(t *testing.T) {
 	}
 	if _, err := media.SanitizeSlug("!!!"); err == nil {
 		t.Fatal("expected error for empty slug")
+	}
+}
+
+func TestConfigValidateRejectsUnsafePrefixAndPublicURL(t *testing.T) {
+	base := media.Config{Region: "eu-west-1", Bucket: "b", Prefix: "features", PublicBaseURL: "https://example.test"}
+	for _, prefix := range []string{"/", "//", "../x", "a/../b", "a/.."} {
+		c := base
+		c.Prefix = prefix
+		if err := c.Validate(); err == nil {
+			t.Errorf("prefix %q accepted", prefix)
+		}
+	}
+	for _, publicURL := range []string{"https://", "https:///path", "ftp://example.test", "https://exa mple.test", "HTTP://example.test"} {
+		c := base
+		c.PublicBaseURL = publicURL
+		if err := c.Validate(); err == nil {
+			t.Errorf("public URL %q accepted", publicURL)
+		}
+	}
+	for _, prefix := range []string{"/features/", "a/b"} {
+		c := base
+		c.Prefix = prefix
+		if err := c.Validate(); err != nil {
+			t.Errorf("prefix %q rejected: %v", prefix, err)
+		}
 	}
 }

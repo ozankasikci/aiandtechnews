@@ -412,6 +412,31 @@ func TestLoadPublisherEnabledRejectsNonHTTPSPublicURL(t *testing.T) {
 	}
 }
 
+func TestLoadPublisherEnabledRejectsUnsafePrefix(t *testing.T) {
+	for _, prefix := range []string{"/", "///", "../features", "a/../b", "features/.."} {
+		env := publisherEnv()
+		env["S3_FEATURE_IMAGE_PREFIX"] = prefix
+		if _, err := Load(mapLookup(env), t.TempDir()); err == nil {
+			t.Errorf("Load() accepted S3_FEATURE_IMAGE_PREFIX %q", prefix)
+		}
+	}
+	env := publisherEnv()
+	env["S3_FEATURE_IMAGE_PREFIX"] = "/features/"
+	if _, err := Load(mapLookup(env), t.TempDir()); err != nil {
+		t.Errorf("Load() rejected S3_FEATURE_IMAGE_PREFIX with surrounding slashes: %v", err)
+	}
+}
+
+func TestLoadPublisherEnabledRejectsMalformedPublicURL(t *testing.T) {
+	for _, publicURL := range []string{"https://", "https:///path", "https://exa mple.invalid", "ftp://example.invalid"} {
+		env := publisherEnv()
+		env["S3_FEATURE_IMAGE_PUBLIC_URL"] = publicURL
+		if _, err := Load(mapLookup(env), t.TempDir()); err == nil {
+			t.Errorf("Load() accepted S3_FEATURE_IMAGE_PUBLIC_URL %q", publicURL)
+		}
+	}
+}
+
 func TestLoadPublisherEnabledRejectsShortInterval(t *testing.T) {
 	env := publisherEnv()
 	env["PUBLISHER_INTERVAL"] = "5s"
