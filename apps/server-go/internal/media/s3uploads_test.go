@@ -156,3 +156,11 @@ func TestNewStorageRoutesByBackendAndURLShape(t *testing.T) {
 }
 
 var _ media.Storage = (*media.S3Uploads)(nil)
+
+func TestS3UploadsBoundPutObjectWithItsOwnTimeout(t *testing.T) {
+	store, api, _ := newS3Uploads(t, "image/png", false)
+	if _, err := store.Save(context.Background(), strings.NewReader("x"), "a.png", "image/png"); err != nil {
+		t.Fatal(err)
+	}
+	assertPutTimeout(t, api.puts[0])
+}

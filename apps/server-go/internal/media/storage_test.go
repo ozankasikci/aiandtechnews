@@ -30,6 +30,8 @@ func webPBytes(payload string) []byte {
 type putCall struct {
 	bucket, key, contentType, cacheControl, checksum string
 	body                                             []byte
+	// timeLeft is the context deadline remaining when PutObject ran (0: none).
+	timeLeft time.Duration
 }
 
 type deleteCall struct {
@@ -48,15 +50,19 @@ func newFakeObjectAPI() *fakeObjectAPI {
 	return &fakeObjectAPI{objects: map[string][]byte{}}
 }
 
-func (f *fakeObjectAPI) PutObject(_ context.Context, input *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+func (f *fakeObjectAPI) PutObject(ctx context.Context, input *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
 	body, _ := io.ReadAll(input.Body)
+	var timeLeft time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		timeLeft = time.Until(deadline)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.objects[*input.Key] = body
 	f.puts = append(f.puts, putCall{
 		bucket: *input.Bucket, key: *input.Key,
 		contentType: strOrEmpty(input.ContentType), cacheControl: strOrEmpty(input.CacheControl),
-		checksum: strOrEmpty(input.ChecksumSHA256), body: body,
+		checksum: strOrEmpty(input.ChecksumSHA256), body: body, timeLeft: timeLeft,
 	})
 	return &s3.PutObjectOutput{}, nil
 }
@@ -275,4 +281,21 @@ func TestConfigValidateRejectsUnsafePrefixAndPublicURL(t *testing.T) {
 			t.Errorf("prefix %q rejected: %v", prefix, err)
 		}
 	}
+}
+
+func assertPutTimeout(t *testing.T, put putCall) {
+	t.Helper()
+	if put.timeLeft <= 55*time.Second || put.timeLeft > 60*time.Second {
+		t.Fatalf("PutObject ran with %v left, want its own 60s timeout", put.timeLeft)
+	}
+}
+
+func TestStoreWebPBoundsPutObjectWithItsOwnTimeout(t *testing.T) {
+	api := newFakeObjectAPI()
+	server := newServingServer(t, api, "", false, nil)
+	store := media.NewStore(media.Config{Region: "eu-west-1", Bucket: "bucket", Prefix: "dev", PublicBaseURL: server.URL}, api, server.Client(), fixedNow(time.Now()))
+	if _, err := store.StoreWebP(context.Background(), "slug", webPBytes("payload")); err != nil {
+		t.Fatal(err)
+	}
+	assertPutTimeout(t, api.puts[0])
 }

@@ -34,7 +34,19 @@ const (
 	// cleanupTimeout bounds deleting an object that failed verification; it
 	// runs detached from the caller's (possibly cancelled) context.
 	cleanupTimeout = 10 * time.Second
+	// putTimeout bounds one PutObject call, independently of the caller's
+	// context, so a stalled S3 connection cannot hold a publish or a dashboard
+	// upload open indefinitely.
+	putTimeout = 60 * time.Second
 )
+
+// putObject runs PutObject under putTimeout.
+func putObject(ctx context.Context, api ObjectAPI, input *s3.PutObjectInput) error {
+	ctx, cancel := context.WithTimeout(ctx, putTimeout)
+	defer cancel()
+	_, err := api.PutObject(ctx, input)
+	return err
+}
 
 type Config struct {
 	Region        string
@@ -142,7 +154,7 @@ func (s *Store) StoreWebP(ctx context.Context, slug string, data []byte) (Stored
 	key := Key(s.config.Prefix, safeSlug, sha, "webp", s.now())
 	url := s.config.PublicBaseURL + "/" + key
 
-	if _, err := s.api.PutObject(ctx, &s3.PutObjectInput{
+	if err := putObject(ctx, s.api, &s3.PutObjectInput{
 		Bucket:         aws.String(s.config.Bucket),
 		Key:            aws.String(key),
 		Body:           bytes.NewReader(data),

@@ -69,7 +69,7 @@ func (s *S3Uploads) Save(ctx context.Context, content io.Reader, originalName, c
 	}
 	key := s.prefix + "/" + name
 	sum := sha256.Sum256(data)
-	if _, err := s.api.PutObject(ctx, &s3.PutObjectInput{
+	if err := putObject(ctx, s.api, &s3.PutObjectInput{
 		Bucket:         aws.String(s.bucket),
 		Key:            aws.String(key),
 		Body:           bytes.NewReader(data),
