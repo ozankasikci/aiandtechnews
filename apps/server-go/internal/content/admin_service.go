@@ -8,10 +8,27 @@ import (
 	"time"
 )
 
+type adminTx interface {
+	storedArticle(context.Context, string) (storedArticle, error)
+	articleSlugStatus(context.Context, string) (string, string, bool, error)
+	categorySlug(context.Context, any) (string, bool, error)
+	articleConflict(context.Context, *string, any, *string) (bool, error)
+	editorialAuthorID(context.Context) (int64, bool, error)
+	insertArticle(context.Context, []any) (int64, error)
+	updateRow(context.Context, string, string, []assignment) error
+	deleteRow(context.Context, string, string) (bool, error)
+	article(context.Context, any) (Article, error)
+	categoryExists(context.Context, string) (bool, error)
+	insertCategory(context.Context, any, any, any, any) (int64, error)
+	category(context.Context, any) (Category, error)
+	categoryArticleCount(context.Context, string) (int64, error)
+}
+
 type adminStore interface {
 	DashboardList(context.Context, DashboardQuery) (ListResult, error)
 	ByID(context.Context, string) (Article, error)
 	DashboardCategories(context.Context) ([]CategoryWithCount, error)
+	inAdminTx(context.Context, func(adminTx) error) error
 }
 
 // AdminService ports the authenticated article and category handlers of
