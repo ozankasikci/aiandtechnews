@@ -90,6 +90,7 @@ These follow decisions the Go slices already made (see README "HTTP compatibilit
 | `<`, `>`, `&` in JSON strings | literal | `<`-style escapes from `encoding/json` (semantically identical, existing convention) |
 | IndexNow | always on | only when `INDEXNOW_ENABLED=1`, like the publisher, so a local dashboard edit never pings IndexNow for a dev-only article |
 | Mutation atomicity | synchronous better-sqlite3 handlers, nothing interleaves | each mutation runs in one SQLite transaction on the single pooled connection. Same observable results; concurrent writers serialize |
+| Update of an article whose stored `author_id` no longer has a matching `authors` row (an orphaned reference; nothing in either app can delete an author today, so this only arises from data that predates the FK, e.g. pre-cutover Node writes) | commits: better-sqlite3 does not enforce the FK, so the UPDATE succeeds regardless of which columns it touches | 500 `{"error":"Internal server error"}` and the whole mutation rolls back: `database.Open` runs with `PRAGMA foreign_keys = ON`, and Go's `article`/`storedArticle` readback `INNER JOIN`s `authors`, so the post-write read finds no row and the enclosing transaction is rolled back, leaving nothing changed |
 
 ## Out of scope
 
