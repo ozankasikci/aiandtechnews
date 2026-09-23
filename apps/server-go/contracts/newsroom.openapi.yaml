@@ -5,7 +5,11 @@ info:
   description: >-
     Editorial candidate review and publish queue used by the Omni Control iOS
     app. All operations require a bearer JWT from POST /api/auth/login.
-    Timestamps are RFC 3339 UTC. Errors are {"error": string}.
+    Timestamps are RFC 3339 UTC. Errors are {"error": string}. Batch
+    operations are not atomic: after a 5xx on publish or reject, clients must
+    re-fetch candidates to see what was applied. Out-of-range page/limit
+    values fall back to the default or clamp to the maximum instead of
+    failing.
 servers:
   - url: /
 security:

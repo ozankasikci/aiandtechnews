@@ -24,6 +24,11 @@ var ErrCollectInProgress = errors.New("collection already running")
 
 // Collector starts a collection run in the background. It is nil until the
 // Go collector exists, and /collect answers 503 in the meantime.
+//
+// Start must return promptly (it only kicks off the run) and must not retain
+// the context it is given beyond the call: that context belongs to the HTTP
+// request and is cancelled once the 202 response is written, so the run
+// itself must execute on a context the implementation owns.
 type Collector interface {
 	Start(context.Context) error
 }
@@ -88,7 +93,8 @@ func (h *Handler) publish(w http.ResponseWriter, r *http.Request) {
 	}
 	queued, skipped, err := h.service.Publish(r.Context(), ids)
 	if err != nil {
-		h.internalError(w, r, "publish candidates", err)
+		h.logger.ErrorContext(r.Context(), "publish candidates", "error", err, "queued_ids", candidateIDs(queued), "skipped", len(skipped))
+		writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
@@ -104,7 +110,8 @@ func (h *Handler) reject(w http.ResponseWriter, r *http.Request) {
 	}
 	rejected, skipped, err := h.service.Reject(r.Context(), ids)
 	if err != nil {
-		h.internalError(w, r, "reject candidates", err)
+		h.logger.ErrorContext(r.Context(), "reject candidates", "error", err, "rejected_ids", rejected, "skipped", len(skipped))
+		writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
@@ -191,6 +198,15 @@ func (h *Handler) updateSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, delay)
 }
 
+// candidateIDs extracts ids for logging partial batch results.
+func candidateIDs(candidates []Candidate) []int64 {
+	ids := make([]int64, len(candidates))
+	for i, candidate := range candidates {
+		ids[i] = candidate.ID
+	}
+	return ids
+}
+
 func decodeIDs(w http.ResponseWriter, r *http.Request) ([]int64, bool) {
 	var body struct {
 		IDs []int64 `json:"ids"`
@@ -229,6 +245,9 @@ func parseStatuses(value string) ([]Status, error) {
 	seen := make(map[Status]bool)
 	for _, part := range strings.Split(value, ",") {
 		name := strings.TrimSpace(part)
+		if name == "" {
+			continue
+		}
 		status, ok := ParseStatus(name)
 		if !ok {
 			return nil, fmt.Errorf("unknown status %q", name)
@@ -237,6 +256,9 @@ func parseStatuses(value string) ([]Status, error) {
 			seen[status] = true
 			statuses = append(statuses, status)
 		}
+	}
+	if len(statuses) == 0 {
+		return []Status{StatusPending}, nil
 	}
 	return statuses, nil
 }

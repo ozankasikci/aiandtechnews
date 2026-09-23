@@ -76,9 +76,16 @@ func expectStatus(t *testing.T, method, path string, code int, got int, body str
 	}
 }
 
-// Every operation in the newsroom contract must exist and require auth.
+// Every operation in the newsroom contract must exist and require auth. A
+// second pass with a valid token proves the routes actually exist: auth runs
+// before route matching in the /api/newsroom subtree, so an unauthenticated
+// request to any path under it returns 401 regardless of whether the route
+// is registered. Only a request WITH a valid token can distinguish a real
+// route (200/404 "Candidate not found"/etc.) from the router's own
+// unmatched-route bodies ({"error":"Not found"} / {"error":"Method not
+// allowed"}).
 func TestNewsroomContractOperationsRequireAuth(t *testing.T) {
-	handler, _, _ := newsroomApplication(t)
+	handler, _, auth := newsroomApplication(t)
 	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "newsroom.openapi.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -98,10 +105,28 @@ func TestNewsroomContractOperationsRequireAuth(t *testing.T) {
 				t.Errorf("%s %s = %d %s, want 401", method, concrete, response.Code, response.Body.String())
 			}
 			operations++
+
+			authed := request(t, handler, strings.ToUpper(method), concrete, contractRequestBody(concrete, strings.ToUpper(method)), auth)
+			if authed.Body.String() == `{"error":"Not found"}` || authed.Body.String() == `{"error":"Method not allowed"}` {
+				t.Errorf("%s %s (authed) = %d %s, route does not exist", method, concrete, authed.Code, authed.Body.String())
+			}
 		}
 	}
 	if operations != 9 {
 		t.Fatalf("contract operations = %d, want 9", operations)
+	}
+}
+
+// contractRequestBody returns a body that is valid JSON for the given
+// contract route, or empty for routes that take no body.
+func contractRequestBody(path, method string) string {
+	switch {
+	case method == http.MethodPost && (path == "/api/newsroom/candidates/publish" || path == "/api/newsroom/candidates/reject"):
+		return `{"ids":[1]}`
+	case method == http.MethodPut && path == "/api/newsroom/settings":
+		return `{"publish_delay_min_minutes":30,"publish_delay_max_minutes":40}`
+	default:
+		return ""
 	}
 }
 
