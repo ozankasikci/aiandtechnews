@@ -4,9 +4,9 @@
 #   scripts/smoke-local.sh <database> [uploads-dir]
 #
 # What it does:
-#   1. copies <database> into a new temporary directory (sqlite3 .backup when
-#      sqlite3 is installed, otherwise cp of the file and its -wal; the
-#      original is only read);
+#   1. copies <database> into a new temporary directory with sqlite3 .backup
+#      (consistent even while another process writes; the original is only
+#      read; sqlite3 is required);
 #   2. builds cmd/api and cmd/adopt (go build -p 2), unless SMOKE_API_BIN and
 #      SMOKE_ADOPT_BIN name prebuilt binaries;
 #   3. adopts the copy with cmd/adopt --apply when it has no migration ledger;
@@ -28,7 +28,7 @@
 #   SMOKE_EMAIL, SMOKE_PASSWORD   dashboard login to exercise (sent only to the local server)
 #   SMOKE_PORT                    port to use instead of a random free one
 #   SMOKE_API_BIN, SMOKE_ADOPT_BIN  prebuilt binaries (skip go build)
-#   TZ                            passed through to the server (use production's zone)
+#   TZ                            the server's zone (default UTC; use production's zone)
 set -euo pipefail
 
 usage() {
@@ -50,6 +50,7 @@ if [ -n "$source_uploads" ] && [ ! -d "$source_uploads" ]; then
   fail "uploads directory $source_uploads does not exist"
 fi
 command -v curl >/dev/null 2>&1 || fail "curl is required"
+command -v sqlite3 >/dev/null 2>&1 || fail "sqlite3 is required (macOS ships /usr/bin/sqlite3)"
 
 script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd -P)
 module_dir=$(CDPATH= cd "$script_dir/.." && pwd -P)
@@ -84,13 +85,7 @@ mkdir -p "$work/data" "$work/uploads" "$work/bin"
 db="$work/data/technews.db"
 
 printf 'smoke: copying %s\n' "$source_db"
-if command -v sqlite3 >/dev/null 2>&1; then
-  sqlite3 -readonly "$source_db" ".backup '$db'" || fail "sqlite3 .backup of $source_db failed"
-else
-  printf 'smoke: sqlite3 not found; copying the file with cp (the source must not be written meanwhile)\n'
-  cp "$source_db" "$db"
-  [ ! -f "$source_db-wal" ] || cp "$source_db-wal" "$db-wal"
-fi
+sqlite3 -readonly "$source_db" ".backup '$db'" || fail "sqlite3 .backup of $source_db failed"
 
 sample_upload=""
 if [ -n "$source_uploads" ]; then
@@ -131,12 +126,14 @@ else
 fi
 base="http://127.0.0.1:$port"
 
-jwt_secret="smoke-$(date +%s)-$RANDOM-$RANDOM-$RANDOM"
+# A throwaway 64-hex-character secret (production requires at least 32 bytes).
+jwt_secret=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+[ "${#jwt_secret}" -eq 64 ] || fail "could not generate a JWT secret"
 # server_env replaces the calling (sub)shell with the command in a clean
 # environment. Run it in a subshell or in the background: with exec, the
 # background job's PID ($!) is the process itself, so cleanup can stop it.
 server_env() {
-  exec env -i PATH="$PATH" HOME="${HOME:-/tmp}" ${TZ:+TZ="$TZ"} \
+  exec env -i PATH="$PATH" HOME="${HOME:-/tmp}" TZ="${TZ:-UTC}" \
     APP_ENV=production DATABASE_PATH="$db" UPLOADS_DIR="$work/uploads" \
     SERVER_ADDR="127.0.0.1:$port" JWT_SECRET="$jwt_secret" \
     COLLECTOR_ENABLED=0 PUBLISHER_ENABLED=0 INDEXNOW_ENABLED=0 MEDIA_STORAGE=local \
