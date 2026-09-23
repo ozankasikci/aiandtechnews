@@ -2,6 +2,15 @@
 
 This file is the source of truth for every article added to this repository, whether the work is performed manually or by automation. Read it before selecting, writing, importing, or publishing news.
 
+## Editorial queue (Go newsroom)
+
+`apps/server-go`'s newsroom (`internal/collector`, `internal/newsroom`, `internal/publisher`) is the eventual replacement for the legacy Node importer described below. It works as an editorial queue, not a direct publisher:
+
+- Collection never publishes. The collector fetches the approved feeds below, applies this policy, and stores every item that passes as a pending candidate for review. A rejected candidate is never collected again.
+- An editor selects candidates for publishing in the Omni Control app.
+- Selected candidates publish one at a time, spaced by a random delay (default 30-40 minutes, configurable) from the previous publish, and the publisher additionally enforces a minimum gap equal to the configured minimum since the last publish before it will claim the next candidate.
+- The Node importer and its external scheduler (see "Daily automation contract" below) remain the active publisher in production until the Go publisher is enabled there, a later phase. **The two must never run at the same time**, since running both concurrently risks duplicate or conflicting publishes.
+
 ## Source selection
 
 Use RSS items from these publications only:
@@ -81,14 +90,29 @@ If the available reporting cannot support a complete, accurate article, skip the
 
 ## Images
 
-1. Use the source article's usable `og:image` URL by hotlinking it. Do not download or copy the source image into this repository.
-2. Generate an image only when the source has no usable `og:image`.
-3. A generated image must match the specific subject and factual tone of the article.
-4. Use Gemini or Nano Banana for fallback image generation.
+These rules apply to the Go publisher (`internal/illustration`, backed by `internal/media`'s S3 storage). The legacy Node importer on `main` still hotlinks the source `og:image` and is not held to these rules until it is retired.
 
-Do not replace a usable source image merely to make the article look more consistent with the site.
+1. Every newly published article requires an original generated illustration stored in the S3 feature image bucket we own. The source `og:image` is never the published image.
+2. The source `og:image` is only a visual reference. When one is available and usable, it is fetched into memory (with an image content-type check, a size cap, and a request timeout) and passed to the image model as an inline image next to the text prompt. It is never written to disk, uploaded, stored, or hotlinked. When no usable source image exists, the illustration is generated from the article text alone.
+3. The reference is normalized in memory before use: decoded, resized to fit inside 1024x1024 without enlarging it, and re-encoded as JPEG so metadata is stripped and the request stays small. A reference that cannot be decoded this way is dropped, and the illustration is generated from the article text alone.
+4. The illustration prompt asks for an original editorial illustration that preserves the core subject and colour palette of the reference image while creatively changing composition, perspective, staging, poses, spacing, and visual narrative. It forbids tracing the source or reproducing its layout, and forbids copying any source text, captions, logos, watermarks, or branding.
+5. The prompt forbids writing of every kind: no words, letters, numbers, digits, emoji, symbols, speech or thought bubbles, signs, banners, posters, readable screen content, or writing in any language or script. Any surface that would normally carry writing must be left blank or filled only with abstract marks.
+6. The prompt forbids inventing physical states or events: no injury, wounds, blood, damage, violence, or visible distress unless the article states it, and no demeaning or mocking caricature of a real, identifiable person.
+7. The illustration uses a bright, bold, thick-outlined cartoon treatment in a landscape composition suitable for a news hero image.
+8. The illustration must match the specific subject and factual tone of the article. It must never depict facts, events, products, or people that the article does not support.
+9. Gemini generates and reviews the image (`GEMINI_IMAGE_MODEL`, `GEMINI_VISION_MODEL`).
+10. The generated image is encoded as WebP and uploaded to the S3 feature image bucket with the key `<S3_FEATURE_IMAGE_PREFIX>/YYYY/MM/<slug>-<content-hash>.webp` (prefix defaults to `features`); the complete verified public URL is saved as the article's featured image.
+11. If a generation call that carried the reference image fails, the next call in the same generation budget retries from the article text alone (the reference is dropped); a text or logo compliance rejection also drops the reference for the next attempt.
+12. Every generated image passes an automated compliance check with a vision model before upload: a strict verdict on whether it contains writing, a logo or watermark, or unsupported injury/violence. The check fails closed — an unparsable, incomplete, or errored verdict counts as non-compliant and the image is regenerated.
+13. At most three image generation calls run per article, counting any text-only retry after a failed referenced call. When no compliant image is produced within that limit, the candidate is marked failed and is not retried automatically; an editor can retry it in the app.
+14. Fail closed. If generation, upload, or the public retrieval verification fails, the article is not published. There is no fallback to the source image and no placeholder.
+15. If the article is not published after the upload succeeded, the uploaded S3 object is deleted on a best-effort basis and a delete failure is logged without masking the original error.
+16. Duplicate `source_url`/slug checks run before generating and uploading the image, and are repeated immediately before insertion.
+17. Historical articles keep their existing image URLs. Do not rewrite, migrate, or delete them.
 
 ## Daily automation contract
+
+This section, including the "one article per run" and "four slots a day" limits, applies only to the legacy Node importer while it remains the active publisher (see "Editorial queue (Go newsroom)" above). It does not describe or constrain the Go publisher.
 
 - The external scheduler checks every five minutes in `Europe/Istanbul` and maintains four randomized publication slots per calendar day.
 - Generate one slot in each window: 06:30 to 10:00, 10:30 to 14:00, 14:30 to 18:00, and 18:30 to 22:00.
