@@ -31,7 +31,21 @@ func SniffMIME(data []byte) string {
 	return ""
 }
 
+// Decompression-bomb limits: a small file can declare enormous dimensions,
+// so the declared size is checked before any pixels are allocated.
+const (
+	MaxDimension = 8192
+	MaxPixels    = 40_000_000
+)
+
 func decode(data []byte) (image.Image, error) {
+	config, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("decode image header: %w", err)
+	}
+	if config.Width > MaxDimension || config.Height > MaxDimension || config.Width*config.Height > MaxPixels {
+		return nil, fmt.Errorf("image %dx%d is too large (max %d per side, %d pixels)", config.Width, config.Height, MaxDimension, MaxPixels)
+	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("decode image: %w", err)
@@ -41,7 +55,8 @@ func decode(data []byte) (image.Image, error) {
 
 // FitJPEG resizes to fit inside maxEdge×maxEdge without enlarging, flattens
 // transparency onto white and encodes JPEG (sharp resize fit:inside +
-// withoutEnlargement + flatten white + jpeg).
+// withoutEnlargement + flatten white + jpeg). EXIF orientation is not applied;
+// that is an accepted difference from sharp for generated and reference images.
 func FitJPEG(data []byte, maxEdge, quality int) ([]byte, error) {
 	src, err := decode(data)
 	if err != nil {

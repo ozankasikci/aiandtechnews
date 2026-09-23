@@ -2,10 +2,13 @@ package imaging_test
 
 import (
 	"bytes"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"strings"
 	"testing"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/imaging"
@@ -84,5 +87,38 @@ func TestEncodeWebP(t *testing.T) {
 func TestDecodeRejectsGarbage(t *testing.T) {
 	if _, err := imaging.FitJPEG([]byte("not an image"), 1024, 85); err == nil {
 		t.Fatal("garbage should fail")
+	}
+}
+
+// pngHeader returns just a PNG signature and IHDR chunk declaring the given
+// size: enough for image.DecodeConfig, with no pixel data at all.
+func pngHeader(width, height uint32) []byte {
+	var buf bytes.Buffer
+	buf.Write([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:4], width)
+	binary.BigEndian.PutUint32(ihdr[4:8], height)
+	ihdr[8], ihdr[9] = 8, 6 // 8-bit RGBA
+	chunk := append([]byte("IHDR"), ihdr...)
+	_ = binary.Write(&buf, binary.BigEndian, uint32(len(ihdr)))
+	buf.Write(chunk)
+	_ = binary.Write(&buf, binary.BigEndian, crc32.ChecksumIEEE(chunk))
+	return buf.Bytes()
+}
+
+func TestDecodeRejectsOversizedDimensions(t *testing.T) {
+	for name, data := range map[string][]byte{
+		"50000x50000":     pngHeader(50000, 50000),
+		"wide 9000x10":    pngHeader(9000, 10),
+		"too many pixels": pngHeader(8000, 8000),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := imaging.FitJPEG(data, 1024, 80); err == nil || !strings.Contains(err.Error(), "too large") {
+				t.Fatalf("FitJPEG err = %v, want too large", err)
+			}
+			if _, _, _, err := imaging.EncodeWebP(data, 82); err == nil || !strings.Contains(err.Error(), "too large") {
+				t.Fatalf("EncodeWebP err = %v, want too large", err)
+			}
+		})
 	}
 }
