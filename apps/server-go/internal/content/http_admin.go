@@ -17,6 +17,9 @@ type adminService interface {
 	UpdateArticle(context.Context, string, jsonbody.Object) (ArticleChange, error)
 	DeleteArticle(context.Context, string) (ArticleChange, error)
 	ListCategories(context.Context) ([]CategoryWithCount, error)
+	CreateCategory(context.Context, jsonbody.Object) (Category, error)
+	UpdateCategory(context.Context, string, jsonbody.Object) (Category, error)
+	DeleteCategory(context.Context, string) error
 }
 
 // IndexNowNotifier queues public article slugs for IndexNow. Notify must not
@@ -46,6 +49,9 @@ func (h *AdminHandler) Mount(router chi.Router) {
 	router.Put("/articles/{id}", h.updateArticle)
 	router.Delete("/articles/{id}", h.deleteArticle)
 	router.Get("/categories", h.listCategories)
+	router.Post("/categories", h.createCategory)
+	router.Put("/categories/{id}", h.updateCategory)
+	router.Delete("/categories/{id}", h.deleteCategory)
 }
 
 type articleEnvelope struct {
@@ -121,6 +127,40 @@ func (h *AdminHandler) deleteArticle(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, successEnvelope{true})
 	h.notify(change.IndexNowSlugs)
+}
+
+func (h *AdminHandler) createCategory(w http.ResponseWriter, r *http.Request) {
+	body, ok := h.decode(w, r)
+	if !ok {
+		return
+	}
+	category, err := h.service.CreateCategory(r.Context(), body)
+	if err != nil {
+		h.fail(w, r, "create dashboard category", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, categoryEnvelope{category})
+}
+
+func (h *AdminHandler) updateCategory(w http.ResponseWriter, r *http.Request) {
+	body, ok := h.decode(w, r)
+	if !ok {
+		return
+	}
+	category, err := h.service.UpdateCategory(r.Context(), chi.URLParam(r, "id"), body)
+	if err != nil {
+		h.fail(w, r, "update dashboard category", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, categoryEnvelope{category})
+}
+
+func (h *AdminHandler) deleteCategory(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.DeleteCategory(r.Context(), chi.URLParam(r, "id")); err != nil {
+		h.fail(w, r, "delete dashboard category", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, successEnvelope{true})
 }
 
 func (h *AdminHandler) listCategories(w http.ResponseWriter, r *http.Request) {
