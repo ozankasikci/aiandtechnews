@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 )
 
 type Mode string
@@ -17,6 +19,10 @@ const (
 
 	DefaultAddress         = "127.0.0.1:4401"
 	ProductionDatabasePath = "/Users/ozan/Projects/technews/apps/server/data/technews.db"
+
+	// DefaultCollectorInterval is how often the feed collector loop runs when
+	// COLLECTOR_INTERVAL is not set.
+	DefaultCollectorInterval = 30 * time.Minute
 )
 
 var ErrProductionDatabaseAlias = errors.New("production database path is forbidden outside APP_ENV=production")
@@ -26,10 +32,15 @@ type Config struct {
 	Address      string
 	DatabasePath string
 	JWTSecret    string
+
+	// CollectorEnabled wires the feed collector (manual "Collect now" and the loop).
+	CollectorEnabled  bool
+	CollectorInterval time.Duration
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("Config{Mode:%q Address:%q DatabasePath:%q JWTSecret:[REDACTED]}", c.Mode, c.Address, c.DatabasePath)
+	return fmt.Sprintf("Config{Mode:%q Address:%q DatabasePath:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s}",
+		c.Mode, c.Address, c.DatabasePath, c.CollectorEnabled, c.CollectorInterval)
 }
 
 func (c Config) GoString() string { return c.String() }
@@ -60,6 +71,19 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	}
 	cfg.JWTSecret = lookup("JWT_SECRET")
 
+	cfg.CollectorInterval = DefaultCollectorInterval
+	switch strings.ToLower(lookup("COLLECTOR_ENABLED")) {
+	case "1", "true", "yes":
+		cfg.CollectorEnabled = true
+	}
+	if value := lookup("COLLECTOR_INTERVAL"); value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("COLLECTOR_INTERVAL: %w", err)
+		}
+		cfg.CollectorInterval = interval
+	}
+
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -69,6 +93,9 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 func (c Config) Validate() error {
 	if c.Mode != ModeDevelopment && c.Mode != ModeProduction {
 		return fmt.Errorf("unsupported APP_ENV %q", c.Mode)
+	}
+	if c.CollectorEnabled && c.CollectorInterval < time.Minute {
+		return errors.New("COLLECTOR_INTERVAL must be at least 1m")
 	}
 
 	_, port, err := net.SplitHostPort(c.Address)

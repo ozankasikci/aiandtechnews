@@ -6,9 +6,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/collector"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/config"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/database/migrate"
@@ -19,9 +21,10 @@ import (
 )
 
 type App struct {
-	address string
-	handler http.Handler
-	server  *httpserver.Server
+	address    string
+	handler    http.Handler
+	server     *httpserver.Server
+	background []func(context.Context)
 }
 
 // New composes the health-only application without opening or inspecting a database.
@@ -65,11 +68,18 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	editorialStore := editorial.NewSQLiteStore(db)
 	authors := editorial.NewPublicHandler(editorial.NewService(editorialStore), logger)
 	auth := editorial.NewAuthHandler(editorial.NewLoginService(editorialStore, editorial.NewBcryptVerifier(), tokens), tokens, logger)
-	newsroomService, err := newsroom.NewService(newsroom.NewSQLiteStore(db), now, newsroom.RandomMinutes)
+	newsroomStore := newsroom.NewSQLiteStore(db)
+	newsroomService, err := newsroom.NewService(newsroomStore, now, newsroom.RandomMinutes)
 	if err != nil {
 		return nil, err
 	}
-	newsroomHandler := newsroom.NewHandler(newsroomService, nil, logger)
+	var feedCollector *collector.Collector
+	var newsroomCollector newsroom.Collector
+	if cfg.CollectorEnabled {
+		feedCollector = collector.New(collector.NewFetcher(), newsroomStore, content.ApprovedFeeds(), now, logger)
+		newsroomCollector = feedCollector
+	}
+	newsroomHandler := newsroom.NewHandler(newsroomService, newsroomCollector, logger)
 	handler := httpserver.NewRouter(logger, func(router chi.Router) {
 		health.MountPublic(router)
 		articles.MountPublic(router)
@@ -79,7 +89,13 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		newsroomHandler.Mount(router, auth.RequireAuth)
 	})
 	server := httpserver.NewServer(cfg.Address, handler, logger)
-	return &App{address: cfg.Address, handler: handler, server: server}, nil
+	application := &App{address: cfg.Address, handler: handler, server: server}
+	if feedCollector != nil {
+		application.background = append(application.background, func(ctx context.Context) {
+			feedCollector.Loop(ctx, cfg.CollectorInterval)
+		})
+	}
+	return application, nil
 }
 
 // Migrations explicitly collects capability-owned descriptors in global order.
@@ -89,6 +105,23 @@ func Migrations() []migrate.Descriptor {
 	return append(descriptors, newsroom.Migrations()...)
 }
 
-func (a *App) Address() string               { return a.address }
-func (a *App) Handler() http.Handler         { return a.handler }
-func (a *App) Run(ctx context.Context) error { return a.server.Run(ctx) }
+func (a *App) Address() string       { return a.address }
+func (a *App) Handler() http.Handler { return a.handler }
+
+// Run serves HTTP and runs background tasks (the collector loop) until ctx is
+// done, then waits for the tasks to stop.
+func (a *App) Run(ctx context.Context) error {
+	tasksCtx, cancel := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	for _, task := range a.background {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			task(tasksCtx)
+		}()
+	}
+	err := a.server.Run(ctx)
+	cancel()
+	wg.Wait()
+	return err
+}

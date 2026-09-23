@@ -30,4 +30,4 @@ dev-seed:
 	go run ./cmd/devseed
 
 dev-api:
-	JWT_SECRET=$${JWT_SECRET:-$(DEV_JWT_SECRET)} go run ./cmd/api
+	JWT_SECRET=$${JWT_SECRET:-$(DEV_JWT_SECRET)} COLLECTOR_ENABLED=$${COLLECTOR_ENABLED:-1} go run ./cmd/api

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadDefaultsAreDevelopmentSafe(t *testing.T) {
@@ -280,4 +281,25 @@ func TestLoadRejectsEmptyWorktreeRoot(t *testing.T) {
 
 func mapLookup(values map[string]string) func(string) string {
 	return func(key string) string { return values[key] }
+}
+
+func TestLoadCollectorSettings(t *testing.T) {
+	root := t.TempDir()
+	env := map[string]string{"JWT_SECRET": "x", "COLLECTOR_ENABLED": "1", "COLLECTOR_INTERVAL": "10m"}
+	cfg, err := Load(mapLookup(env), root)
+	if err != nil || !cfg.CollectorEnabled || cfg.CollectorInterval != 10*time.Minute {
+		t.Fatalf("cfg = %+v err=%v", cfg, err)
+	}
+
+	cfg, err = Load(mapLookup(map[string]string{"JWT_SECRET": "x"}), root)
+	if err != nil || cfg.CollectorEnabled || cfg.CollectorInterval != 30*time.Minute {
+		t.Fatalf("defaults = %+v err=%v", cfg, err)
+	}
+
+	for _, bad := range []string{"soon", "10s"} {
+		env["COLLECTOR_INTERVAL"] = bad
+		if _, err := Load(mapLookup(env), root); err == nil {
+			t.Fatalf("COLLECTOR_INTERVAL=%q should fail", bad)
+		}
+	}
 }
