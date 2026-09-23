@@ -43,8 +43,11 @@ func TestFetchTextSendsHeadersAndReturnsBody(t *testing.T) {
 func TestFetchTextRejectsNon2xx(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }))
 	defer server.Close()
-	if _, _, err := NewFetcher().FetchText(context.Background(), server.URL, ""); err == nil || !strings.Contains(err.Error(), "403") {
-		t.Fatalf("err = %v", err)
+	_, _, err := NewFetcher().FetchText(context.Background(), server.URL, "")
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusForbidden || statusErr.URL != server.URL ||
+		err.Error() != "fetch "+server.URL+": status 403" {
+		t.Fatalf("err = %v, want a *StatusError with the old message", err)
 	}
 }
 
@@ -108,7 +111,7 @@ func TestFetchTextCapsBodySize(t *testing.T) {
 	}))
 	defer server.Close()
 	body, _, err := NewFetcher().FetchText(context.Background(), server.URL, "")
-	if body != "" || err == nil || !strings.Contains(err.Error(), "body exceeds") {
+	if body != "" || !errors.Is(err, ErrBodyTooLarge) || !strings.Contains(err.Error(), "body exceeds") {
 		t.Fatalf("body=%q err=%v, want a body-exceeds error", body, err)
 	}
 }

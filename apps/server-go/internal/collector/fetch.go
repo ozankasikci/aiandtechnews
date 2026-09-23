@@ -19,8 +19,20 @@ const (
 	maxBodyBytes   = 5 << 20
 )
 
-// ErrRedirectOutsideSource reports a redirect that leaves the expected approved publication.
-var ErrRedirectOutsideSource = errors.New("redirect leaves the approved source")
+var (
+	// ErrRedirectOutsideSource reports a redirect that leaves the expected approved publication.
+	ErrRedirectOutsideSource = errors.New("redirect leaves the approved source")
+	// ErrBodyTooLarge reports a response body over the 5 MB cap.
+	ErrBodyTooLarge = errors.New("body exceeds size limit")
+)
+
+// StatusError is a non-2xx response to a fetch.
+type StatusError struct {
+	URL    string
+	Status int
+}
+
+func (e *StatusError) Error() string { return fmt.Sprintf("fetch %s: status %d", e.URL, e.Status) }
 
 // Fetcher performs the importer's HTTP GETs (feeds now, source pages in the
 // publisher). It ports fetchText + resolveApprovedArticleRedirect.
@@ -63,7 +75,7 @@ func (f *Fetcher) FetchText(ctx context.Context, rawURL, expectedSource string) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return "", "", fmt.Errorf("fetch %s: status %d", rawURL, resp.StatusCode)
+		return "", "", &StatusError{URL: rawURL, Status: resp.StatusCode}
 	}
 	finalURL := resp.Request.URL.String()
 	if err := f.checkSource(finalURL, expectedSource); err != nil {
@@ -74,7 +86,7 @@ func (f *Fetcher) FetchText(ctx context.Context, rawURL, expectedSource string) 
 		return "", "", fmt.Errorf("read %s: %w", rawURL, err)
 	}
 	if len(body) > maxBodyBytes {
-		return "", "", fmt.Errorf("fetch %s: body exceeds %d bytes", rawURL, maxBodyBytes)
+		return "", "", &bodyTooLargeError{url: rawURL}
 	}
 	return string(body), finalURL, nil
 }
@@ -88,3 +100,12 @@ func (f *Fetcher) checkSource(rawURL, expectedSource string) error {
 	}
 	return nil
 }
+
+// bodyTooLargeError keeps the existing message while matching ErrBodyTooLarge.
+type bodyTooLargeError struct{ url string }
+
+func (e *bodyTooLargeError) Error() string {
+	return fmt.Sprintf("fetch %s: body exceeds %d bytes", e.url, maxBodyBytes)
+}
+
+func (e *bodyTooLargeError) Unwrap() error { return ErrBodyTooLarge }
