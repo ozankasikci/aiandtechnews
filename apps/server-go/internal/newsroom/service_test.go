@@ -55,6 +55,39 @@ func TestPublishSpacesItemsAfterEachOther(t *testing.T) {
 	}
 }
 
+func TestPublishSpacesFromNowWhenQueueTailIsInThePast(t *testing.T) {
+	store, _ := openStore(t)
+	a := insert(t, store, "https://example.com/a", t0)
+	b := insert(t, store, "https://example.com/b", t0)
+	service := newService(t, store, t0, sequence(30))
+	if _, _, err := service.Publish(context.Background(), []int64{a}); err != nil {
+		t.Fatal(err)
+	}
+
+	later := t0.Add(2 * time.Hour)
+	laterService := newService(t, store, later, sequence(35))
+	queued, _, err := laterService.Publish(context.Background(), []int64{b})
+	if err != nil || len(queued) != 1 || scheduledFor(t, queued[0]) != "2026-09-20T14:35:00Z" {
+		t.Fatalf("queued=%v err=%v", queued, err)
+	}
+}
+
+func TestPublishSpacesAfterProcessingItem(t *testing.T) {
+	store, db := openStore(t)
+	a := insert(t, store, "https://example.com/a", t0)
+	b := insert(t, store, "https://example.com/b", t0)
+	service := newService(t, store, t0, sequence(30, 40))
+	if _, _, err := service.Publish(context.Background(), []int64{a}); err != nil {
+		t.Fatal(err)
+	}
+	setStatus(t, db, a, "processing", t0)
+
+	queued, _, err := service.Publish(context.Background(), []int64{b})
+	if err != nil || len(queued) != 1 || scheduledFor(t, queued[0]) != "2026-09-20T13:10:00Z" {
+		t.Fatalf("queued=%v err=%v", queued, err)
+	}
+}
+
 func TestPublishAppendsAfterExistingQueueTail(t *testing.T) {
 	store, _ := openStore(t)
 	a := insert(t, store, "https://example.com/a", t0)
@@ -194,6 +227,22 @@ func TestRejectAcceptsPendingAndFailedOnly(t *testing.T) {
 		if skipped[i] != want[i] {
 			t.Fatalf("skipped = %v, want %v", skipped, want)
 		}
+	}
+}
+
+func TestRejectReportsDatabaseErrors(t *testing.T) {
+	store, db := openStore(t)
+	service := newService(t, store, t0, sequence(30))
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := service.Reject(context.Background(), []int64{1})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if errors.Is(err, newsroom.ErrNotFound) || errors.Is(err, newsroom.ErrStaleTransition) {
+		t.Fatalf("err = %v, want neither ErrNotFound nor ErrStaleTransition", err)
 	}
 }
 

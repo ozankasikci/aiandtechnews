@@ -41,6 +41,9 @@ type Service struct {
 	// scheduling serializes queue appends so spacing is computed against a
 	// stable tail. The API runs as a single process; the store's guarded
 	// updates still prevent double transitions if that ever changes.
+	// All writes of scheduled_for for queued entries must go through Service
+	// (enqueue) so spacing holds; the future publisher's transient-retry
+	// rescheduling must reuse the same Service.
 	scheduling sync.Mutex
 }
 
@@ -67,6 +70,9 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 
 // Publish queues pending candidates in request order, each scheduled a random
 // delay after the previous queue entry.
+//
+// A batch is not atomic: on an unexpected error, earlier entries stay queued
+// and are returned alongside the error.
 func (s *Service) Publish(ctx context.Context, ids []int64) ([]Candidate, []Skipped, error) {
 	s.scheduling.Lock()
 	defer s.scheduling.Unlock()
@@ -91,7 +97,7 @@ func (s *Service) Publish(ctx context.Context, ids []int64) ([]Candidate, []Skip
 		case errors.Is(err, ErrStaleTransition):
 			skipped = append(skipped, Skipped{ID: id, Reason: "not pending"})
 		case err != nil:
-			return nil, nil, err
+			return queued, skipped, err
 		default:
 			queued = append(queued, candidate)
 		}
@@ -120,6 +126,9 @@ func (s *Service) Unqueue(ctx context.Context, id int64) (Candidate, error) {
 }
 
 // Reject rejects pending or failed candidates, reporting the rest as skipped.
+//
+// A batch is not atomic: on an unexpected error, earlier entries stay
+// rejected and are returned alongside the error.
 func (s *Service) Reject(ctx context.Context, ids []int64) ([]int64, []Skipped, error) {
 	rejected := make([]int64, 0, len(ids))
 	skipped := make([]Skipped, 0)
@@ -140,7 +149,7 @@ func (s *Service) Reject(ctx context.Context, ids []int64) ([]int64, []Skipped, 
 		case errors.Is(err, ErrStaleTransition):
 			skipped = append(skipped, Skipped{ID: id, Reason: "not pending or failed"})
 		case err != nil:
-			return nil, nil, err
+			return rejected, skipped, err
 		default:
 			rejected = append(rejected, id)
 		}
@@ -193,8 +202,13 @@ func (s *Service) enqueue(ctx context.Context, id int64, from Status, tail *time
 	if err := s.store.MarkQueued(ctx, id, from, at, s.now()); err != nil {
 		return Candidate{}, err
 	}
+	scheduled := formatTime(at)
+	candidate.Status = StatusQueued
+	candidate.ScheduledFor = &scheduled
+	candidate.Attempts = 0
+	candidate.LastError = nil
 	*tail = at
-	return s.store.Get(ctx, id)
+	return candidate, nil
 }
 
 // staleOrMissing distinguishes a missing candidate from a status mismatch
@@ -203,8 +217,11 @@ func (s *Service) staleOrMissing(ctx context.Context, id int64, err error) error
 	if !errors.Is(err, ErrStaleTransition) {
 		return err
 	}
-	if _, getErr := s.store.Get(ctx, id); errors.Is(getErr, ErrNotFound) {
-		return ErrNotFound
+	if _, getErr := s.store.Get(ctx, id); getErr != nil {
+		if errors.Is(getErr, ErrNotFound) {
+			return ErrNotFound
+		}
+		return getErr
 	}
 	return err
 }
