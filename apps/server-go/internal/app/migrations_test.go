@@ -13,10 +13,11 @@ import (
 
 func TestApplicationMigrationsHaveStableGlobalOrderAndAreIdempotent(t *testing.T) {
 	descriptors := app.Migrations()
-	if len(descriptors) != 3 ||
+	if len(descriptors) != 4 ||
 		descriptors[0].Version != 1 || descriptors[0].Name != "editorial authors" ||
 		descriptors[1].Version != 2 || descriptors[1].Name != "content categories and articles" ||
-		descriptors[2].Version != 3 || descriptors[2].Name != "newsroom candidates" {
+		descriptors[2].Version != 3 || descriptors[2].Name != "newsroom candidates" ||
+		descriptors[3].Version != 4 || descriptors[3].Name != "newsroom published index" {
 		t.Fatalf("descriptors = %#v", descriptors)
 	}
 	firstChecksum, secondChecksum := descriptors[0].Checksum(), descriptors[1].Checksum()
@@ -77,6 +78,12 @@ func assertSchemaCompatibility(t *testing.T, db *sql.DB) {
 	}
 	if !containsSQL(indexSQL, "CREATE INDEX idx_articles_source_url ON articles(source_url)") {
 		t.Errorf("source URL index = %s", indexSQL)
+	}
+	if err := db.QueryRow(`SELECT sql FROM sqlite_schema WHERE type='index' AND name='idx_candidates_status_published'`).Scan(&indexSQL); err != nil {
+		t.Fatalf("candidate published index: %v", err)
+	}
+	if !containsSQL(indexSQL, "CREATE INDEX idx_candidates_status_published ON candidates(status, published_at)") {
+		t.Errorf("candidate published index = %s", indexSQL)
 	}
 
 	if _, err := db.Exec(`INSERT INTO authors(id,name,email,password_hash) VALUES (1,'Author','author@example.invalid','hash')`); err != nil {
