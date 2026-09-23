@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"math"
 	"math/big"
 	"net/http"
@@ -25,9 +26,10 @@ const (
 	resendAttempts = 3
 	// maxResendResponseBytes caps how much of a response body is read.
 	maxResendResponseBytes = 1 << 20
-	// maxTimerDelay is Node's TIMEOUT_MAX (2^31-1 ms); setTimeout fires
-	// after 1ms instead of any longer delay.
-	maxTimerDelay = 2147483647
+	// maxRetryDelay caps the wait Retry-After asks for. Approved divergence
+	// from Node, which waited however long the header said, stalling the
+	// whole digest behind one subscriber.
+	maxRetryDelay = 60 * time.Second
 )
 
 // ConfigurationError is Node's NewsletterConfigurationError: the newsletter
@@ -45,6 +47,13 @@ type fetchError struct{ cause error }
 
 func (e *fetchError) Error() string { return "fetch failed" }
 func (e *fetchError) Unwrap() error { return e.cause }
+
+// LogValue keeps the transport cause in logs; the stored delivery error
+// stays Node's "fetch failed". The cause names the Resend URL, never a
+// recipient.
+func (e *fetchError) LogValue() slog.Value {
+	return slog.GroupValue(slog.String("message", e.Error()), slog.String("cause", e.cause.Error()))
+}
 
 // providerError is a Resend error response, with Node's message.
 type providerError struct {
@@ -257,7 +266,7 @@ func (r resendResponse) errorMessage(status int) string {
 
 // retryDelay is Node's wait before the next attempt: Number(Retry-After)
 // seconds when finite and positive, else 650ms times the attempt number,
-// with setTimeout's clamping (below 1ms or above 2^31-1 ms fires after 1ms).
+// at least 1ms like setTimeout, and (Go only) at most maxRetryDelay.
 func retryDelay(header http.Header, attempt int) time.Duration {
 	milliseconds := 650 * float64(attempt+1)
 	if values := header.Values("Retry-After"); len(values) > 0 {
@@ -265,8 +274,11 @@ func retryDelay(header http.Header, attempt int) time.Duration {
 			milliseconds = seconds * 1000
 		}
 	}
-	if milliseconds < 1 || milliseconds > maxTimerDelay {
+	if milliseconds < 1 {
 		milliseconds = 1
+	}
+	if milliseconds > float64(maxRetryDelay/time.Millisecond) {
+		return maxRetryDelay
 	}
 	return time.Duration(milliseconds * float64(time.Millisecond))
 }

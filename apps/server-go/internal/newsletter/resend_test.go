@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -183,8 +185,9 @@ func TestResendSenderStopsWaitingWhenTheContextEnds(t *testing.T) {
 }
 
 // The expected delays were checked in Node 22: Number() of each value,
-// Headers.get joining repeated headers with ", ", and setTimeout clamping
-// (TimeoutOverflowWarning above 2^31-1 ms, at least 1ms).
+// Headers.get joining repeated headers with ", ", and setTimeout's 1ms
+// minimum. Approved divergence: Go caps the wait at 60s (maxRetryDelay);
+// Node waited as long as Retry-After said (and 1ms beyond 2^31-1 ms).
 func TestResendRetryDelayFollowsNodeTimers(t *testing.T) {
 	for _, tt := range []struct {
 		retryAfter []string
@@ -195,8 +198,11 @@ func TestResendRetryDelayFollowsNodeTimers(t *testing.T) {
 		{nil, 1, 1300 * time.Millisecond},
 		{[]string{"1", "2"}, 0, 650 * time.Millisecond}, // Headers.get joins: "1, 2" is NaN
 		{[]string{"0.0001"}, 0, time.Millisecond},       // setTimeout clamps below 1ms to 1ms
-		{[]string{"3000000"}, 0, time.Millisecond},      // beyond 2^31-1 ms Node fires after 1ms
-		{[]string{"2147483.647"}, 0, 2147483647 * time.Millisecond},
+		{[]string{"3000000"}, 0, 60 * time.Second},      // capped (Node: 1ms, TimeoutOverflowWarning)
+		{[]string{"2147483.647"}, 0, 60 * time.Second},  // capped (Node: 2^31-1 ms)
+		{[]string{"3600"}, 0, 60 * time.Second},         // capped (Node: one hour)
+		{[]string{"60"}, 0, 60 * time.Second},
+		{[]string{"59.5"}, 0, 59500 * time.Millisecond},
 		{[]string{"+2"}, 0, 2 * time.Second},
 		{[]string{"-0x2"}, 0, 650 * time.Millisecond},
 		{[]string{"0b11"}, 0, 3 * time.Second},
@@ -217,5 +223,17 @@ func TestNewResendSenderHasBoundedTimeouts(t *testing.T) {
 	sender := NewResendSender(ResendConfig{})
 	if sender.endpoint != DefaultResendEndpoint || sender.client.Timeout != ResendAttemptTimeout || ResendAttemptTimeout > time.Minute {
 		t.Fatalf("defaults = %q, %v", sender.endpoint, sender.client.Timeout)
+	}
+}
+
+func TestFetchErrorsLogTheirCauseButStoreNodesMessage(t *testing.T) {
+	err := error(&fetchError{cause: errors.New("dial tcp 127.0.0.1:1: connect: connection refused")})
+	if err.Error() != "fetch failed" {
+		t.Fatalf("stored message = %q", err.Error())
+	}
+	var buffer strings.Builder
+	slog.New(slog.NewJSONHandler(&buffer, nil)).Error("send failed", "error", err)
+	if !strings.Contains(buffer.String(), `"message":"fetch failed"`) || !strings.Contains(buffer.String(), "connection refused") {
+		t.Fatalf("log = %s", buffer.String())
 	}
 }
