@@ -72,10 +72,20 @@ func (i Index) columnNames() string {
 
 // Table is one table's comparable shape.
 type Table struct {
-	Name          string
-	SQL           string
-	Columns       map[string]Column
-	ColumnOrder   []string
+	Name        string
+	SQL         string
+	Columns     map[string]Column
+	ColumnOrder []string
+	// ColumnDefs holds each column's full definition from the CREATE TABLE
+	// text, token-normalized (keyword case, whitespace, identifier quoting,
+	// comments), keyed by lowercase column name. It carries everything
+	// PRAGMA table_xinfo does not: COLLATE, ON CONFLICT, GENERATED ALWAYS
+	// AS, column CHECK/REFERENCES/UNIQUE clauses, DEFERRABLE.
+	ColumnDefs map[string]string
+	// Constraints are the table constraints (PRIMARY KEY, UNIQUE, CHECK,
+	// FOREIGN KEY, with any ON CONFLICT or DEFERRABLE clause), normalized
+	// and sorted.
+	Constraints   []string
 	Checks        []string // normalized CHECK expressions, sorted
 	ForeignKeys   []string // normalized foreign key signatures, sorted
 	Indexes       []Index  // every index, named and automatic
@@ -175,6 +185,7 @@ func inspectTable(ctx context.Context, q migrate.Queryer, object Object, objects
 	table.WithoutRowID, table.Strict = withoutRowID != 0, strict != 0
 
 	tokens := tokenize(object.SQL)
+	table.ColumnDefs, table.Constraints = tableDefinitions(tokens)
 	table.Checks = checkConstraints(tokens)
 	table.Autoincrement = hasBareWord(tokens, "autoincrement")
 
@@ -494,4 +505,60 @@ func whereClause(tokens []token) string {
 		}
 	}
 	return ""
+}
+
+var tableConstraintStarts = map[string]bool{"constraint": true, "primary": true, "unique": true, "check": true, "foreign": true}
+
+// tableDefinitions splits the body of a CREATE TABLE statement at top-level
+// commas into column definitions (keyed by lowercase column name) and table
+// constraints, each token-normalized.
+func tableDefinitions(tokens []token) (map[string]string, []string) {
+	columns := map[string]string{}
+	var constraints []string
+	open := -1
+	for i, t := range tokens {
+		if t.kind == tokenPunct && t.text == "(" {
+			open = i
+			break
+		}
+	}
+	if open < 0 {
+		return columns, nil
+	}
+	end := closingParen(tokens, open)
+	if end < 0 {
+		end = len(tokens)
+	}
+	var parts [][]token
+	start, depth := open+1, 0
+	for i := open + 1; i < end; i++ {
+		t := tokens[i]
+		if t.kind != tokenPunct {
+			continue
+		}
+		switch t.text {
+		case "(":
+			depth++
+		case ")":
+			depth--
+		case ",":
+			if depth == 0 {
+				parts = append(parts, tokens[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, tokens[start:end])
+	for _, part := range parts {
+		if len(part) == 0 {
+			continue
+		}
+		if part[0].kind == tokenWord && tableConstraintStarts[part[0].text] {
+			constraints = append(constraints, joinTokens(part))
+			continue
+		}
+		columns[part[0].text] = joinTokens(part)
+	}
+	sort.Strings(constraints)
+	return columns, constraints
 }

@@ -249,6 +249,45 @@ func TestIncompatibleSchemasAreRejected(t *testing.T) {
 			f:    fixture{variant: "fresh", replace: map[string][2]string{"authors": {"email TEXT NOT NULL UNIQUE", "email TEXT NOT NULL"}}},
 			want: "table authors: missing UNIQUE constraint (email)",
 		},
+		"unique on conflict replace": {
+			f:    fixture{variant: "fresh", replace: map[string][2]string{"authors": {"email TEXT NOT NULL UNIQUE", "email TEXT NOT NULL UNIQUE ON CONFLICT REPLACE"}}},
+			want: "table authors: column email definition differs",
+		},
+		"not null on conflict ignore": {
+			f:    fixture{variant: "fresh", replace: map[string][2]string{"authors": {"name TEXT NOT NULL", "name TEXT NOT NULL ON CONFLICT IGNORE"}}},
+			want: "table authors: column name definition differs",
+		},
+		"collate nocase": {
+			f:    fixture{variant: "fresh", replace: map[string][2]string{"authors": {"name TEXT NOT NULL", "name TEXT NOT NULL COLLATE NOCASE"}}},
+			want: "table authors: column name definition differs",
+		},
+		"generated column": {
+			f:    fixture{variant: "fresh", replace: map[string][2]string{"media": {"size INTEGER NOT NULL", "size INTEGER GENERATED ALWAYS AS (length(url)) STORED NOT NULL"}}, noSeed: true},
+			want: "table media: column size definition differs",
+		},
+		"deferrable foreign key": {
+			f:    fixture{variant: "fresh", replace: map[string][2]string{"newsletter_deliveries": {"ON DELETE CASCADE", "ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED"}}},
+			want: "table newsletter_deliveries: table constraints differ",
+		},
+		"table unique on conflict": {
+			f:    fixture{variant: "fresh", replace: map[string][2]string{"newsletter_deliveries": {"UNIQUE(subscriber_id, edition_key)", "UNIQUE(subscriber_id, edition_key) ON CONFLICT REPLACE"}}},
+			want: "table newsletter_deliveries: table constraints differ",
+		},
+		"check moved to a table constraint": {
+			f: fixture{variant: "fresh", replace: map[string][2]string{"authors": {
+				"role TEXT NOT NULL DEFAULT 'editor' CHECK(role IN ('admin', 'editor'))",
+				"role TEXT NOT NULL DEFAULT 'editor', CHECK(role IN ('admin', 'editor'))",
+			}}},
+			want: "table authors: column role definition differs",
+		},
+		"index collation": {
+			f:    fixture{variant: "fresh", replace: map[string][2]string{"idx_subscribers_status": {"subscribers(status)", "subscribers(status COLLATE NOCASE)"}}},
+			want: "index idx_subscribers_status on subscribers",
+		},
+		"partial index": {
+			f:    fixture{variant: "fresh", replace: map[string][2]string{"idx_articles_source_url": {"articles(source_url)", "articles(source_url) WHERE source_url IS NOT NULL"}}},
+			want: "index idx_articles_source_url on articles: definition differs",
+		},
 		"missing autoincrement": {
 			f:    fixture{variant: "fresh", replace: map[string][2]string{"media": {"id INTEGER PRIMARY KEY AUTOINCREMENT", "id INTEGER PRIMARY KEY"}}},
 			want: "table media: AUTOINCREMENT is off, want on",
@@ -429,15 +468,15 @@ func TestAnObjectOfTheWrongKindIsAMismatch(t *testing.T) {
 	}
 }
 
-func TestEquivalentSpellingsOfTheSameSchemaAreCompatible(t *testing.T) {
-	// Different whitespace, keyword case, identifier quoting, column order,
-	// a table-level CHECK instead of a column CHECK, and a comment.
+func TestFormattingOnlyDifferencesAreCompatible(t *testing.T) {
+	// Whitespace, keyword case, identifier quoting, column order, and a
+	// comment change nothing. Anything else in a definition is a mismatch.
 	path := nodeDatabase(t, fixture{
 		variant: "fresh",
 		replace: map[string][2]string{
 			"authors": {
 				"role TEXT NOT NULL DEFAULT 'editor' CHECK(role IN ('admin', 'editor'))",
-				"\"ROLE\"   text not null default ('editor') -- the editorial role\n, check ( \"role\" in ('admin','editor') )",
+				"\"ROLE\"   text not null default 'editor' -- the editorial role\n check ( \"role\" in ('admin' , 'editor') )",
 			},
 			"media": {
 				"filename TEXT NOT NULL,\n      url TEXT NOT NULL,",

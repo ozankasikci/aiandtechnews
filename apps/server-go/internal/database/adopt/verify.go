@@ -96,8 +96,9 @@ func (r Report) String() string {
 // knownVariant is a column definition an older Node database may have
 // instead of the Go migration's, and that Go handles identically.
 type knownVariant struct {
-	column Column
-	reason string
+	column     Column
+	definition string // normalized column definition text
+	reason     string
 }
 
 // knownVariants are Node's ALTER TABLE upgrades that add a column with a
@@ -107,8 +108,8 @@ type knownVariant struct {
 // those defaults: internal/newsletter writes both columns on every INSERT.
 var knownVariants = map[string]map[string]knownVariant{
 	"subscribers": {
-		"created_at": {Column{Name: "created_at", Type: "TEXT"}, "added by Node's ALTER TABLE; Go always writes it"},
-		"updated_at": {Column{Name: "updated_at", Type: "TEXT"}, "added by Node's ALTER TABLE; Go always writes it"},
+		"created_at": {Column{Name: "created_at", Type: "TEXT"}, "created_at text", "added by Node's ALTER TABLE; Go always writes it"},
+		"updated_at": {Column{Name: "updated_at", Type: "TEXT"}, "updated_at text", "added by Node's ALTER TABLE; Go always writes it"},
 	},
 }
 
@@ -258,13 +259,22 @@ func (r *Report) compareTable(want, got *Table) {
 			r.mismatch(name, "missing column %s %s", wantColumn.Name, wantColumn.describe())
 			continue
 		}
-		if wantColumn.equal(gotColumn) {
+		key := strings.ToLower(columnName)
+		wantDef, gotDef := want.ColumnDefs[key], got.ColumnDefs[key]
+		if wantColumn.equal(gotColumn) && wantDef == gotDef {
 			continue
 		}
-		if variant, ok := knownVariants[strings.ToLower(name)][strings.ToLower(columnName)]; ok && variant.column.equal(gotColumn) {
+		if variant, ok := knownVariants[strings.ToLower(name)][key]; ok && variant.column.equal(gotColumn) && gotDef == variant.definition {
 			r.Variants = append(r.Variants, fmt.Sprintf("%s.%s is %s (%s); the Go migration declares %s",
 				name, wantColumn.Name, describeOrPlain(gotColumn), variant.reason, wantColumn.describe()))
 			continue
+		}
+		// The full definition text catches what the PRAGMAs do not show
+		// (COLLATE, ON CONFLICT, GENERATED, DEFERRABLE, ...). Formatting
+		// is normalized; any other difference is a mismatch, even when it
+		// might be harmless: a false reject is safe, a false accept is not.
+		if wantDef != gotDef {
+			r.mismatch(name, "column %s definition differs: have %q, want %q", wantColumn.Name, gotDef, wantDef)
 		}
 		if wantColumn.Type != gotColumn.Type {
 			r.mismatch(name, "column %s: type %s, want %s", wantColumn.Name, orNone(gotColumn.Type), orNone(wantColumn.Type))
@@ -299,6 +309,9 @@ func (r *Report) compareTable(want, got *Table) {
 		}
 	}
 
+	if !slices.Equal(want.Constraints, got.Constraints) {
+		r.mismatch(name, "table constraints differ: have %s, want %s", listOrNone(got.Constraints), listOrNone(want.Constraints))
+	}
 	if !slices.Equal(want.Checks, got.Checks) {
 		r.mismatch(name, "CHECK constraints differ: have %s, want %s", listOrNone(got.Checks), listOrNone(want.Checks))
 	}
@@ -328,6 +341,9 @@ func (r *Report) compareNamedIndex(wantObject, gotObject Object, want, target *S
 	}
 	wantIndex, _ := findIndex(want.Tables[strings.ToLower(wantObject.Table)], wantObject.Name)
 	gotIndex, _ := findIndex(target.Tables[strings.ToLower(gotObject.Table)], gotObject.Name)
+	if wantText, gotText := normalizeExpression(wantObject.SQL), normalizeExpression(gotObject.SQL); wantText != gotText {
+		r.Mismatches = append(r.Mismatches, fmt.Sprintf("index %s on %s: definition differs: have %q, want %q", wantObject.Name, wantObject.Table, gotText, wantText))
+	}
 	if wantIndex.signature() != gotIndex.signature() {
 		r.Mismatches = append(r.Mismatches, fmt.Sprintf("index %s on %s: have %s, want %s", wantObject.Name, wantObject.Table, gotIndex.signature(), wantIndex.signature()))
 	}
