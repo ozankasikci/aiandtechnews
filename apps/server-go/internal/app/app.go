@@ -37,6 +37,7 @@ type App struct {
 	feedCollector *collector.Collector
 	// newsletter is bound to Run's context so shutdown stops a digest run.
 	newsletter *newsletter.Service
+	logger     *slog.Logger
 	// drains run after the server and background tasks stop, to finish
 	// fire-and-forget work such as dashboard IndexNow submissions.
 	drains []func()
@@ -157,7 +158,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		})
 	}, uploads.MountStatic)
 	server := httpserver.NewServer(cfg.Address, handler, logger)
-	application := &App{address: cfg.Address, handler: handler, server: server, newsletter: newsletterService, drains: []func(){drainIndexNow}}
+	application := &App{address: cfg.Address, handler: handler, server: server, newsletter: newsletterService, logger: logger, drains: []func(){drainIndexNow}}
 	if feedCollector != nil {
 		application.feedCollector = feedCollector
 		application.background = append(application.background, func(ctx context.Context) {
@@ -185,6 +186,11 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	}
 	return application, nil
 }
+
+// newsletterDrainTimeout bounds how long Run waits for an in-flight digest
+// or welcome email after shutdown cancelled it (a delivery outcome write
+// takes at most 10s).
+const newsletterDrainTimeout = 15 * time.Second
 
 // resendEndpoint, newResendHTTPClient, and newsletterPace configure newsletter
 // delivery. They are variables only so app tests can point delivery at an
@@ -230,6 +236,10 @@ func (a *App) Handler() http.Handler { return a.handler }
 // background (collector.Collector.Start) is cancelled and waited for too,
 // instead of being abandoned mid-write on shutdown.
 func (a *App) Run(ctx context.Context) error {
+	return a.run(ctx, a.server.Run)
+}
+
+func (a *App) run(ctx context.Context, serve func(context.Context) error) error {
 	tasksCtx, cancel := context.WithCancel(ctx)
 	if a.newsletter != nil {
 		// A digest outlives its HTTP request (like Node) but not shutdown.
@@ -246,11 +256,20 @@ func (a *App) Run(ctx context.Context) error {
 			task(tasksCtx)
 		}(task)
 	}
-	err := a.server.Run(ctx)
+	err := serve(ctx)
 	cancel()
 	wg.Wait()
 	if a.feedCollector != nil {
 		a.feedCollector.Wait()
+	}
+	if a.newsletter != nil {
+		// The server has stopped and shutdown has cancelled any digest or
+		// welcome email; wait (bounded) until each has recorded its outcome.
+		waitCtx, stopWaiting := context.WithTimeout(context.Background(), newsletterDrainTimeout)
+		if err := a.newsletter.Wait(waitCtx); err != nil {
+			a.logger.Error("newsletter work still running at shutdown", "error", err)
+		}
+		stopWaiting()
 	}
 	for _, drain := range a.drains {
 		drain()

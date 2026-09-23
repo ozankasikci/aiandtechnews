@@ -32,3 +32,9 @@ func StubNewsletterDeliveryForTest(t testing.TB, endpoint string, client *http.C
 		resendEndpoint, newResendHTTPClient, newsletterPace = originalEndpoint, originalClient, originalPace
 	})
 }
+
+// RunWithServeForTest runs the application with serve in place of the HTTP
+// server, so shutdown ordering can be tested without a listener.
+func RunWithServeForTest(a *App, ctx context.Context, serve func(context.Context) error) error {
+	return a.run(ctx, serve)
+}

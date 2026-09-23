@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -296,4 +297,61 @@ func TestCompositionFailsOnAnInvalidNewsletterSiteURL(t *testing.T) {
 			t.Errorf("NEWSLETTER_SITE_URL=%q: composition error = %v", siteURL, err)
 		}
 	}
+}
+
+// App.Run waits (bounded) for an in-flight digest after the HTTP server
+// stops, so the outcome of the delivery being made is recorded before exit.
+func TestRunWaitsForAnInFlightDigestAfterTheServerStops(t *testing.T) {
+	var paceReturned atomic.Bool
+	paused := make(chan struct{})
+	var once sync.Once
+	resend := &fakeResend{}
+	server := httptest.NewServer(resend)
+	t.Cleanup(server.Close)
+	application, db := newsletterAppWithPace(t, server, func(context.Context) error {
+		once.Do(func() { close(paused) })
+		time.Sleep(300 * time.Millisecond) // ignores cancellation on purpose
+		paceReturned.Store(true)
+		return nil
+	})
+	if _, err := db.Exec(`INSERT INTO subscribers (id, email, status, created_at, updated_at) VALUES (505, 'second@example.invalid', 'active', 'c', 'u')`); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	err := app.RunWithServeForTest(application, ctx, func(context.Context) error {
+		go request(t, application.Handler(), "POST", "/api/newsletter/digest", "", "Bearer "+contractCronSecret)
+		<-paused
+		cancel() // shutdown begins while the digest pauses between deliveries
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !paceReturned.Load() {
+		t.Fatal("Run returned while the digest was still running")
+	}
+	var sending int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM newsletter_deliveries WHERE status = 'sending'`).Scan(&sending); err != nil || sending != 0 {
+		t.Fatalf("deliveries left sending = %d, %v", sending, err)
+	}
+}
+
+func newsletterAppWithPace(t *testing.T, server *httptest.Server, pace func(context.Context) error) (*app.App, *sql.DB) {
+	t.Helper()
+	app.StubNewsletterDeliveryForTest(t, server.URL+"/emails", server.Client(), pace)
+	db, _ := testutil.OpenDatabase(t)
+	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {
+		t.Fatal(err)
+	}
+	seedContractArticles(t, db)
+	seedContractNewsletter(t, db)
+	fixed := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	cfg := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4402", DatabasePath: filepath.Join(t.TempDir(), "unused.db"),
+		JWTSecret: authTestSecret, UploadsDir: t.TempDir(), NewsletterTokenSecret: contractNewsletterSecret,
+		NewsletterCronSecret: contractCronSecret, ResendAPIKey: contractResendKey, NewsletterFrom: "Synthetic Contract <newsletter@example.invalid>"}
+	application, err := app.NewWithDatabaseAt(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), db, func() time.Time { return fixed })
+	if err != nil {
+		t.Fatal(err)
+	}
+	return application, db
 }
