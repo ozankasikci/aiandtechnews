@@ -38,6 +38,12 @@ const (
 	LegacyNodeDatabasePath = "/Users/ozan/Projects/technews/apps/server/data/technews.db"
 	LegacyNodeUploadsDir   = "/Users/ozan/Projects/technews/apps/server/uploads"
 
+	// NodeFallbackJWTSecret is the public secret the Node server signs with
+	// when JWT_SECRET is unset (apps/server/src/index.ts). Production refuses it.
+	NodeFallbackJWTSecret = "technews-dev-secret-change-in-production"
+	// minProductionJWTSecret is the shortest JWT_SECRET production accepts.
+	minProductionJWTSecret = 32
+
 	// DefaultCollectorInterval is how often the feed collector loop runs when
 	// COLLECTOR_INTERVAL is not set.
 	DefaultCollectorInterval = 30 * time.Minute
@@ -93,6 +99,10 @@ type Config struct {
 	// production.
 	ProductionDatabaseGuard string
 	ProductionUploadsGuard  string
+	// TimeZone is the TZ environment variable. Go reads TZ for time.Local;
+	// production requires it explicitly, because offset-less published_at
+	// values are read in the process zone (it must match the Node host's).
+	TimeZone string
 	// MediaStorage (MEDIA_STORAGE, default local) and MediaS3Prefix
 	// (MEDIA_S3_PREFIX, default "uploads"). S3 reuses AWS_REGION,
 	// S3_FEATURE_IMAGE_BUCKET, and S3_FEATURE_IMAGE_PUBLIC_URL.
@@ -133,11 +143,11 @@ type Config struct {
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("Config{Mode:%q Address:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
+	return fmt.Sprintf("Config{Mode:%q Address:%q TimeZone:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
 		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiVisionModel:%q "+
 		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t "+
 		"NewsletterSiteURL:%q NewsletterTokenSecret:[REDACTED] NewsletterCronSecret:[REDACTED] ResendAPIKey:[REDACTED] NewsletterFrom:%q NewsletterReplyTo:%q}",
-		c.Mode, c.Address, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
+		c.Mode, c.Address, c.TimeZone, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
 		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiVisionModel,
 		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled,
 		c.NewsletterSiteURL, c.NewsletterFrom, c.NewsletterReplyTo)
@@ -171,6 +181,7 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 		cfg.DatabasePath = value
 	}
 	cfg.JWTSecret = lookup("JWT_SECRET")
+	cfg.TimeZone = lookup("TZ")
 	cfg.ProductionDatabaseGuard = lookup("PRODUCTION_DATABASE_PATH")
 	cfg.ProductionUploadsGuard = lookup("PRODUCTION_UPLOADS_DIR")
 	// Production never gets a default uploads directory: Validate requires an
@@ -313,6 +324,9 @@ func (c Config) Validate() error {
 		if err := c.validateProductionPaths(); err != nil {
 			return err
 		}
+		if err := c.validateProductionRuntime(); err != nil {
+			return err
+		}
 	} else if err := c.validateDevelopmentDatabase(); err != nil {
 		return err
 	}
@@ -371,6 +385,24 @@ func (c Config) validateProductionPaths() error {
 		if root == "" {
 			return fmt.Errorf("%w: %s %q", ErrProductionMarkerMissing, target.name, target.path)
 		}
+	}
+	return nil
+}
+
+// validateProductionRuntime requires a strong JWT_SECRET and an explicit,
+// loadable TZ. Error messages never include the secret.
+func (c Config) validateProductionRuntime() error {
+	if c.JWTSecret == NodeFallbackJWTSecret {
+		return errors.New("JWT_SECRET must not be the Node server's public fallback secret when APP_ENV=production")
+	}
+	if len(c.JWTSecret) < minProductionJWTSecret {
+		return fmt.Errorf("JWT_SECRET must be at least %d bytes when APP_ENV=production", minProductionJWTSecret)
+	}
+	if c.TimeZone == "" {
+		return errors.New("TZ is required when APP_ENV=production (for example TZ=Europe/Istanbul, the Node host's zone)")
+	}
+	if _, err := time.LoadLocation(c.TimeZone); err != nil {
+		return fmt.Errorf("TZ %q is not a known time zone: %w", c.TimeZone, err)
 	}
 	return nil
 }

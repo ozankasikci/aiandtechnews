@@ -27,11 +27,15 @@ func productionTree(t *testing.T) (root, databasePath, uploads string) {
 	return root, databasePath, uploads
 }
 
+const productionSecret = "0123456789abcdef0123456789abcdef"
+
 func productionEnv(databasePath, uploads string) map[string]string {
 	return map[string]string{
 		"APP_ENV":       string(ModeProduction),
 		"DATABASE_PATH": databasePath,
 		"UPLOADS_DIR":   uploads,
+		"JWT_SECRET":    productionSecret,
+		"TZ":            "Europe/Istanbul",
 	}
 }
 
@@ -251,5 +255,57 @@ func TestProductionIgnoresTheDevelopmentGuards(t *testing.T) {
 	env["PRODUCTION_UPLOADS_DIR"] = uploads
 	if _, err := Load(mapLookup(env), ""); err != nil {
 		t.Fatalf("production rejected its own guarded paths: %v", err)
+	}
+}
+
+func TestProductionRejectsWeakJWTSecrets(t *testing.T) {
+	_, databasePath, uploads := productionTree(t)
+	for name, secret := range map[string]string{
+		"missing":       "",
+		"node fallback": NodeFallbackJWTSecret,
+		"31 bytes":      strings.Repeat("x", 31),
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := productionEnv(databasePath, uploads)
+			env["JWT_SECRET"] = secret
+			_, err := Load(mapLookup(env), "")
+			if err == nil || !strings.Contains(err.Error(), "JWT_SECRET") {
+				t.Fatalf("Load() error = %v, want a JWT_SECRET error", err)
+			}
+			if secret != "" && strings.Contains(err.Error(), secret) {
+				t.Fatal("the error message contains the secret")
+			}
+		})
+	}
+	env := productionEnv(databasePath, uploads)
+	env["JWT_SECRET"] = strings.Repeat("x", 32)
+	if _, err := Load(mapLookup(env), ""); err != nil {
+		t.Fatalf("32-byte secret rejected: %v", err)
+	}
+	// Development keeps accepting short local secrets (make dev-api uses one).
+	if _, err := Load(mapLookup(map[string]string{"JWT_SECRET": "local-dev-secret"}), t.TempDir()); err != nil {
+		t.Fatalf("development rejected a short secret: %v", err)
+	}
+}
+
+func TestProductionRequiresAValidTimeZone(t *testing.T) {
+	_, databasePath, uploads := productionTree(t)
+	for name, tz := range map[string]string{"missing": "", "unknown": "Mars/Olympus_Mons"} {
+		t.Run(name, func(t *testing.T) {
+			env := productionEnv(databasePath, uploads)
+			env["TZ"] = tz
+			if _, err := Load(mapLookup(env), ""); err == nil || !strings.Contains(err.Error(), "TZ") {
+				t.Fatalf("Load() error = %v, want a TZ error", err)
+			}
+		})
+	}
+	env := productionEnv(databasePath, uploads)
+	env["TZ"] = "UTC"
+	cfg, err := Load(mapLookup(env), "")
+	if err != nil || cfg.TimeZone != "UTC" {
+		t.Fatalf("cfg.TimeZone = %q, err = %v", cfg.TimeZone, err)
+	}
+	if _, err := Load(mapLookup(map[string]string{}), t.TempDir()); err != nil {
+		t.Fatalf("development requires TZ: %v", err)
 	}
 }
