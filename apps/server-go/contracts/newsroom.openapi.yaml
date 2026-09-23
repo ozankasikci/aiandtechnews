@@ -1,0 +1,262 @@
+openapi: 3.1.0
+info:
+  title: Technews newsroom API
+  version: 1.0.0
+  description: >-
+    Editorial candidate review and publish queue used by the Omni Control iOS
+    app. All operations require a bearer JWT from POST /api/auth/login.
+    Timestamps are RFC 3339 UTC. Errors are {"error": string}.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+paths:
+  /api/newsroom/overview:
+    get:
+      operationId: newsroom.overview
+      responses:
+        '200':
+          description: Counts by status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Overview' }
+              example:
+                pending: 12
+                queued: 2
+                processing: 0
+                failed: 1
+                published_today: 3
+                next_publish_at: '2026-09-23T15:40:00Z'
+                last_collected_at: '2026-09-23T15:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/newsroom/candidates:
+    get:
+      operationId: newsroom.candidates.list
+      parameters:
+        - name: status
+          in: query
+          description: Comma-separated statuses; defaults to pending.
+          schema: { type: string, example: 'queued,processing,failed' }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        '200':
+          description: One page of candidates
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CandidatePage' }
+              example:
+                candidates:
+                  - id: 42
+                    title: OpenAI ships a new reasoning model
+                    feed_summary: The model targets agentic coding tasks.
+                    source_name: The Verge
+                    source_url: https://www.theverge.com/ai/42
+                    source_image_url: https://cdn.example.com/42.jpg
+                    feed_published_at: '2026-09-23T10:02:00Z'
+                    discovered_at: '2026-09-23T10:30:00Z'
+                    status: pending
+                    scheduled_for: null
+                    attempts: 0
+                    last_error: null
+                    article_slug: null
+                total: 1
+                page: 1
+                totalPages: 1
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/newsroom/candidates/publish:
+    post:
+      operationId: newsroom.candidates.publish
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IDs' }
+      responses:
+        '200':
+          description: Queued candidates and per-id skips
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [queued, skipped]
+                properties:
+                  queued: { type: array, items: { $ref: '#/components/schemas/Candidate' } }
+                  skipped: { type: array, items: { $ref: '#/components/schemas/Skipped' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/newsroom/candidates/reject:
+    post:
+      operationId: newsroom.candidates.reject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IDs' }
+      responses:
+        '200':
+          description: Rejected ids and per-id skips
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rejected, skipped]
+                properties:
+                  rejected: { type: array, items: { type: integer } }
+                  skipped: { type: array, items: { $ref: '#/components/schemas/Skipped' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/newsroom/candidates/{id}/unqueue:
+    post:
+      operationId: newsroom.candidates.unqueue
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '200': { $ref: '#/components/responses/SingleCandidate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/newsroom/candidates/{id}/retry:
+    post:
+      operationId: newsroom.candidates.retry
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '200': { $ref: '#/components/responses/SingleCandidate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/newsroom/collect:
+    post:
+      operationId: newsroom.collect
+      responses:
+        '202':
+          description: Collection started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [started]
+                properties: { started: { type: boolean, const: true } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503':
+          description: Collector not enabled on this server
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/newsroom/settings:
+    get:
+      operationId: newsroom.settings.get
+      responses:
+        '200': { $ref: '#/components/responses/Settings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      operationId: newsroom.settings.update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PublishDelay' }
+      responses:
+        '200': { $ref: '#/components/responses/Settings' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+  responses:
+    SingleCandidate:
+      description: The updated candidate
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [candidate]
+            properties: { candidate: { $ref: '#/components/schemas/Candidate' } }
+    Settings:
+      description: Publish delay window
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PublishDelay' }
+          example: { publish_delay_min_minutes: 30, publish_delay_max_minutes: 40 }
+    BadRequest:
+      description: Invalid input
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unauthorized:
+      description: Missing, invalid or expired token
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Candidate not found
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: Candidate is not in the required status, or a collection is running
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties: { error: { type: string } }
+    IDs:
+      type: object
+      required: [ids]
+      properties:
+        ids: { type: array, minItems: 1, maxItems: 100, items: { type: integer } }
+    Skipped:
+      type: object
+      required: [id, reason]
+      properties:
+        id: { type: integer }
+        reason: { type: string, enum: ['duplicate id', 'not found', 'not pending', 'not pending or failed'] }
+    PublishDelay:
+      type: object
+      required: [publish_delay_min_minutes, publish_delay_max_minutes]
+      properties:
+        publish_delay_min_minutes: { type: integer, minimum: 1, maximum: 1440 }
+        publish_delay_max_minutes: { type: integer, minimum: 1, maximum: 1440 }
+    Overview:
+      type: object
+      required: [pending, queued, processing, failed, published_today, next_publish_at, last_collected_at]
+      properties:
+        pending: { type: integer }
+        queued: { type: integer }
+        processing: { type: integer }
+        failed: { type: integer }
+        published_today: { type: integer }
+        next_publish_at: { type: [string, 'null'], format: date-time }
+        last_collected_at: { type: [string, 'null'], format: date-time }
+    CandidatePage:
+      type: object
+      required: [candidates, total, page, totalPages]
+      properties:
+        candidates: { type: array, items: { $ref: '#/components/schemas/Candidate' } }
+        total: { type: integer }
+        page: { type: integer }
+        totalPages: { type: integer }
+    Candidate:
+      type: object
+      required: [id, title, feed_summary, source_name, source_url, source_image_url, feed_published_at,
+                 discovered_at, status, scheduled_for, attempts, last_error, article_slug]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        feed_summary: { type: string }
+        source_name: { type: string }
+        source_url: { type: string, format: uri }
+        source_image_url: { type: [string, 'null'], format: uri }
+        feed_published_at: { type: [string, 'null'], format: date-time }
+        discovered_at: { type: string, format: date-time }
+        status: { type: string, enum: [pending, queued, processing, published, failed, rejected] }
+        scheduled_for: { type: [string, 'null'], format: date-time }
+        attempts: { type: integer }
+        last_error: { type: [string, 'null'] }
+        article_slug: { type: [string, 'null'] }
