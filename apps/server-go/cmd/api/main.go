@@ -66,9 +66,13 @@ func contextCanceledOnSignal(parent context.Context, notifications <-chan os.Sig
 }
 
 func run(ctx context.Context) (err error) {
-	root, err := runtimeWorktreeRoot()
-	if err != nil {
-		return err
+	// Production has no path defaults, so a prebuilt binary runs without a
+	// repository checkout; development defaults live beneath the worktree.
+	var root string
+	if os.Getenv("APP_ENV") != string(config.ModeProduction) {
+		if root, err = runtimeWorktreeRoot(); err != nil {
+			return err
+		}
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	return runConfigured(ctx, root, os.Getenv, database.Open, func(cfg config.Config, logger *slog.Logger, db *sql.DB) (apiApplication, error) {

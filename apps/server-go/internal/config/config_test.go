@@ -68,13 +68,11 @@ func TestLoadRejectsReservedPorts(t *testing.T) {
 		address string
 	}{
 		{name: "dashboard port in development", mode: ModeDevelopment, address: "127.0.0.1:3001"},
-		{name: "dashboard port in production", mode: ModeProduction, address: "0.0.0.0:3001"},
 		{name: "dashboard port alias", mode: ModeDevelopment, address: ":03001"},
 		{name: "other reserved port in development", mode: ModeDevelopment, address: "localhost:3002"},
-		{name: "other reserved port in production", mode: ModeProduction, address: "[::1]:3002"},
-		{name: "other reserved port with leading zeroes", mode: ModeProduction, address: "127.0.0.1:03002"},
 		{name: "production port in development", mode: ModeDevelopment, address: "127.0.0.1:4001"},
 		{name: "production port alias in development", mode: ModeDevelopment, address: "0.0.0.0:04001"},
+		{name: "other reserved port with leading zeroes", mode: ModeDevelopment, address: "127.0.0.1:03002"},
 	}
 
 	for _, tt := range tests {
@@ -95,7 +93,7 @@ func TestLoadRejectsProductionDatabaseAliasesOutsideProductionMode(t *testing.T)
 	if err != nil {
 		t.Fatalf("Getwd() error = %v", err)
 	}
-	relativeAlias, err := filepath.Rel(cwd, ProductionDatabasePath)
+	relativeAlias, err := filepath.Rel(cwd, LegacyNodeDatabasePath)
 	if err != nil {
 		t.Fatalf("Rel() error = %v", err)
 	}
@@ -104,7 +102,7 @@ func TestLoadRejectsProductionDatabaseAliasesOutsideProductionMode(t *testing.T)
 		name string
 		path string
 	}{
-		{name: "canonical path", path: ProductionDatabasePath},
+		{name: "canonical path", path: LegacyNodeDatabasePath},
 		{name: "relative alias", path: relativeAlias},
 	}
 
@@ -118,7 +116,7 @@ func TestLoadRejectsProductionDatabaseAliasesOutsideProductionMode(t *testing.T)
 	}
 
 	t.Run("symlink alias", func(t *testing.T) {
-		if _, err := os.Stat(ProductionDatabasePath); err != nil {
+		if _, err := os.Stat(LegacyNodeDatabasePath); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				t.Skip("production database does not exist")
 			}
@@ -126,7 +124,7 @@ func TestLoadRejectsProductionDatabaseAliasesOutsideProductionMode(t *testing.T)
 		}
 
 		symlinkAlias := filepath.Join(t.TempDir(), "production.db")
-		if err := os.Symlink(ProductionDatabasePath, symlinkAlias); err != nil {
+		if err := os.Symlink(LegacyNodeDatabasePath, symlinkAlias); err != nil {
 			t.Skipf("symlink creation is unsupported: %v", err)
 		}
 
@@ -138,12 +136,12 @@ func TestLoadRejectsProductionDatabaseAliasesOutsideProductionMode(t *testing.T)
 }
 
 func TestLoadRejectsCaseVariantOfProductionDatabaseOnCaseInsensitiveFilesystem(t *testing.T) {
-	caseVariant := strings.Replace(ProductionDatabasePath, "/Users/", "/users/", 1)
-	if caseVariant == ProductionDatabasePath {
+	caseVariant := strings.Replace(LegacyNodeDatabasePath, "/Users/", "/users/", 1)
+	if caseVariant == LegacyNodeDatabasePath {
 		t.Fatal("test setup did not create a case-variant path")
 	}
 
-	productionInfo, err := os.Stat(ProductionDatabasePath)
+	productionInfo, err := os.Stat(LegacyNodeDatabasePath)
 	if err != nil {
 		t.Skipf("production database is unavailable: %v", err)
 	}
@@ -210,27 +208,21 @@ func TestLoadFailsClosedWhenDatabasePathCannotBeCanonicalized(t *testing.T) {
 }
 
 func TestLoadAllowsProductionResourcesOnlyInExplicitProductionMode(t *testing.T) {
+	_, databasePath, uploads := productionTree(t)
+	development := map[string]string{"DATABASE_PATH": databasePath, "UPLOADS_DIR": uploads}
+	if _, err := Load(mapLookup(development), t.TempDir()); !errors.Is(err, ErrProductionDatabaseAlias) {
+		t.Fatalf("development Load() error = %v, want %v", err, ErrProductionDatabaseAlias)
+	}
+
 	wantAddress := "0.0.0.0:4001"
-	cfg, err := Load(mapLookup(map[string]string{
-		"APP_ENV":       string(ModeProduction),
-		"SERVER_ADDR":   wantAddress,
-		"DATABASE_PATH": ProductionDatabasePath,
-		"UPLOADS_DIR":   ProductionUploadsDir,
-	}), t.TempDir())
+	env := productionEnv(databasePath, uploads)
+	env["SERVER_ADDR"] = wantAddress
+	cfg, err := Load(mapLookup(env), t.TempDir())
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.UploadsDir != ProductionUploadsDir {
-		t.Errorf("UploadsDir = %q, want %q", cfg.UploadsDir, ProductionUploadsDir)
-	}
-	if cfg.Mode != ModeProduction {
-		t.Errorf("Mode = %q, want %q", cfg.Mode, ModeProduction)
-	}
-	if cfg.Address != wantAddress {
-		t.Errorf("Address = %q, want %q", cfg.Address, wantAddress)
-	}
-	if cfg.DatabasePath != ProductionDatabasePath {
-		t.Errorf("DatabasePath = %q, want %q", cfg.DatabasePath, ProductionDatabasePath)
+	if cfg.Mode != ModeProduction || cfg.Address != wantAddress || cfg.DatabasePath != databasePath || cfg.UploadsDir != uploads {
+		t.Errorf("cfg = %+v", cfg)
 	}
 }
 

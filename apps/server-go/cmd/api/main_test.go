@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -171,7 +172,32 @@ func TestRunConfiguredRequiresExplicitUploadsDirInProduction(t *testing.T) {
 		return nil, nil
 	}
 	err := runConfigured(context.Background(), t.TempDir(), func(key string) string { return environment[key] }, open, compose, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err == nil || err.Error() != "UPLOADS_DIR is required when APP_ENV=production" {
+	if err == nil || !strings.Contains(err.Error(), "UPLOADS_DIR is required when APP_ENV=production") {
 		t.Fatalf("runConfigured error = %v", err)
+	}
+}
+
+func TestRunConfiguredStartsInProductionWithoutAWorktree(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, config.ProductionMarker), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	environment := map[string]string{
+		"APP_ENV":       "production",
+		"DATABASE_PATH": filepath.Join(root, "data", "technews.db"),
+		"UPLOADS_DIR":   filepath.Join(root, "uploads"),
+		"SERVER_ADDR":   "127.0.0.1:4402",
+	}
+	composed := false
+	compose := func(cfg config.Config, _ *slog.Logger, _ *sql.DB) (apiApplication, error) {
+		composed = true
+		if cfg.Mode != config.ModeProduction {
+			t.Fatalf("Mode = %q", cfg.Mode)
+		}
+		return stubAPIApplication{err: errors.New("stop without listener")}, nil
+	}
+	err := runConfigured(context.Background(), "", func(key string) string { return environment[key] }, database.Open, compose, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil || !composed {
+		t.Fatalf("runConfigured error = %v, composed = %t", err, composed)
 	}
 }

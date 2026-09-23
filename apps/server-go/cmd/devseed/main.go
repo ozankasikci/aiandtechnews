@@ -27,9 +27,12 @@ func main() {
 }
 
 func run(ctx context.Context) (err error) {
-	root, err := worktreeRoot()
-	if err != nil {
-		return err
+	// Production has no path defaults and needs no repository checkout.
+	var root string
+	if os.Getenv("APP_ENV") != string(config.ModeProduction) {
+		if root, err = worktreeRoot(); err != nil {
+			return err
+		}
 	}
 	cfg, err := config.Load(os.Getenv, root)
 	if err != nil {

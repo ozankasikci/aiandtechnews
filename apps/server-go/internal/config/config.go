@@ -3,12 +3,14 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -18,13 +20,23 @@ const (
 	ModeDevelopment Mode = "development"
 	ModeProduction  Mode = "production"
 
-	DefaultAddress         = "127.0.0.1:4401"
-	ProductionDatabasePath = "/Users/ozan/Projects/technews/apps/server/data/technews.db"
-	// ProductionUploadsDir is the Node server's uploads directory on the
-	// production MacBook (apps/server/src/index.ts:12). Like the production
-	// database it is rejected outside APP_ENV=production, so development can
-	// never serve from or delete files in it.
-	ProductionUploadsDir = "/Users/ozan/Projects/technews/apps/server/uploads"
+	DefaultAddress = "127.0.0.1:4401"
+
+	// ProductionMarker is the name of the file that marks a production data
+	// root. With APP_ENV=production, DATABASE_PATH and UPLOADS_DIR must lie in
+	// a directory that contains it or below one; in development, any path in
+	// or below such a directory is refused. The marker travels with the data,
+	// so a development run cannot open production files on any machine, and
+	// production cannot run without the marker in place.
+	ProductionMarker = ".technews-production"
+
+	// LegacyNodeDatabasePath and LegacyNodeUploadsDir are the Node server's
+	// database and uploads directory on the MacBook that served production
+	// before the Go cutover (apps/server/src/index.ts). After cutover they are
+	// the rollback copy, so development keeps refusing them (and any alias or,
+	// for uploads, any overlapping directory). Production does not use them.
+	LegacyNodeDatabasePath = "/Users/ozan/Projects/technews/apps/server/data/technews.db"
+	LegacyNodeUploadsDir   = "/Users/ozan/Projects/technews/apps/server/uploads"
 
 	// DefaultCollectorInterval is how often the feed collector loop runs when
 	// COLLECTOR_INTERVAL is not set.
@@ -61,6 +73,10 @@ var ErrProductionDatabaseAlias = errors.New("production database path is forbidd
 
 var ErrProductionUploadsAlias = errors.New("production uploads directory (or a directory overlapping it) is forbidden outside APP_ENV=production")
 
+// ErrProductionMarkerMissing reports a production path that is not inside a
+// directory marked with ProductionMarker.
+var ErrProductionMarkerMissing = errors.New("APP_ENV=production requires the path to be inside a directory marked with " + ProductionMarker)
+
 type Config struct {
 	Mode         Mode
 	Address      string
@@ -68,8 +84,15 @@ type Config struct {
 	JWTSecret    string
 	// UploadsDir is the dashboard media library's directory, served at
 	// /uploads/*. Development defaults to <worktree>/data/uploads; production
-	// has no default and cmd/api requires UPLOADS_DIR explicitly.
+	// has no default and requires UPLOADS_DIR explicitly.
 	UploadsDir string
+	// ProductionDatabaseGuard (PRODUCTION_DATABASE_PATH) and
+	// ProductionUploadsGuard (PRODUCTION_UPLOADS_DIR) are optional extra
+	// development guards: a development run refuses a DATABASE_PATH equivalent
+	// to the first and an UPLOADS_DIR overlapping the second. Ignored in
+	// production.
+	ProductionDatabaseGuard string
+	ProductionUploadsGuard  string
 	// MediaStorage (MEDIA_STORAGE, default local) and MediaS3Prefix
 	// (MEDIA_S3_PREFIX, default "uploads"). S3 reuses AWS_REGION,
 	// S3_FEATURE_IMAGE_BUCKET, and S3_FEATURE_IMAGE_PUBLIC_URL.
@@ -123,22 +146,23 @@ func (c Config) String() string {
 func (c Config) GoString() string { return c.String() }
 
 // Load builds configuration from environment values supplied by lookup.
-// worktreeRoot is explicit so callers and tests control where development data lives.
+// worktreeRoot is explicit so callers and tests control where development
+// data lives. Production has no path defaults, so worktreeRoot may be empty
+// there (a prebuilt binary runs without a repository checkout).
 func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	if lookup == nil {
 		return Config{}, errors.New("environment lookup is required")
 	}
-	if worktreeRoot == "" {
-		return Config{}, errors.New("worktree root is required")
-	}
 
-	cfg := Config{
-		Mode:         ModeDevelopment,
-		Address:      DefaultAddress,
-		DatabasePath: filepath.Join(worktreeRoot, "data", "technews.db"),
-	}
+	cfg := Config{Mode: ModeDevelopment, Address: DefaultAddress}
 	if value := lookup("APP_ENV"); value != "" {
 		cfg.Mode = Mode(value)
+	}
+	if cfg.Mode != ModeProduction {
+		if worktreeRoot == "" {
+			return Config{}, errors.New("worktree root is required")
+		}
+		cfg.DatabasePath = filepath.Join(worktreeRoot, "data", "technews.db")
 	}
 	if value := lookup("SERVER_ADDR"); value != "" {
 		cfg.Address = value
@@ -147,9 +171,10 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 		cfg.DatabasePath = value
 	}
 	cfg.JWTSecret = lookup("JWT_SECRET")
-	// Production never gets a default uploads directory: cmd/api refuses to
-	// start without an explicit UPLOADS_DIR there. Commands that do not serve
-	// media (cmd/migrate) do not need it.
+	cfg.ProductionDatabaseGuard = lookup("PRODUCTION_DATABASE_PATH")
+	cfg.ProductionUploadsGuard = lookup("PRODUCTION_UPLOADS_DIR")
+	// Production never gets a default uploads directory: Validate requires an
+	// explicit UPLOADS_DIR there.
 	switch value := lookup("UPLOADS_DIR"); {
 	case value != "":
 		cfg.UploadsDir = value
@@ -273,20 +298,23 @@ func (c Config) Validate() error {
 	if err != nil || portNumber < 1 || portNumber > 65535 {
 		return fmt.Errorf("invalid SERVER_ADDR port %q", port)
 	}
-	if portNumber == 3001 || portNumber == 3002 {
-		return fmt.Errorf("port %d is reserved and cannot be used by the Go API", portNumber)
-	}
-	if c.Mode != ModeProduction && portNumber == 4001 {
-		return errors.New("port 4001 is reserved for production; set APP_ENV=production explicitly to use it")
-	}
 	if c.Mode != ModeProduction {
-		equivalent, err := pathsEquivalent(c.DatabasePath, ProductionDatabasePath)
-		if err != nil {
-			return fmt.Errorf("compare DATABASE_PATH with production database: %w", err)
+		// Development must never collide with the dashboard (3001), the other
+		// local app (3002), or the port the Node production API used (4001).
+		// Production may bind any port.
+		if portNumber == 3001 || portNumber == 3002 {
+			return fmt.Errorf("port %d is reserved and cannot be used by the Go API in development", portNumber)
 		}
-		if equivalent {
-			return fmt.Errorf("%w: %q", ErrProductionDatabaseAlias, c.DatabasePath)
+		if portNumber == 4001 {
+			return errors.New("port 4001 is reserved for production; set APP_ENV=production explicitly to use it")
 		}
+	}
+	if c.Mode == ModeProduction {
+		if err := c.validateProductionPaths(); err != nil {
+			return err
+		}
+	} else if err := c.validateDevelopmentDatabase(); err != nil {
+		return err
 	}
 	if c.UploadsDir != "" {
 		if !filepath.IsAbs(c.UploadsDir) {
@@ -308,20 +336,133 @@ func (c Config) Validate() error {
 			}
 		}
 		if c.Mode != ModeProduction {
-			equivalent, err := pathsEquivalent(c.UploadsDir, ProductionUploadsDir)
-			if err != nil {
-				return fmt.Errorf("compare UPLOADS_DIR with production uploads directory: %w", err)
-			}
-			production, err := canonicalPath(ProductionUploadsDir)
-			if err != nil {
-				return fmt.Errorf("canonicalize production uploads directory: %w", err)
-			}
-			if equivalent || pathWithin(uploads, production) || pathWithin(production, uploads) {
-				return fmt.Errorf("%w: %q", ErrProductionUploadsAlias, c.UploadsDir)
+			if err := c.validateDevelopmentUploads(uploads); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
+}
+
+// validateProductionPaths requires explicit absolute paths for the database
+// and the uploads directory, both inside a directory marked with
+// ProductionMarker.
+func (c Config) validateProductionPaths() error {
+	if c.DatabasePath == "" {
+		return errors.New("DATABASE_PATH is required when APP_ENV=production")
+	}
+	if !filepath.IsAbs(c.DatabasePath) {
+		return fmt.Errorf("DATABASE_PATH must be an absolute path when APP_ENV=production, got %q", c.DatabasePath)
+	}
+	if c.UploadsDir == "" {
+		return errors.New("UPLOADS_DIR is required when APP_ENV=production")
+	}
+	if !filepath.IsAbs(c.UploadsDir) {
+		return fmt.Errorf("UPLOADS_DIR must be an absolute path, got %q", c.UploadsDir)
+	}
+	for _, target := range []struct {
+		name, path string
+		isDir      bool
+	}{{"DATABASE_PATH", c.DatabasePath, false}, {"UPLOADS_DIR", c.UploadsDir, true}} {
+		root, err := markedRoot(target.path, target.isDir)
+		if err != nil {
+			return fmt.Errorf("look for %s above %s: %w", ProductionMarker, target.name, err)
+		}
+		if root == "" {
+			return fmt.Errorf("%w: %s %q", ErrProductionMarkerMissing, target.name, target.path)
+		}
+	}
+	return nil
+}
+
+// validateDevelopmentDatabase refuses production databases outside
+// production: anything inside a marked directory, the legacy Node database,
+// and PRODUCTION_DATABASE_PATH, including aliases of either.
+func (c Config) validateDevelopmentDatabase() error {
+	if c.DatabasePath == "" {
+		return nil
+	}
+	root, err := markedRoot(c.DatabasePath, false)
+	if err != nil {
+		return fmt.Errorf("look for %s above DATABASE_PATH: %w", ProductionMarker, err)
+	}
+	if root != "" {
+		return fmt.Errorf("%w: %q is inside %q, which contains %s", ErrProductionDatabaseAlias, c.DatabasePath, root, ProductionMarker)
+	}
+	for _, protected := range []string{LegacyNodeDatabasePath, c.ProductionDatabaseGuard} {
+		if protected == "" {
+			continue
+		}
+		equivalent, err := pathsEquivalent(c.DatabasePath, protected)
+		if err != nil {
+			return fmt.Errorf("compare DATABASE_PATH with production database: %w", err)
+		}
+		if equivalent {
+			return fmt.Errorf("%w: %q", ErrProductionDatabaseAlias, c.DatabasePath)
+		}
+	}
+	return nil
+}
+
+// validateDevelopmentUploads refuses production uploads directories outside
+// production: anything inside a marked directory, and any directory equal
+// to, inside, or containing the legacy Node uploads directory or
+// PRODUCTION_UPLOADS_DIR.
+func (c Config) validateDevelopmentUploads(uploads string) error {
+	root, err := markedRoot(c.UploadsDir, true)
+	if err != nil {
+		return fmt.Errorf("look for %s above UPLOADS_DIR: %w", ProductionMarker, err)
+	}
+	if root != "" {
+		return fmt.Errorf("%w: %q is inside %q, which contains %s", ErrProductionUploadsAlias, c.UploadsDir, root, ProductionMarker)
+	}
+	for _, protected := range []string{LegacyNodeUploadsDir, c.ProductionUploadsGuard} {
+		if protected == "" {
+			continue
+		}
+		equivalent, err := pathsEquivalent(c.UploadsDir, protected)
+		if err != nil {
+			return fmt.Errorf("compare UPLOADS_DIR with production uploads directory: %w", err)
+		}
+		production, err := canonicalPath(protected)
+		if err != nil {
+			return fmt.Errorf("canonicalize production uploads directory: %w", err)
+		}
+		if equivalent || pathWithin(uploads, production) || pathWithin(production, uploads) {
+			return fmt.Errorf("%w: %q", ErrProductionUploadsAlias, c.UploadsDir)
+		}
+	}
+	return nil
+}
+
+// markedRoot returns the nearest directory at or above path (its parent
+// directory when isDir is false) that contains ProductionMarker, or "" when
+// there is none. It works on the canonical path, so symlinked aliases cannot
+// escape a marked tree, and on paths that do not exist yet.
+func markedRoot(path string, isDir bool) (string, error) {
+	canonical, err := canonicalPath(path)
+	if err != nil {
+		return "", err
+	}
+	dir := canonical
+	if !isDir {
+		dir = filepath.Dir(canonical)
+	}
+	for {
+		_, err := os.Lstat(filepath.Join(dir, ProductionMarker))
+		switch {
+		case err == nil:
+			return dir, nil
+		case errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR):
+		default:
+			return "", err
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", nil
+		}
+		dir = parent
+	}
 }
 
 // validatePublisher ports media.Config.Validate's checks so internal/config

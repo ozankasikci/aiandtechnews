@@ -30,16 +30,13 @@ func TestLoadReadsExplicitUploadsDir(t *testing.T) {
 }
 
 func TestLoadHasNoDefaultUploadsDirInProduction(t *testing.T) {
-	cfg, err := Load(mapLookup(map[string]string{"APP_ENV": string(ModeProduction)}), t.TempDir())
-	if err != nil {
-		t.Fatal(err)
+	_, databasePath, uploads := productionTree(t)
+	_, err := Load(mapLookup(map[string]string{"APP_ENV": string(ModeProduction), "DATABASE_PATH": databasePath}), t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "UPLOADS_DIR") {
+		t.Fatalf("Load() error = %v, want UPLOADS_DIR to be required", err)
 	}
-	if cfg.UploadsDir != "" {
-		t.Fatalf("production UploadsDir = %q, want no default", cfg.UploadsDir)
-	}
-	dir := filepath.Join(t.TempDir(), "uploads")
-	cfg, err = Load(mapLookup(map[string]string{"APP_ENV": string(ModeProduction), "UPLOADS_DIR": dir}), t.TempDir())
-	if err != nil || cfg.UploadsDir != dir {
+	cfg, err := Load(mapLookup(productionEnv(databasePath, uploads)), t.TempDir())
+	if err != nil || cfg.UploadsDir != uploads {
 		t.Fatalf("cfg = %+v, err = %v", cfg, err)
 	}
 }
@@ -51,12 +48,12 @@ func TestLoadRejectsRelativeUploadsDir(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsProductionUploadsDirOutsideProduction(t *testing.T) {
-	_, err := Load(mapLookup(map[string]string{"UPLOADS_DIR": ProductionUploadsDir}), t.TempDir())
+func TestLoadRejectsLegacyNodeUploadsDirOutsideProduction(t *testing.T) {
+	_, err := Load(mapLookup(map[string]string{"UPLOADS_DIR": LegacyNodeUploadsDir}), t.TempDir())
 	if !errors.Is(err, ErrProductionUploadsAlias) {
 		t.Fatalf("Load() error = %v, want %v", err, ErrProductionUploadsAlias)
 	}
-	_, err = Load(mapLookup(map[string]string{"UPLOADS_DIR": ProductionUploadsDir + "/"}), t.TempDir())
+	_, err = Load(mapLookup(map[string]string{"UPLOADS_DIR": LegacyNodeUploadsDir + "/"}), t.TempDir())
 	if !errors.Is(err, ErrProductionUploadsAlias) {
 		t.Fatalf("trailing slash alias error = %v", err)
 	}
@@ -100,19 +97,19 @@ func TestValidateRejectsAnUploadsDirThatContainsTheDatabase(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsOverlapWithTheProductionUploadsDirOutsideProduction(t *testing.T) {
+func TestValidateRejectsOverlapWithTheLegacyNodeUploadsDirOutsideProduction(t *testing.T) {
 	for _, dir := range []string{
-		ProductionUploadsDir,
-		filepath.Dir(ProductionUploadsDir),
+		LegacyNodeUploadsDir,
+		filepath.Dir(LegacyNodeUploadsDir),
 		"/Users/ozan/Projects/technews",
-		ProductionUploadsDir + "/nested",
+		LegacyNodeUploadsDir + "/nested",
 	} {
 		cfg := Config{Mode: ModeDevelopment, Address: DefaultAddress, DatabasePath: filepath.Join(t.TempDir(), "dev.db"), UploadsDir: dir}
 		if err := cfg.Validate(); !errors.Is(err, ErrProductionUploadsAlias) {
 			t.Errorf("UploadsDir %q error = %v, want %v", dir, err, ErrProductionUploadsAlias)
 		}
 	}
-	sibling := Config{Mode: ModeDevelopment, Address: DefaultAddress, DatabasePath: filepath.Join(t.TempDir(), "dev.db"), UploadsDir: ProductionUploadsDir + "-copy"}
+	sibling := Config{Mode: ModeDevelopment, Address: DefaultAddress, DatabasePath: filepath.Join(t.TempDir(), "dev.db"), UploadsDir: LegacyNodeUploadsDir + "-copy"}
 	if err := sibling.Validate(); err != nil {
 		t.Fatalf("name-prefix sibling of the production directory rejected: %v", err)
 	}
