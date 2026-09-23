@@ -91,3 +91,12 @@ re-collected.
 The collector and publisher are not implemented yet: `POST /api/newsroom/collect`
 answers `503` and queued items are not processed. Design:
 `docs/superpowers/specs/2026-09-23-ai-tech-news-newsroom-design.md`.
+
+### Local development with the Omni Control app
+
+```bash
+make dev-seed   # migrate data/technews.db, create dev@example.invalid / dev-password, add 12 candidates
+make dev-api    # serve on 127.0.0.1:4401 with a local JWT secret
+```
+
+`dev-seed` is idempotent (it re-sets the dev password and skips existing candidates) and refuses to run with `APP_ENV=production`. A Debug build of the iOS app points at `http://127.0.0.1:4401/api`.
