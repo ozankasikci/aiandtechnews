@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -21,6 +22,29 @@ const uploadField = "file"
 // total cap; this bounds work, while memory stays constant because parts are
 // streamed straight to disk.
 const maxUploadRequestBytes = MaxUploadBytes + 1<<20
+
+// UploadReadTimeout replaces the server's ReadTimeout (15s) for the upload
+// route only: a 5 MiB body on a slow link needs longer, while every other
+// route keeps the short server-wide limit. uploadWriteTimeout lets the
+// response be written after a body that took the whole read window.
+const (
+	UploadReadTimeout  = 2 * time.Minute
+	uploadWriteTimeout = UploadReadTimeout + 30*time.Second
+)
+
+// extendUploadDeadlines moves this connection's read and write deadlines via
+// http.ResponseController. Writers without deadline support (httptest
+// recorders) are left alone.
+func extendUploadDeadlines(w http.ResponseWriter, now time.Time) error {
+	controller := http.NewResponseController(w)
+	if err := controller.SetReadDeadline(now.Add(UploadReadTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	if err := controller.SetWriteDeadline(now.Add(uploadWriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	return nil
+}
 
 // allowedExtensions is upload.ts's fileFilter MIME allowlist (the part's
 // lowercased type/subtype; busboy drops parameters), extended by an approved
@@ -96,6 +120,10 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
+	// Extend the deadline before the multipart body is read.
+	if err := extendUploadDeadlines(w, time.Now()); err != nil {
+		h.logger.WarnContext(r.Context(), "extend media upload deadlines", "error", err)
+	}
 	upload, err := h.receive(w, r)
 	var rejected *uploadError
 	switch {
