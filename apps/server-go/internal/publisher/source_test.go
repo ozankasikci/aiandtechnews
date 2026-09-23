@@ -86,8 +86,8 @@ func TestExtractOGImage(t *testing.T) {
 	cases := map[string]string{
 		`<meta property="og:image" content="https://cdn.example.com/a.jpg?w=1200&amp;h=630">`: "https://cdn.example.com/a.jpg?w=1200&h=630",
 		`<meta content="/images/b.png" property="og:image">`:                                  "https://www.theverge.com/images/b.png",
-		`<meta property="og:image" content="data:image/png;base64,AAAA">`:                      "",
-		`<meta name="twitter:image" content="https://cdn.example.com/c.jpg">`:                  "",
+		`<meta property="og:image" content="data:image/png;base64,AAAA">`:                     "",
+		`<meta name="twitter:image" content="https://cdn.example.com/c.jpg">`:                 "",
 	}
 	for html, want := range cases {
 		if got := publisher.ExtractOGImage(html, page); got != want {

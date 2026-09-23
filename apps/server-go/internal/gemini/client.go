@@ -47,7 +47,9 @@ type Client struct {
 
 type Option func(*Client)
 
-func WithBaseURL(baseURL string) Option { return func(c *Client) { c.baseURL = strings.TrimRight(baseURL, "/") } }
+func WithBaseURL(baseURL string) Option {
+	return func(c *Client) { c.baseURL = strings.TrimRight(baseURL, "/") }
+}
 
 func WithHTTPClient(client *http.Client) Option { return func(c *Client) { c.http = client } }
 
