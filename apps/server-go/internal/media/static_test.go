@@ -178,3 +178,40 @@ func TestStaticAnswersNotFoundWhenTheUploadsDirectoryIsMissing(t *testing.T) {
 		t.Fatalf("GET = %d", response.Code)
 	}
 }
+
+// Review hardening (not Node parity): legacy files that are not raster images
+// (Node accepted any extension) are sandboxed and downloaded, never rendered
+// as a document on the API origin.
+func TestStaticSandboxesAndDownloadsLegacyNonRasterFiles(t *testing.T) {
+	handler, _, dir := staticRouter(t)
+	for name, sandboxed := range map[string]bool{
+		"a.png":  false,
+		"a.JPG":  false,
+		"a.jpeg": false,
+		"a.webp": false,
+		"a.gif":  false,
+		"a.svg":  true,
+		"a.html": true,
+		"a.htm":  true,
+		"a.xml":  true,
+		"a.txt":  true,
+		"a.pdf":  true,
+		"noext":  true,
+		"a.ico":  true,
+	} {
+		writeUpload(t, filepath.Join(dir, name), "<svg onload=alert(1)>", modified)
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			response := serveStatic(handler, method, "/uploads/"+name, nil)
+			csp, disposition := response.Header().Get("Content-Security-Policy"), response.Header().Get("Content-Disposition")
+			if response.Code != http.StatusOK || response.Header().Get("X-Content-Type-Options") != "nosniff" {
+				t.Errorf("%s %s = %d %v", method, name, response.Code, response.Header())
+			}
+			if sandboxed && (csp != "sandbox; default-src 'none'" || disposition != "attachment") {
+				t.Errorf("%s %s: CSP %q, Content-Disposition %q, want sandboxed attachment", method, name, csp, disposition)
+			}
+			if !sandboxed && (csp != "" || disposition != "") {
+				t.Errorf("%s %s: CSP %q, Content-Disposition %q, want inline image", method, name, csp, disposition)
+			}
+		}
+	}
+}
