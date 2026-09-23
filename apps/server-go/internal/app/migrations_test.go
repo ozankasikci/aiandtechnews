@@ -13,12 +13,13 @@ import (
 
 func TestApplicationMigrationsHaveStableGlobalOrderAndAreIdempotent(t *testing.T) {
 	descriptors := app.Migrations()
-	if len(descriptors) != 5 ||
+	if len(descriptors) != 6 ||
 		descriptors[0].Version != 1 || descriptors[0].Name != "editorial authors" ||
 		descriptors[1].Version != 2 || descriptors[1].Name != "content categories and articles" ||
 		descriptors[2].Version != 3 || descriptors[2].Name != "newsroom candidates" ||
 		descriptors[3].Version != 4 || descriptors[3].Name != "newsroom published index" ||
-		descriptors[4].Version != 5 || descriptors[4].Name != "media library" {
+		descriptors[4].Version != 5 || descriptors[4].Name != "media library" ||
+		descriptors[5].Version != 6 || descriptors[5].Name != "newsletter" {
 		t.Fatalf("descriptors = %#v", descriptors)
 	}
 	firstChecksum, secondChecksum := descriptors[0].Checksum(), descriptors[1].Checksum()
@@ -94,6 +95,13 @@ func assertSchemaCompatibility(t *testing.T, db *sql.DB) {
 	for _, fragment := range []string{"id INTEGER PRIMARY KEY AUTOINCREMENT", "filename TEXT NOT NULL", "url TEXT NOT NULL", "mime_type TEXT NOT NULL", "size INTEGER NOT NULL", "uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))"} {
 		if !containsSQL(mediaSQL, fragment) {
 			t.Errorf("media schema missing %q: %s", fragment, mediaSQL)
+		}
+	}
+
+	for _, name := range []string{"subscribers", "newsletter_deliveries", "newsletter_editions", "idx_subscribers_status", "idx_newsletter_deliveries_edition"} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_schema WHERE name = ?`, name).Scan(&count); err != nil || count != 1 {
+			t.Errorf("newsletter schema object %s = %d, %v", name, count, err)
 		}
 	}
 

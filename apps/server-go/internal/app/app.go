@@ -22,6 +22,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/indexnow"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/media"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsletter"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsroom"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/settings"
@@ -188,7 +189,8 @@ func Migrations() []migrate.Descriptor {
 	descriptors := editorial.Migrations()
 	descriptors = append(descriptors, content.Migrations()...)
 	descriptors = append(descriptors, newsroom.Migrations()...)
-	return append(descriptors, media.Migrations()...)
+	descriptors = append(descriptors, media.Migrations()...)
+	return append(descriptors, newsletter.Migrations()...)
 }
 
 func (a *App) Address() string       { return a.address }
