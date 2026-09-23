@@ -350,3 +350,22 @@ func TestConfirmExtendsItsWriteDeadlineForTheWelcomeEmail(t *testing.T) {
 		t.Fatalf("write deadline = %v (status %d), want at least %v from now", recorder.writeDeadline.Sub(started), recorder.Code, ConfirmWriteTimeout)
 	}
 }
+
+// Express decodes a route parameter exactly once: /editions/100%25 looks up
+// "100%" (and misses), it is not a bad request.
+func TestEditionKeyIsDecodedOnceLikeExpress(t *testing.T) {
+	service := &fakeService{}
+	handler := router(newHandler(service, &clock{now: time.Now()}))
+	for target, key := range map[string]string{
+		"/api/newsletter/editions/100%25":         "100%",
+		"/api/newsletter/editions/2026%2D09%2D19": "2026-09-19",
+		"/api/newsletter/editions/a%252Fb":        "a%2Fb",
+		"/api/newsletter/editions/2026-09-19":     "2026-09-19",
+	} {
+		service.editionKeys = nil
+		assertResponse(t, serve(t, handler, "GET", target, "", nil), 404, `{"error":"Edition not found"}`)
+		if len(service.editionKeys) != 1 || service.editionKeys[0] != key {
+			t.Errorf("%s looked up %q, want %q", target, service.editionKeys, key)
+		}
+	}
+}

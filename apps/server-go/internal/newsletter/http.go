@@ -238,12 +238,17 @@ func (h *Handler) editions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) edition(w http.ResponseWriter, r *http.Request) {
-	// Express decodes route parameters; chi hands over the escaped form when
-	// the request path carries escapes.
-	key, err := url.PathUnescape(chi.URLParam(r, "edition"))
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, errorBody("Invalid request"))
-		return
+	// Express decodes a route parameter exactly once. chi matches on the
+	// decoded r.URL.Path unless the escaping is non-canonical, in which case
+	// it matches on r.URL.RawPath and hands over the escaped segment.
+	key := chi.URLParam(r, "edition")
+	if r.URL.RawPath != "" {
+		unescaped, err := url.PathUnescape(key)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorBody("Invalid request"))
+			return
+		}
+		key = unescaped
 	}
 	edition, found, err := h.service.Edition(r.Context(), key)
 	if err != nil {
