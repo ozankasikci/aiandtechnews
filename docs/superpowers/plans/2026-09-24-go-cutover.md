@@ -247,3 +247,18 @@ Applied after code review, test-first:
   existing `JWT_SECRET` reused, Apple silicon build on the Mac mini with
   user-local Go/Node/pnpm (Homebrew or a tarball in `~/`) and Xcode CLT.
 - **Smoke script** requires `sqlite3` (no `cp` fallback).
+
+## Re-review follow-ups (2026-09-24)
+
+- `cmd/migrate` in production opens without creating (`OpenForServing`),
+  after checking the ledger on a read-only connection; a missing database or
+  one without the ledger is refused with a pointer to `bin/adopt`. Tests:
+  missing database (nothing created), unadopted Node database (byte-identical
+  afterwards, including its journal mode), empty file, adopted database with a
+  pending migration (migrated), development unchanged.
+- Runbook: a `refusing to serve` / `no migration ledger` start sends the
+  operator back to the adopt step, never to `bin/migrate`; the release
+  section says `bin/migrate` is only for the adopted database. The secrets
+  file is rewritten as `NAME='value'` (single quotes escaped) when it is
+  built, and `technews.env` is checked with `sh -n` plus a names-only
+  set/empty list before adoption.

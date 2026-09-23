@@ -99,6 +99,11 @@ NODE=/Users/ozan/Projects/technews   # the Node checkout that serves production
    grep -E "^($NAMES)=" "$NODE/apps/server/.env" >> "$SECRETS"
    # values that only live in the running process (only for values without spaces):
    ps eww -o command= -p "$(lsof -t -iTCP:4001 -sTCP:LISTEN)" | tr ' ' '\n' | grep -E "^($NAMES)=" >> "$SECRETS"
+   # rewrite every line as NAME='value' (one layer of dotenv quotes removed,
+   # single quotes escaped), so sourcing it with sh never expands $, `, or
+   # spaces in a value:
+   sed -E -e "s/^([A-Z_]+)=\"(.*)\"\$/\1=\2/" -e "s/^([A-Z_]+)='(.*)'\$/\1=\2/" "$SECRETS" \
+     | sed -E -e "s/'/'\\\\''/g" -e "s/^([A-Z_]+)=(.*)\$/\1='\2'/" > "$SECRETS.quoted" && mv "$SECRETS.quoted" "$SECRETS"
    cut -d= -f1 "$SECRETS" | sort | uniq -c          # names only; each should appear once
    awk -F= '$1=="JWT_SECRET"{v=substr($0,12); gsub(/^"|"$/,"",v); print "JWT_SECRET length:", length(v)}' "$SECRETS"
    ```
@@ -194,8 +199,22 @@ REPO="$HOME/src/aiandtechnews"
    | `COLLECTOR_ENABLED`, `PUBLISHER_ENABLED`, `INDEXNOW_ENABLED` | `0` until step 6 |
    | `GEMINI_*`, `AWS_REGION`, `AWS_PROFILE`, `S3_FEATURE_IMAGE_*` | only needed in step 6 (the importer IAM user; its credentials go in `~/.aws/credentials`, never in the repository) |
 
-   Check names without printing values:
-   `grep -v '^#' "$ROOT/technews.env" | cut -d= -f1 | sort | uniq -c`.
+   Check that the file parses and which names are set, without printing any
+   value (repeat this after every edit, and again at step 5.6):
+
+   ```sh
+   sh -n "$ROOT/technews.env" && echo "syntax ok"
+   ( set -a; . "$ROOT/technews.env" > /dev/null 2>&1 || { echo "STOP: sourcing failed"; exit 1; }
+     for n in APP_ENV SERVER_ADDR DATABASE_PATH UPLOADS_DIR TZ JWT_SECRET NEWSLETTER_SITE_URL \
+              NEWSLETTER_TOKEN_SECRET NEWSLETTER_CRON_SECRET RESEND_API_KEY NEWSLETTER_FROM NEWSLETTER_REPLY_TO; do
+       eval "v=\${$n-}"; if [ -n "$v" ]; then echo "set    $n"; else echo "EMPTY  $n"; fi
+     done )
+   ```
+
+   Every name must say `set` (`NEWSLETTER_REPLY_TO` may be empty). A value
+   with spaces, `&`, `<`, `$`, or backticks must be single-quoted
+   (`NAME='value'`, a `'` inside written as `'\''`); the file built in step 1.5
+   already is.
 3. **launchd files, prepared but not installed.** Fill in
    `docs/news.aiandtech.api.plist` (`__USER__`, `__HOME__`, `__ROOT__`) and
    `docs/news.aiandtech.dashboard.plist` (`__USER__`, `__HOME__`, `__REPO__`,
@@ -329,7 +348,8 @@ STAMP=<the value noted on the MacBook>
    ls "$ROOT/data/incoming-$STAMP.db" 2>/dev/null && echo "STOP: not moved"
    ```
 
-6. Dry run, then adopt:
+6. Check the environment file as in step 3.2 (`sh -n`, then the names-only
+   list: everything `set`), then dry run, then adopt:
 
    ```sh
    cd "$ROOT"
@@ -356,9 +376,14 @@ STAMP=<the value noted on the MacBook>
    curl -fsS http://127.0.0.1:4001/api/health                  # {"status":"ok"}; 503 {"status":"error"} if the database fails
    ```
 
-   If `api.err.log` says `refusing to serve`, the database is not adopted or
-   not migrated: go back to step 6 (or run `bin/migrate` for pending
-   migrations).
+   If `api.err.log` says `refusing to serve` with `no migration ledger`, the
+   database in place was not adopted: stop the job (`sudo launchctl bootout
+   system/news.aiandtech.api`) and go back to step 6 (`bin/adopt`, then
+   `--apply`). Never run `bin/migrate` on it: in production it refuses a
+   database without the ledger for this reason. `migration(s) pending` right
+   after step 6 means the binaries do not match the ones that adopted it:
+   rebuild both from the same checkout (step 2.4) and run step 6 again
+   (`bin/adopt` then reports `already managed` and lists what is pending).
 8. Install and start the dashboard the same way with
    `news.aiandtech.dashboard.plist`; `curl -fsS -o /dev/null -w '%{http_code}\n'
    http://127.0.0.1:3001/login` prints `200`.
@@ -421,10 +446,12 @@ The Node scheduler stays off for good: running both would publish twice.
 - Back up the Mac mini database regularly, safely while Go runs:
   `sqlite3 "$ROOT/data/technews.db" ".backup '<backup dir>/technews-$(date -u +%Y%m%dT%H%M%SZ).db'"`,
   and the uploads with `rsync`.
-- Releases: `git -C "$REPO" pull`, build into a temporary directory, `sudo
-  launchctl bootout system/news.aiandtech.api`, back up, replace the
-  binaries, run `bin/migrate` with the env file loaded (it applies only new
-  migrations), `sudo launchctl bootstrap system
+- Releases (the database is adopted by now): `git -C "$REPO" pull`, build
+  into a temporary directory, `sudo launchctl bootout
+  system/news.aiandtech.api`, back up, replace the binaries, run `bin/migrate`
+  with the env file loaded (it applies only new migrations to the existing,
+  adopted database; in production it never creates a database and refuses one
+  without the ledger), `sudo launchctl bootstrap system
   /Library/LaunchDaemons/news.aiandtech.api.plist`. The API refuses to start
   if a migration was forgotten. Dashboard: `pnpm install --frozen-lockfile`,
   `pnpm --filter @technews/dashboard build`, then `sudo launchctl kickstart -k
