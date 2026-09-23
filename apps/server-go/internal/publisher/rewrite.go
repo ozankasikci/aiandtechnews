@@ -3,13 +3,11 @@ package publisher
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
-	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/gemini"
 )
 
 const (
@@ -50,7 +48,7 @@ func (r *Rewriter) Rewrite(ctx context.Context, input RewriteInput) (content.Rew
 	for attempt := 1; attempt <= rewriteAttempts; attempt++ {
 		raw, err := r.text.GenerateJSON(ctx, base+correction)
 		if err != nil {
-			return content.RewrittenArticle{}, classifyGeminiError(err)
+			return content.RewrittenArticle{}, ClassifyGeminiError(err)
 		}
 		article, ok := parseRewrittenArticle(raw)
 		if !ok {
@@ -68,14 +66,6 @@ func (r *Rewriter) Rewrite(ctx context.Context, input RewriteInput) (content.Rew
 			". Rewrite it again from the same source reporting and satisfy every requirement."
 	}
 	return content.RewrittenArticle{}, Permanent(fmt.Errorf("rewrite failed validation: %s", lastProblem))
-}
-
-func classifyGeminiError(err error) error {
-	var apiErr *gemini.Error
-	if errors.As(err, &apiErr) && !apiErr.Transient() {
-		return Permanent(err)
-	}
-	return err
 }
 
 func parseRewrittenArticle(value string) (content.RewrittenArticle, bool) {

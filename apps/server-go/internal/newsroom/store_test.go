@@ -512,12 +512,85 @@ func TestRequeueFailAndResetProcessing(t *testing.T) {
 	if _, ok, _ := store.ClaimDue(ctx, t0, 0); !ok {
 		t.Fatal("claim b")
 	}
-	count, err := store.ResetProcessing(ctx, t0.Add(time.Hour))
-	if err != nil || count != 1 {
-		t.Fatalf("reset count=%d err=%v", count, err)
+	requeuedCount, failedCount, err := store.ResetProcessing(ctx, t0.Add(time.Hour), 3)
+	if err != nil || requeuedCount != 1 || failedCount != 0 {
+		t.Fatalf("reset requeued=%d failed=%d err=%v", requeuedCount, failedCount, err)
 	}
 	reset := mustGet(t, store, b)
 	if reset.Status != newsroom.StatusQueued || *reset.ScheduledFor != "2026-09-20T13:00:00Z" {
 		t.Fatalf("reset = %+v", reset)
+	}
+}
+
+func TestResetProcessingFailsCandidatesInterruptedRepeatedly(t *testing.T) {
+	store, db := openStore(t)
+	ctx := context.Background()
+	worn := queueAt(t, store, "https://example.com/worn", t0)
+	if _, ok, err := store.ClaimDue(ctx, t0, 0); err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	mustExec(t, db, `UPDATE candidates SET attempts = 3 WHERE id = ?`, worn)
+
+	requeued, failed, err := store.ResetProcessing(ctx, t0.Add(time.Hour), 3)
+	if err != nil || requeued != 0 || failed != 1 {
+		t.Fatalf("reset requeued=%d failed=%d err=%v", requeued, failed, err)
+	}
+	got := mustGet(t, store, worn)
+	if got.Status != newsroom.StatusFailed || got.ScheduledFor != nil || got.LastError == nil ||
+		*got.LastError != "interrupted repeatedly while publishing" {
+		t.Fatalf("worn = %+v", got)
+	}
+}
+
+func TestRequeueWithoutAttemptGivesTheClaimBack(t *testing.T) {
+	store, _ := openStore(t)
+	ctx := context.Background()
+	id := queueAt(t, store, "https://example.com/a", t0)
+	if _, ok, err := store.ClaimDue(ctx, t0, 0); err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if err := store.RequeueWithoutAttempt(ctx, id, "gemini responded 403", t0.Add(5*time.Minute), t0); err != nil {
+		t.Fatal(err)
+	}
+	got := mustGet(t, store, id)
+	if got.Status != newsroom.StatusQueued || got.Attempts != 0 || *got.ScheduledFor != "2026-09-20T12:05:00Z" ||
+		got.LastError == nil || *got.LastError != "gemini responded 403" {
+		t.Fatalf("requeued = %+v", got)
+	}
+	if err := store.RequeueWithoutAttempt(ctx, id, "again", t0, t0); !errors.Is(err, newsroom.ErrStaleTransition) {
+		t.Fatalf("requeue of a queued candidate err = %v", err)
+	}
+}
+
+func TestClaimDueConcurrentCallersClaimOnce(t *testing.T) {
+	store, _ := openStore(t)
+	ctx := context.Background()
+	queueAt(t, store, "https://example.com/a", t0)
+
+	type result struct {
+		ok  bool
+		err error
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			_, ok, err := store.ClaimDue(ctx, t0, 0)
+			results <- result{ok, err}
+		}()
+	}
+	close(start)
+	claimed := 0
+	for i := 0; i < 2; i++ {
+		r := <-results
+		if r.ok {
+			claimed++
+		} else if r.err != nil {
+			t.Logf("losing claim returned %v", r.err)
+		}
+	}
+	if claimed != 1 {
+		t.Fatalf("claimed %d times, want exactly once", claimed)
 	}
 }

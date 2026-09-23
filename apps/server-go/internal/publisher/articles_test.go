@@ -9,6 +9,7 @@ import (
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/app"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/database/migrate"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsroom"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/testutil"
 )
@@ -100,5 +101,71 @@ func TestCategorizeMatchesNodeRules(t *testing.T) {
 		if got := publisher.Categorize(tc.title, tc.content); got != tc.want {
 			t.Errorf("Categorize(%q) = %q, want %q", tc.title, got, tc.want)
 		}
+	}
+}
+
+// claimedCandidate inserts a candidate and claims it, leaving it processing.
+func claimedCandidate(t *testing.T, db *sql.DB) (*newsroom.SQLiteStore, int64) {
+	t.Helper()
+	ctx := context.Background()
+	store := newsroom.NewSQLiteStore(db)
+	id, _, err := store.Insert(ctx, newsroom.NewCandidate{SourceURL: "https://techcrunch.com/c", SourceName: "TechCrunch", FeedURL: "https://techcrunch.com/feed/", Title: "Candidate"}, publishNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkQueued(ctx, id, newsroom.StatusPending, publishNow, publishNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := store.ClaimDue(ctx, publishNow, 0); err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	return store, id
+}
+
+func TestPublishMarksCandidatePublishedInTheSameTransaction(t *testing.T) {
+	db := openDB(t)
+	store, candidateID := claimedCandidate(t, db)
+	articles := publisher.NewSQLiteArticles(db, func() time.Time { return publishNow })
+	article := newArticle("openai-model", "https://techcrunch.com/a", "OpenAI ships a model", "<p>Body</p>")
+	article.CandidateID = candidateID
+
+	articleID, err := articles.Publish(context.Background(), article)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := store.Get(context.Background(), candidateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.Status != newsroom.StatusPublished || candidate.ArticleSlug == nil || *candidate.ArticleSlug != "openai-model" ||
+		candidate.ScheduledFor != nil || candidate.LastError != nil {
+		t.Fatalf("candidate = %+v", candidate)
+	}
+	var linked int64
+	var publishedAt string
+	if err := db.QueryRow(`SELECT article_id, published_at FROM candidates WHERE id = ?`, candidateID).Scan(&linked, &publishedAt); err != nil {
+		t.Fatal(err)
+	}
+	if linked != articleID || publishedAt != "2026-09-23T12:00:00Z" {
+		t.Fatalf("article_id=%d (want %d) published_at=%q", linked, articleID, publishedAt)
+	}
+}
+
+func TestPublishRollsBackWhenCandidateIsNotProcessing(t *testing.T) {
+	db := openDB(t)
+	store, candidateID := claimedCandidate(t, db)
+	if err := store.MarkFailed(context.Background(), candidateID, "stopped elsewhere", publishNow); err != nil {
+		t.Fatal(err)
+	}
+	articles := publisher.NewSQLiteArticles(db, func() time.Time { return publishNow })
+	article := newArticle("openai-model", "https://techcrunch.com/a", "OpenAI ships a model", "<p>Body</p>")
+	article.CandidateID = candidateID
+
+	if _, err := articles.Publish(context.Background(), article); !errors.Is(err, publisher.ErrCandidateNotProcessing) {
+		t.Fatalf("err = %v, want ErrCandidateNotProcessing", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM articles`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("articles = %d err=%v; the insert must roll back", count, err)
 	}
 }

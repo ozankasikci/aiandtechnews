@@ -3,6 +3,7 @@ package publisher_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -83,16 +84,27 @@ func TestRewriteFailsPermanentlyAfterTwoInvalidDrafts(t *testing.T) {
 }
 
 func TestRewriteClassifiesGeminiErrors(t *testing.T) {
-	transient := &scriptedText{errs: []error{&gemini.Error{Status: 503}}}
-	if _, err := publisher.NewRewriter(transient).Rewrite(context.Background(), input); err == nil || publisher.IsPermanent(err) {
-		t.Fatalf("503 should be transient: %v", err)
+	cases := []struct {
+		name              string
+		err               error
+		permanent, system bool
+	}{
+		{"503 is transient", &gemini.Error{Status: 503}, false, false},
+		{"429 is transient", &gemini.Error{Status: 429}, false, false},
+		{"400 is permanent", &gemini.Error{Status: 400}, true, false},
+		{"401 is a system fault", &gemini.Error{Status: 401}, false, true},
+		{"403 is a system fault", &gemini.Error{Status: 403}, false, true},
+		{"404 is a system fault", &gemini.Error{Status: 404}, false, true},
+		{"missing key is a system fault", gemini.ErrMissingAPIKey, false, true},
+		{"safety block is permanent", fmt.Errorf("%w: SAFETY", gemini.ErrBlocked), true, false},
+		{"network error is transient", errors.New("connection reset"), false, false},
 	}
-	permanent := &scriptedText{errs: []error{&gemini.Error{Status: 400}}}
-	if _, err := publisher.NewRewriter(permanent).Rewrite(context.Background(), input); !publisher.IsPermanent(err) {
-		t.Fatalf("400 should be permanent: %v", err)
-	}
-	missing := &scriptedText{errs: []error{gemini.ErrMissingAPIKey}}
-	if _, err := publisher.NewRewriter(missing).Rewrite(context.Background(), input); !errors.Is(err, gemini.ErrMissingAPIKey) || publisher.IsPermanent(err) {
-		t.Fatalf("missing key should stay transient (config fix, then retry): %v", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := publisher.NewRewriter(&scriptedText{errs: []error{tc.err}}).Rewrite(context.Background(), input)
+			if !errors.Is(err, tc.err) || publisher.IsPermanent(err) != tc.permanent || publisher.IsSystemFault(err) != tc.system {
+				t.Fatalf("err=%v permanent=%v system=%v", err, publisher.IsPermanent(err), publisher.IsSystemFault(err))
+			}
+		})
 	}
 }

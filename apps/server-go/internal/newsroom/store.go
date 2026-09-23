@@ -305,15 +305,53 @@ func (s *SQLiteStore) Requeue(ctx context.Context, id int64, reason string, at, 
 		updated_at = ? WHERE id = ? AND status = 'processing'`, formatTime(at), reason, formatTime(now), id)
 }
 
-// ResetProcessing requeues candidates left processing by a crash, due now.
-func (s *SQLiteStore) ResetProcessing(ctx context.Context, now time.Time) (int64, error) {
+// RequeueWithoutAttempt returns a processing candidate to the queue and gives
+// back the attempt its claim consumed. It is for failures that are not the
+// candidate's fault: shutdown and system configuration faults.
+func (s *SQLiteStore) RequeueWithoutAttempt(ctx context.Context, id int64, reason string, at, now time.Time) error {
+	return s.transition(ctx, id, `UPDATE candidates SET status = 'queued', scheduled_for = ?, last_error = ?,
+		attempts = MAX(attempts - 1, 0), updated_at = ? WHERE id = ? AND status = 'processing'`,
+		formatTime(at), reason, formatTime(now), id)
+}
+
+// interruptedReason is recorded when a candidate keeps getting interrupted mid-publish.
+const interruptedReason = "interrupted repeatedly while publishing"
+
+// ResetProcessing recovers candidates left processing by a crash. Those that
+// already used maxAttempts claims are marked failed (so a candidate that
+// crashes the process cannot loop forever); the rest are requeued, due now.
+// It returns how many were requeued and how many were failed.
+func (s *SQLiteStore) ResetProcessing(ctx context.Context, now time.Time, maxAttempts int) (requeued, failed int64, err error) {
 	stamp := formatTime(now)
-	result, err := s.db.ExecContext(ctx, `UPDATE candidates SET status = 'queued', scheduled_for = ?, updated_at = ?
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("begin processing reset: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	result, err := tx.ExecContext(ctx, `UPDATE candidates SET status = 'failed', scheduled_for = NULL, last_error = ?,
+		updated_at = ? WHERE status = 'processing' AND attempts >= ?`, interruptedReason, stamp, maxAttempts)
+	if err != nil {
+		return 0, 0, fmt.Errorf("fail interrupted candidates: %w", err)
+	}
+	if failed, err = result.RowsAffected(); err != nil {
+		return 0, 0, fmt.Errorf("fail interrupted candidates: %w", err)
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE candidates SET status = 'queued', scheduled_for = ?, updated_at = ?
 		WHERE status = 'processing'`, stamp, stamp)
 	if err != nil {
-		return 0, fmt.Errorf("reset processing candidates: %w", err)
+		return 0, 0, fmt.Errorf("reset processing candidates: %w", err)
 	}
-	return result.RowsAffected()
+	if requeued, err = result.RowsAffected(); err != nil {
+		return 0, 0, fmt.Errorf("reset processing candidates: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("commit processing reset: %w", err)
+	}
+	return requeued, failed, nil
 }
 
 func (s *SQLiteStore) SetPublishDelay(ctx context.Context, delay PublishDelay) (err error) {

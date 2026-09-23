@@ -12,6 +12,7 @@ import (
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/collector"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/gemini"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsroom"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
 )
@@ -154,6 +155,10 @@ func TestPublishNextFailsPermanentProblemsImmediately(t *testing.T) {
 		"redirect outside source": {fakeFetcher{err: fmt.Errorf("%w TechCrunch: https://evil.example", collector.ErrRedirectOutsideSource)}, fakeRewriter{}, "redirect"},
 		"short source text":       {fakeFetcher{body: "<p>Too short.</p>"}, fakeRewriter{}, "too short"},
 		"rejected rewrite":        {fakeFetcher{body: sourcePage()}, fakeRewriter{err: publisher.Permanent(errors.New("rewrite failed validation: word count"))}, "rewrite failed"},
+		"source page gone (404)":  {fakeFetcher{err: &collector.StatusError{URL: sourceURL, Status: 404}}, fakeRewriter{}, "status 404"},
+		"source page gone (410)":  {fakeFetcher{err: &collector.StatusError{URL: sourceURL, Status: 410}}, fakeRewriter{}, "status 410"},
+		"source page too large":   {fakeFetcher{err: fmt.Errorf("fetch %s: %w", sourceURL, collector.ErrBodyTooLarge)}, fakeRewriter{}, "exceeds"},
+		"gemini rejects request":  {fakeFetcher{body: sourcePage()}, publisher.NewRewriter(&scriptedText{errs: []error{&gemini.Error{Status: 400}}}), "400"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -235,4 +240,167 @@ func TestFailedInsertDiscardsUploadedImage(t *testing.T) {
 	if candidate := h.candidate(t); candidate.Status != newsroom.StatusQueued {
 		t.Fatalf("a locked database is transient; candidate = %+v", candidate)
 	}
+}
+
+func TestSourceBlockingAndServerErrorsStayTransient(t *testing.T) {
+	for _, status := range []int{403, 429, 503} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			h := newHarness(t, fakeFetcher{err: &collector.StatusError{URL: sourceURL, Status: status}}, fakeRewriter{}, nil)
+			if _, err := h.pub.PublishNext(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if candidate := h.candidate(t); candidate.Status != newsroom.StatusQueued || candidate.Attempts != 1 {
+				t.Fatalf("candidate = %+v", candidate)
+			}
+		})
+	}
+}
+
+func TestSystemFaultsRequeueWithoutConsumingAttempts(t *testing.T) {
+	cases := map[string]error{
+		"gemini 403":  &gemini.Error{Status: 403, Body: "API key not valid"},
+		"missing key": gemini.ErrMissingAPIKey,
+	}
+	for name, fault := range cases {
+		t.Run(name, func(t *testing.T) {
+			rounds := publisher.MaxAttempts + 2
+			errs := make([]error, rounds)
+			for i := range errs {
+				errs[i] = fault
+			}
+			h := newHarness(t, fakeFetcher{body: sourcePage()}, publisher.NewRewriter(&scriptedText{errs: errs}), nil)
+			for round := 1; round <= rounds; round++ {
+				if published, err := h.pub.PublishNext(context.Background()); err != nil || !published {
+					t.Fatalf("round %d: published=%v err=%v", round, published, err)
+				}
+				candidate := h.candidate(t)
+				if candidate.Status != newsroom.StatusQueued || candidate.Attempts != 0 ||
+					*candidate.ScheduledFor != h.now.Add(publisher.RetryDelay).Format(time.RFC3339) ||
+					candidate.LastError == nil || !strings.Contains(*candidate.LastError, fault.Error()) {
+					t.Fatalf("round %d: candidate = %+v", round, candidate)
+				}
+				h.now = h.now.Add(publisher.RetryDelay)
+			}
+		})
+	}
+}
+
+// cancelingFetcher fails transiently, then cancels the publisher's context
+// on call cancelOn, as a shutdown in the middle of a fetch would.
+type cancelingFetcher struct {
+	calls, cancelOn int
+	cancel          context.CancelFunc
+}
+
+func (f *cancelingFetcher) FetchText(ctx context.Context, _, _ string) (string, string, error) {
+	f.calls++
+	if f.calls == f.cancelOn {
+		f.cancel()
+		return "", "", fmt.Errorf("fetch source: %w", ctx.Err())
+	}
+	return "", "", errors.New("connection reset")
+}
+
+func TestShutdownDuringFinalAttemptRequeuesInsteadOfFailing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fetcher := &cancelingFetcher{cancelOn: publisher.MaxAttempts, cancel: cancel}
+	h := newHarness(t, fetcher, fakeRewriter{}, nil)
+	for attempt := 1; attempt <= publisher.MaxAttempts; attempt++ {
+		if _, err := h.pub.PublishNext(ctx); err != nil {
+			t.Fatalf("attempt %d: %v", attempt, err)
+		}
+		if attempt < publisher.MaxAttempts {
+			h.now = h.now.Add(publisher.RetryDelay)
+		}
+	}
+	candidate := h.candidate(t)
+	if candidate.Status != newsroom.StatusQueued || candidate.Attempts != publisher.MaxAttempts-1 ||
+		*candidate.ScheduledFor != h.now.Format(time.RFC3339) {
+		t.Fatalf("candidate = %+v, want queued and due now with the interrupted attempt given back", candidate)
+	}
+}
+
+// flakyStore fails MarkFailed a set number of times and records store calls.
+type flakyStore struct {
+	*newsroom.SQLiteStore
+	markFailedErrors int
+	calls            []string
+}
+
+func (s *flakyStore) ClaimDue(ctx context.Context, now time.Time, minGap time.Duration) (newsroom.Candidate, bool, error) {
+	s.calls = append(s.calls, "ClaimDue")
+	return s.SQLiteStore.ClaimDue(ctx, now, minGap)
+}
+
+func (s *flakyStore) MarkFailed(ctx context.Context, id int64, reason string, now time.Time) error {
+	s.calls = append(s.calls, "MarkFailed")
+	if s.markFailedErrors > 0 {
+		s.markFailedErrors--
+		return errors.New("database is locked")
+	}
+	return s.SQLiteStore.MarkFailed(ctx, id, reason, now)
+}
+
+func (s *flakyStore) ResetProcessing(ctx context.Context, now time.Time, maxAttempts int) (int64, int64, error) {
+	s.calls = append(s.calls, "ResetProcessing")
+	return s.SQLiteStore.ResetProcessing(ctx, now, maxAttempts)
+}
+
+func TestFailedBookkeepingRecoversBeforeNextClaim(t *testing.T) {
+	h := newHarness(t, fakeFetcher{body: "<p>Too short.</p>"}, fakeRewriter{}, nil)
+	store := &flakyStore{SQLiteStore: h.store, markFailedErrors: 1}
+	h.pub.Store = store
+
+	if _, err := h.pub.PublishNext(context.Background()); err == nil {
+		t.Fatal("a failed MarkFailed must be reported")
+	}
+	if candidate := h.candidate(t); candidate.Status != newsroom.StatusProcessing {
+		t.Fatalf("candidate = %+v, want it stuck processing", candidate)
+	}
+	if _, err := h.pub.PublishNext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(store.calls, ","), "ClaimDue,MarkFailed,ResetProcessing,ClaimDue,MarkFailed"; got != want {
+		t.Fatalf("calls = %s, want %s", got, want)
+	}
+	if candidate := h.candidate(t); candidate.Status != newsroom.StatusFailed {
+		t.Fatalf("candidate = %+v", candidate)
+	}
+	store.calls = nil
+	if _, err := h.pub.PublishNext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(store.calls, ","); got != "ClaimDue" {
+		t.Fatalf("calls after recovery = %s, want ClaimDue only", got)
+	}
+}
+
+func TestFailedRecoverIsRetriedBeforeNextClaim(t *testing.T) {
+	h := newHarness(t, fakeFetcher{body: sourcePage()}, fakeRewriter{}, nil)
+	failing := &failingResetStore{Store: h.store, errs: 1}
+	h.pub.Store = failing
+	if err := h.pub.Recover(context.Background()); err == nil {
+		t.Fatal("Recover should report the reset failure")
+	}
+	if published, err := h.pub.PublishNext(context.Background()); err != nil || !published {
+		t.Fatalf("published=%v err=%v", published, err)
+	}
+	if failing.resets != 2 {
+		t.Fatalf("resets = %d, want the failed Recover retried once before claiming", failing.resets)
+	}
+}
+
+type failingResetStore struct {
+	publisher.Store
+	errs, resets int
+}
+
+func (s *failingResetStore) ResetProcessing(ctx context.Context, now time.Time, maxAttempts int) (int64, int64, error) {
+	s.resets++
+	if s.errs > 0 {
+		s.errs--
+		return 0, 0, errors.New("database is locked")
+	}
+	return s.Store.ResetProcessing(ctx, now, maxAttempts)
 }

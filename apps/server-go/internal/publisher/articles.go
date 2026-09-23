@@ -14,9 +14,17 @@ import (
 // sqliteDateTime matches SQLite datetime('now'), which Node writes and the website reads.
 const sqliteDateTime = "2006-01-02 15:04:05"
 
-var ErrDuplicateArticle = errors.New("article already published for this source URL or slug")
+var (
+	ErrDuplicateArticle = errors.New("article already published for this source URL or slug")
+	// ErrCandidateNotProcessing means the candidate left processing (reset,
+	// failed or published elsewhere) before its article could be committed.
+	ErrCandidateNotProcessing = errors.New("candidate is no longer processing")
+)
 
+// NewArticle is an article to insert. When CandidateID is non-zero, the
+// candidate is marked published in the same transaction as the insert.
 type NewArticle struct {
+	CandidateID   int64
 	Title         string
 	Slug          string
 	Excerpt       string
@@ -157,10 +165,35 @@ func (a *SQLiteArticles) Publish(ctx context.Context, article NewArticle) (id in
 		err = errors.New("post-insert readback did not match the publishing contract")
 		return 0, err
 	}
+	if article.CandidateID != 0 {
+		if err = markCandidatePublished(ctx, tx, article.CandidateID, id, a.now()); err != nil {
+			return 0, err
+		}
+	}
 	if err = tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit article: %w", err)
 	}
 	return id, nil
+}
+
+// markCandidatePublished links a processing candidate to its new article.
+// Timestamps use newsroom's RFC3339 UTC format, not the articles' SQLite format.
+func markCandidatePublished(ctx context.Context, tx *sql.Tx, candidateID, articleID int64, now time.Time) error {
+	stamp := now.UTC().Format(time.RFC3339)
+	result, err := tx.ExecContext(ctx, `UPDATE candidates SET status = 'published', article_id = ?, published_at = ?,
+		scheduled_for = NULL, last_error = NULL, updated_at = ? WHERE id = ? AND status = 'processing'`,
+		articleID, stamp, stamp, candidateID)
+	if err != nil {
+		return fmt.Errorf("mark candidate %d published: %w", candidateID, err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mark candidate %d published: %w", candidateID, err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("mark candidate %d published: %w", candidateID, ErrCandidateNotProcessing)
+	}
+	return nil
 }
 
 // ensureEditorialAuthor ports ensureEditorialAuthor (by name, then by email, then insert).
