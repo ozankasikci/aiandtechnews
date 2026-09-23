@@ -97,6 +97,10 @@ func (h *AuthHandler) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
+// RequireAuth lets other capabilities protect their routes with the same
+// bearer-token check used by /auth/me.
+func (h *AuthHandler) RequireAuth(next http.Handler) http.Handler { return h.requireAuth(next) }
+
 func (h *AuthHandler) me(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
