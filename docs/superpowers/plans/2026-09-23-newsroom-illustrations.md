@@ -8,7 +8,7 @@
 
 **Phase 4a changes to build on:** `publisher.ClassifyGeminiError`, `SystemFault`/`Permanent` error classes; the article insert marks the candidate published in the same transaction (`NewArticle.CandidateID`); `ResetProcessing(ctx, now, maxAttempts)`; collector `StatusError`/`ErrBodyTooLarge`; `gemini.ErrBlocked`.
 
-**Tech Stack:** Go 1.25; new modules `github.com/aws/aws-sdk-go-v2` (`config`, `service/s3`), `github.com/gen2brain/webp` (pure Go, WASM via wazero — no cgo, keeps `modernc.org/sqlite` build), `golang.org/x/image` (`draw`, `webp` decoding).
+**Tech Stack:** Go 1.25; new modules `github.com/aws/aws-sdk-go-v2` (`config`, `service/s3`), `github.com/chai2010/webp` (bundles libwebp C sources, built via cgo — no system install; same encoder sharp uses). `gen2brain/webp` was tried first and its WASM build exhausted memory while compiling — do not use it, `golang.org/x/image` (`draw`, `webp` decoding).
 
 **Node reference (branch `s3-feature-images`, read with `git show 's3-feature-images:<path>'`):**
 - `apps/server/src/feature-image-publication.ts` — `ILLUSTRATION_STYLE_RULES` (:47-66), `buildIllustrationPrompt` (:71-97)
@@ -229,10 +229,10 @@ func (c *Client) ReviewImage(ctx context.Context, prompt string, jpeg []byte, sc
 - [ ] **Step 1: Add dependencies**
 
 ```bash
-go get github.com/gen2brain/webp@latest golang.org/x/image@latest
+go get github.com/chai2010/webp@latest golang.org/x/image@latest
 ```
 
-Open the `gen2brain/webp` package docs (`go doc github.com/gen2brain/webp`) and confirm the encoder signature (`webp.Encode(w io.Writer, m image.Image, o ...webp.Options) error` with `Options{Quality int, ...}`). If it differs, adapt `EncodeWebP` below and note it in your report.
+Compile with limited parallelism to keep memory low (`go build -p 2 ./...`, `go test -p 2 ...`). If a compile step is killed or memory use climbs past a few GB, stop and report instead of retrying. Confirm the encoder signature with `go doc github.com/chai2010/webp Encode` (expected `Encode(w io.Writer, m image.Image, opt *Options) error`, `Options{Lossless bool, Quality float32, Exact bool}`) and adapt `EncodeWebP` if it differs.
 
 - [ ] **Step 2: Write failing tests** — `internal/imaging/imaging_test.go`
 
@@ -343,7 +343,7 @@ import (
 	"image/jpeg"
 	_ "image/png"
 
-	"github.com/gen2brain/webp"
+	"github.com/chai2010/webp"
 	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 )
@@ -408,7 +408,7 @@ func EncodeWebP(data []byte, quality int) ([]byte, int, int, error) {
 		return nil, 0, 0, err
 	}
 	var out bytes.Buffer
-	if err := webp.Encode(&out, src, webp.Options{Quality: quality}); err != nil {
+	if err := webp.Encode(&out, src, &webp.Options{Quality: float32(quality)}); err != nil {
 		return nil, 0, 0, fmt.Errorf("encode webp: %w", err)
 	}
 	return out.Bytes(), src.Bounds().Dx(), src.Bounds().Dy(), nil
