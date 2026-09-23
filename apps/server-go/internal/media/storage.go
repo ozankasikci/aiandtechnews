@@ -1,4 +1,8 @@
-// Package media stores feature images in S3 (port of feature-image-storage.ts).
+// Package media owns article images: generated feature images stored in S3
+// (storage.go, a port of feature-image-storage.ts) and the dashboard media
+// library, whose uploads live in a local directory served at /uploads/*
+// (uploads.go, static.go, library.go, http_library.go; a port of
+// apps/server/src/upload.ts, the dashboard media routes, and app.ts:30).
 package media
 
 import (
