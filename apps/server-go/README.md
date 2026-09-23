@@ -38,8 +38,18 @@ Review contract changes in this order:
 | `SERVER_ADDR` | `127.0.0.1:4401` | HTTP listen address |
 | `DATABASE_PATH` | `<worktree>/data/technews.db` | SQLite database path |
 | `JWT_SECRET` | none | Required by database-backed composition for signing and verifying authentication tokens |
+| `COLLECTOR_ENABLED` | `0` | Enables the feed collector loop and `POST /api/newsroom/collect` |
+| `COLLECTOR_INTERVAL` | `30m` | How often the collector loop runs when enabled |
+| `PUBLISHER_ENABLED` | `0` | Enables the publisher loop (queued candidate -> published article with a generated illustration) |
+| `PUBLISHER_INTERVAL` | `1m` | How often the publisher loop runs when enabled (minimum `10s`) |
+| `GEMINI_API_KEY` | none | Required when `PUBLISHER_ENABLED=1`; Gemini API key used for rewriting and illustration |
+| `GEMINI_TEXT_MODEL`, `GEMINI_IMAGE_MODEL`, `GEMINI_VISION_MODEL` | client defaults | Optional Gemini model overrides |
+| `AWS_REGION` | none | Required when `PUBLISHER_ENABLED=1`; region for the S3 feature-image bucket. Credentials come from the default AWS chain, never from a file in this repo |
+| `S3_FEATURE_IMAGE_BUCKET` | none | Required when `PUBLISHER_ENABLED=1`; bucket that stores generated feature images |
+| `S3_FEATURE_IMAGE_PREFIX` | `features` | Key prefix under which feature images are stored |
+| `S3_FEATURE_IMAGE_PUBLIC_URL` | none | Required when `PUBLISHER_ENABLED=1`; public `https://` base URL feature images are served from |
 
-Configuration is represented by `internal/config.Config` and validated before runtime resources are opened. String and Go-syntax formatting redact `JWT_SECRET`. Health-only `app.New` does not require the secret, while database-backed composition fails before serving when it is absent.
+Configuration is represented by `internal/config.Config` and validated before runtime resources are opened. String and Go-syntax formatting redact `JWT_SECRET` and `GEMINI_API_KEY`. Health-only `app.New` does not require the secret, while database-backed composition fails before serving when it is absent. When `PUBLISHER_ENABLED=1`, `Validate` additionally requires `GEMINI_API_KEY`, `AWS_REGION`, `S3_FEATURE_IMAGE_BUCKET`, `S3_FEATURE_IMAGE_PUBLIC_URL` (as an `https://` URL) and a `PUBLISHER_INTERVAL` of at least `10s`.
 
 Authentication preserves the reviewed Node bcrypt hashes, HS256 JWT shape, seven-day lifetime, and stateless logout behavior. JWT verification requires all identity and timestamp claims, exact integer numeric claims, a single JSON document in each segment, an HS256 header, a valid signature, and `exp` strictly after the current time. Login parsing intentionally caps request bodies at 100 KiB and returns the same stable JSON error for oversized and otherwise malformed bodies. Secrets, passwords, and raw JWTs are not included in client errors or compatibility-test failure output.
 
@@ -92,8 +102,17 @@ The collector (`internal/collector`) fetches the approved feeds, applies the
 publishing policy and stores new items as pending candidates; it never
 publishes. It runs when `COLLECTOR_ENABLED=1` (every `COLLECTOR_INTERVAL`,
 default `30m`, and on `POST /api/newsroom/collect`); otherwise that endpoint
-answers `503`. `make dev-api` enables it. The publisher (queued → published)
-is not implemented yet. Design:
+answers `503`. `make dev-api` enables it.
+
+The publisher (`internal/publisher`) claims due candidates, rewrites them
+with Gemini, generates and verifies an original illustration
+(`internal/illustration`, backed by `internal/media`'s S3 storage), and
+publishes the resulting article. It runs when `PUBLISHER_ENABLED=1` (every
+`PUBLISHER_INTERVAL`, default `1m`) and requires `GEMINI_API_KEY` plus the
+`AWS_REGION`/`S3_FEATURE_IMAGE_*` settings above; AWS credentials always come
+from the default credential chain, never from a file in this repo.
+`make dev-publish` enables it with a `dev-features` S3 prefix so local runs
+never mix with production images. Design:
 `docs/superpowers/specs/2026-09-23-ai-tech-news-newsroom-design.md`.
 
 ### Local development with the Omni Control app

@@ -23,6 +23,17 @@ const (
 	// DefaultCollectorInterval is how often the feed collector loop runs when
 	// COLLECTOR_INTERVAL is not set.
 	DefaultCollectorInterval = 30 * time.Minute
+
+	// DefaultPublisherInterval is how often the publisher loop runs when
+	// PUBLISHER_INTERVAL is not set.
+	DefaultPublisherInterval = time.Minute
+	// minPublisherInterval is the smallest interval Validate accepts when the
+	// publisher is enabled.
+	minPublisherInterval = 10 * time.Second
+
+	// DefaultS3FeatureImagePrefix is the S3 key prefix used when
+	// S3_FEATURE_IMAGE_PREFIX is not set.
+	DefaultS3FeatureImagePrefix = "features"
 )
 
 var ErrProductionDatabaseAlias = errors.New("production database path is forbidden outside APP_ENV=production")
@@ -36,11 +47,27 @@ type Config struct {
 	// CollectorEnabled wires the feed collector (manual "Collect now" and the loop).
 	CollectorEnabled  bool
 	CollectorInterval time.Duration
+
+	// PublisherEnabled wires the publisher loop (queued candidate -> published article).
+	PublisherEnabled  bool
+	PublisherInterval time.Duration
+	GeminiAPIKey      string
+	GeminiTextModel   string
+	GeminiImageModel  string
+	GeminiVisionModel string
+	AWSRegion         string
+	S3Bucket          string
+	S3Prefix          string
+	S3PublicURL       string
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("Config{Mode:%q Address:%q DatabasePath:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s}",
-		c.Mode, c.Address, c.DatabasePath, c.CollectorEnabled, c.CollectorInterval)
+	return fmt.Sprintf("Config{Mode:%q Address:%q DatabasePath:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
+		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiVisionModel:%q "+
+		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q}",
+		c.Mode, c.Address, c.DatabasePath, c.CollectorEnabled, c.CollectorInterval,
+		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiVisionModel,
+		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL)
 }
 
 func (c Config) GoString() string { return c.String() }
@@ -72,15 +99,11 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	cfg.JWTSecret = lookup("JWT_SECRET")
 
 	cfg.CollectorInterval = DefaultCollectorInterval
-	collectorEnabled := lookup("COLLECTOR_ENABLED")
-	switch strings.ToLower(collectorEnabled) {
-	case "", "0", "false", "no":
-		cfg.CollectorEnabled = false
-	case "1", "true", "yes":
-		cfg.CollectorEnabled = true
-	default:
-		return Config{}, fmt.Errorf("COLLECTOR_ENABLED: invalid value %q", collectorEnabled)
+	collectorEnabled, err := parseOnOff("COLLECTOR_ENABLED", lookup("COLLECTOR_ENABLED"))
+	if err != nil {
+		return Config{}, err
 	}
+	cfg.CollectorEnabled = collectorEnabled
 	if value := lookup("COLLECTOR_INTERVAL"); value != "" {
 		interval, err := time.ParseDuration(value)
 		if err != nil {
@@ -89,10 +112,49 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 		cfg.CollectorInterval = interval
 	}
 
+	cfg.PublisherInterval = DefaultPublisherInterval
+	publisherEnabled, err := parseOnOff("PUBLISHER_ENABLED", lookup("PUBLISHER_ENABLED"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.PublisherEnabled = publisherEnabled
+	if value := lookup("PUBLISHER_INTERVAL"); value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("PUBLISHER_INTERVAL: %w", err)
+		}
+		cfg.PublisherInterval = interval
+	}
+	cfg.GeminiAPIKey = lookup("GEMINI_API_KEY")
+	cfg.GeminiTextModel = lookup("GEMINI_TEXT_MODEL")
+	cfg.GeminiImageModel = lookup("GEMINI_IMAGE_MODEL")
+	cfg.GeminiVisionModel = lookup("GEMINI_VISION_MODEL")
+	cfg.AWSRegion = lookup("AWS_REGION")
+	cfg.S3Bucket = lookup("S3_FEATURE_IMAGE_BUCKET")
+	cfg.S3Prefix = DefaultS3FeatureImagePrefix
+	if value := lookup("S3_FEATURE_IMAGE_PREFIX"); value != "" {
+		cfg.S3Prefix = value
+	}
+	cfg.S3PublicURL = lookup("S3_FEATURE_IMAGE_PUBLIC_URL")
+
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// parseOnOff applies the same strict, case-insensitive on/off parsing to every
+// *_ENABLED environment flag: "", "0", "false", "no" are off; "1", "true",
+// "yes" are on; anything else is a configuration error naming the variable.
+func parseOnOff(name, value string) (bool, error) {
+	switch strings.ToLower(value) {
+	case "", "0", "false", "no":
+		return false, nil
+	case "1", "true", "yes":
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s: invalid value %q", name, value)
+	}
 }
 
 func (c Config) Validate() error {
@@ -101,6 +163,11 @@ func (c Config) Validate() error {
 	}
 	if c.CollectorEnabled && c.CollectorInterval < time.Minute {
 		return errors.New("COLLECTOR_INTERVAL must be at least 1m")
+	}
+	if c.PublisherEnabled {
+		if err := c.validatePublisher(); err != nil {
+			return err
+		}
 	}
 
 	_, port, err := net.SplitHostPort(c.Address)
@@ -125,6 +192,37 @@ func (c Config) Validate() error {
 		if equivalent {
 			return fmt.Errorf("%w: %q", ErrProductionDatabaseAlias, c.DatabasePath)
 		}
+	}
+	return nil
+}
+
+// validatePublisher ports media.Config.Validate's checks so internal/config
+// does not need to import internal/media. Keep both in sync.
+func (c Config) validatePublisher() error {
+	if c.PublisherInterval < minPublisherInterval {
+		return fmt.Errorf("PUBLISHER_INTERVAL must be at least %s", minPublisherInterval)
+	}
+	var missing []string
+	if c.GeminiAPIKey == "" {
+		missing = append(missing, "GEMINI_API_KEY")
+	}
+	if c.AWSRegion == "" {
+		missing = append(missing, "AWS_REGION")
+	}
+	if c.S3Bucket == "" {
+		missing = append(missing, "S3_FEATURE_IMAGE_BUCKET")
+	}
+	if c.S3PublicURL == "" {
+		missing = append(missing, "S3_FEATURE_IMAGE_PUBLIC_URL")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("PUBLISHER_ENABLED requires %s", strings.Join(missing, ", "))
+	}
+	if c.S3Prefix == "" {
+		return errors.New("S3_FEATURE_IMAGE_PREFIX must not be empty")
+	}
+	if !strings.HasPrefix(c.S3PublicURL, "https://") {
+		return errors.New("S3_FEATURE_IMAGE_PUBLIC_URL must be an https URL")
 	}
 	return nil
 }

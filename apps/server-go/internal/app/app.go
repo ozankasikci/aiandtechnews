@@ -4,20 +4,28 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-chi/chi/v5"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/collector"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/config"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/database/migrate"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/editorial"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/gemini"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/health"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/httpserver"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/indexnow"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/media"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsroom"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
 )
 
 type App struct {
@@ -95,6 +103,30 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		application.feedCollector = feedCollector
 		application.background = append(application.background, func(ctx context.Context) {
 			feedCollector.Loop(ctx, cfg.CollectorInterval)
+		})
+	}
+	if cfg.PublisherEnabled {
+		awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(cfg.AWSRegion))
+		if err != nil {
+			return nil, fmt.Errorf("load AWS configuration: %w", err)
+		}
+		geminiClient := gemini.New(cfg.GeminiAPIKey, cfg.GeminiTextModel,
+			gemini.WithImageModel(cfg.GeminiImageModel), gemini.WithVisionModel(cfg.GeminiVisionModel))
+		httpClient := &http.Client{}
+		imageStore := media.NewStore(media.Config{Region: cfg.AWSRegion, Bucket: cfg.S3Bucket, Prefix: cfg.S3Prefix, PublicBaseURL: cfg.S3PublicURL},
+			s3.NewFromConfig(awsCfg), httpClient, now)
+		newsPublisher := publisher.New(publisher.Deps{
+			Store:       newsroomStore,
+			Fetcher:     collector.NewFetcher(),
+			Rewriter:    publisher.NewRewriter(geminiClient),
+			Illustrator: illustration.NewS3Illustrator(illustration.NewGenerator(geminiClient, logger), imageStore, httpClient, logger),
+			Articles:    publisher.NewSQLiteArticles(db, now),
+			Notifier:    indexnow.New(),
+			Now:         now,
+			Logger:      logger,
+		})
+		application.background = append(application.background, func(ctx context.Context) {
+			newsPublisher.Loop(ctx, cfg.PublisherInterval)
 		})
 	}
 	return application, nil

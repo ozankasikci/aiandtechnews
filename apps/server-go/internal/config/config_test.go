@@ -326,3 +326,146 @@ func TestLoadRejectsUnrecognizedCollectorEnabledValue(t *testing.T) {
 		t.Fatal("Load() error = nil, want invalid COLLECTOR_ENABLED error")
 	}
 }
+
+func TestLoadPublisherDefaultsAreOff(t *testing.T) {
+	cfg, err := Load(mapLookup(map[string]string{"JWT_SECRET": "x"}), t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.PublisherEnabled {
+		t.Error("PublisherEnabled defaults to true, want false")
+	}
+	if cfg.PublisherInterval != time.Minute {
+		t.Errorf("PublisherInterval = %s, want 1m", cfg.PublisherInterval)
+	}
+	if cfg.GeminiAPIKey != "" || cfg.GeminiTextModel != "" || cfg.GeminiImageModel != "" || cfg.GeminiVisionModel != "" {
+		t.Errorf("Gemini fields not empty by default: %+v", cfg)
+	}
+	if cfg.S3Prefix != "features" {
+		t.Errorf("S3Prefix = %q, want %q", cfg.S3Prefix, "features")
+	}
+}
+
+func TestLoadPublisherEnabledAcceptsKnownValuesCaseInsensitively(t *testing.T) {
+	root := t.TempDir()
+	for _, on := range []string{"1", "true", "True", "YES", "yes"} {
+		env := publisherEnv()
+		env["PUBLISHER_ENABLED"] = on
+		cfg, err := Load(mapLookup(env), root)
+		if err != nil || !cfg.PublisherEnabled {
+			t.Fatalf("PUBLISHER_ENABLED=%q: cfg = %+v err = %v", on, cfg, err)
+		}
+	}
+	for _, off := range []string{"", "0", "false", "FALSE", "no", "No"} {
+		env := publisherEnv()
+		env["PUBLISHER_ENABLED"] = off
+		cfg, err := Load(mapLookup(env), root)
+		if err != nil || cfg.PublisherEnabled {
+			t.Fatalf("PUBLISHER_ENABLED=%q: cfg = %+v err = %v", off, cfg, err)
+		}
+	}
+}
+
+func TestLoadRejectsUnrecognizedPublisherEnabledValue(t *testing.T) {
+	_, err := Load(mapLookup(map[string]string{"JWT_SECRET": "x", "PUBLISHER_ENABLED": "maybe"}), t.TempDir())
+	if err == nil {
+		t.Fatal("Load() error = nil, want invalid PUBLISHER_ENABLED error")
+	}
+}
+
+func TestLoadPublisherEnabledWithoutGeminiKeyFails(t *testing.T) {
+	env := publisherEnv()
+	delete(env, "GEMINI_API_KEY")
+	_, err := Load(mapLookup(env), t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "GEMINI_API_KEY") {
+		t.Fatalf("Load() error = %v, want an error naming GEMINI_API_KEY", err)
+	}
+}
+
+func TestLoadPublisherEnabledWithoutS3FieldsFails(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+	}{
+		{name: "missing AWS_REGION", key: "AWS_REGION"},
+		{name: "missing S3_FEATURE_IMAGE_BUCKET", key: "S3_FEATURE_IMAGE_BUCKET"},
+		{name: "missing S3_FEATURE_IMAGE_PUBLIC_URL", key: "S3_FEATURE_IMAGE_PUBLIC_URL"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := publisherEnv()
+			delete(env, tt.key)
+			_, err := Load(mapLookup(env), t.TempDir())
+			if err == nil {
+				t.Fatalf("Load() error = nil, want error for missing %s", tt.key)
+			}
+		})
+	}
+}
+
+func TestLoadPublisherEnabledRejectsNonHTTPSPublicURL(t *testing.T) {
+	env := publisherEnv()
+	env["S3_FEATURE_IMAGE_PUBLIC_URL"] = "http://example.invalid"
+	_, err := Load(mapLookup(env), t.TempDir())
+	if err == nil {
+		t.Fatal("Load() error = nil, want error for non-https S3_FEATURE_IMAGE_PUBLIC_URL")
+	}
+}
+
+func TestLoadPublisherEnabledRejectsShortInterval(t *testing.T) {
+	env := publisherEnv()
+	env["PUBLISHER_INTERVAL"] = "5s"
+	_, err := Load(mapLookup(env), t.TempDir())
+	if err == nil {
+		t.Fatal("Load() error = nil, want error for PUBLISHER_INTERVAL below 10s")
+	}
+}
+
+func TestLoadPublisherEnabledWithAllFieldsSucceeds(t *testing.T) {
+	env := publisherEnv()
+	cfg, err := Load(mapLookup(env), t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.PublisherEnabled {
+		t.Fatal("PublisherEnabled = false, want true")
+	}
+	if cfg.GeminiAPIKey != env["GEMINI_API_KEY"] {
+		t.Errorf("GeminiAPIKey = %q, want %q", cfg.GeminiAPIKey, env["GEMINI_API_KEY"])
+	}
+	if cfg.GeminiTextModel != env["GEMINI_TEXT_MODEL"] || cfg.GeminiImageModel != env["GEMINI_IMAGE_MODEL"] || cfg.GeminiVisionModel != env["GEMINI_VISION_MODEL"] {
+		t.Errorf("Gemini model fields = %+v", cfg)
+	}
+	if cfg.AWSRegion != env["AWS_REGION"] || cfg.S3Bucket != env["S3_FEATURE_IMAGE_BUCKET"] ||
+		cfg.S3Prefix != env["S3_FEATURE_IMAGE_PREFIX"] || cfg.S3PublicURL != env["S3_FEATURE_IMAGE_PUBLIC_URL"] {
+		t.Errorf("S3 fields = %+v", cfg)
+	}
+}
+
+func TestConfigFormattingRedactsGeminiAPIKey(t *testing.T) {
+	const key = "secret-gemini-key-that-must-never-be-formatted"
+	cfg := Config{Mode: ModeDevelopment, Address: DefaultAddress, DatabasePath: "/tmp/synthetic.db", GeminiAPIKey: key}
+	for _, formatted := range []string{fmt.Sprint(cfg), fmt.Sprintf("%+v", cfg), fmt.Sprintf("%#v", cfg)} {
+		if strings.Contains(formatted, key) {
+			t.Fatalf("formatted config leaked Gemini API key: %s", formatted)
+		}
+	}
+}
+
+// publisherEnv returns a full set of env values sufficient for
+// PUBLISHER_ENABLED=1 to pass validation.
+func publisherEnv() map[string]string {
+	return map[string]string{
+		"JWT_SECRET":                  "x",
+		"PUBLISHER_ENABLED":           "1",
+		"PUBLISHER_INTERVAL":          "1m",
+		"GEMINI_API_KEY":              "synthetic-gemini-key",
+		"GEMINI_TEXT_MODEL":           "text-model",
+		"GEMINI_IMAGE_MODEL":          "image-model",
+		"GEMINI_VISION_MODEL":         "vision-model",
+		"AWS_REGION":                  "us-east-1",
+		"S3_FEATURE_IMAGE_BUCKET":     "bucket",
+		"S3_FEATURE_IMAGE_PREFIX":     "features",
+		"S3_FEATURE_IMAGE_PUBLIC_URL": "https://images.example.invalid",
+	}
+}
