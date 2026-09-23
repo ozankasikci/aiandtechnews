@@ -78,7 +78,7 @@ Line numbers are in `apps/server/src/newsletter/service.ts` unless noted.
 Each is pinned by a test (named in brackets). Changing any of them needs a separately reviewed contract change, ideally after cutover.
 
 1. **Signup reactivates anyone, immediately, without email confirmation** (commit `1a244d8`), including an address that unsubscribed; `confirmed_at` keeps its first value. [`TestSubscribeReplaysNodesSignupScenario`]
-2. **The signup throttle is global, not per client:** 30 attempts in any rolling minute across everyone, invalid addresses included (a malformed JSON body is rejected by `express.json()` first and not counted). One client can therefore make signup answer `429` for everybody. [`TestSignupThrottleIsNodesGlobalRollingMinute`]
+2. **changed (approved, see "Approved changes"): the signup throttle is per client IP.** Node's 30 attempts per rolling minute were global, so one client could make signup answer `429` for everybody. Kept: the window, the limit of 30, counting invalid addresses, not counting refused attempts or malformed JSON bodies, and the `429` body. [`TestSignupThrottleIsNodesRollingMinute`, `TestSignupLimitIsPerClientIP`]
 3. **The confirm route stays live** for links from the old double opt-in emails, although nothing mints confirm tokens any more; confirming sends the welcome email. [`TestConfirmAndUnsubscribeReplayNodeWithNodeMintedTokens`, contract replay]
 4. **Unsubscribe tokens never expire**, and verification accepts a token followed by `.` or `..anything` (the third `.`-segment only has to be empty), decodes the payload as leniently as `Buffer.from(…, "base64url")` (both alphabets, invalid characters skipped, stops at `=`), accepts `v: 1.0` and `id: 1e2`, and compares `exp` in whole seconds. [`TestVerifyTokenMatchesNode`, `TestNodeBase64DecodingIsLenientLikeBuffer`]
 5. **A valid unsubscribe token unsubscribes pending subscribers too.** [`TestConfirmAndUnsubscribeReplayNodeWithNodeMintedTokens`]
@@ -87,7 +87,7 @@ Each is pinned by a test (named in brackets). Changing any of them needs a separ
 8. **A rerun of the same edition rewrites its archived subject and articles** (keeping `created_at`), so the archive shows the latest selection even when earlier recipients got a different one. [`TestDigestDeliveryStatesAndRetriesMatchNode`]
 9. **`sent_at` is the digest's start time,** not the send time; the delivery's `created_at` is kept on retries. [`TestDigestDeliveryStatesAndRetriesMatchNode`]
 10. **`sending` and `failed` deliveries are retried by the next run** with the same idempotency key (crash recovery); only `sent` is skipped. Duplicate protection beyond this process is Resend's 24-hour idempotency window. [`TestDigestDeliveryStatesAndRetriesMatchNode`]
-11. **Retry classes:** only `429` and `>= 500` are retried; a `2xx` without an id, any other status, and transport errors (`fetch failed`) fail at once. `Retry-After` is `Number()`-parsed (`0x2`, `1e1`, ` 3 ` work; HTTP dates do not) and not capped, except that, like `setTimeout`, anything above 2^31-1 ms (or below 1 ms) waits 1 ms. A JSON `null` body is retried and then fails with V8's `Cannot read properties of null (reading 'message')`. [`TestResendSenderMatchesNodeRequestsRetriesAndErrors`, `TestResendRetryDelayFollowsNodeTimers`]
+11. **Retry classes:** only `429` and `>= 500` are retried; a `2xx` without an id, any other status, and transport errors (`fetch failed`) fail at once. `Retry-After` is `Number()`-parsed (`0x2`, `1e1`, ` 3 ` work; HTTP dates do not), waits at least 1 ms like `setTimeout`, and (changed, approved) at most 60s; Node did not cap it. A JSON `null` body is retried and then fails with V8's `Cannot read properties of null (reading 'message')`. [`TestResendSenderMatchesNodeRequestsRetriesAndErrors`, `TestResendRetryDelayFollowsNodeTimers`]
 12. **Unconfigured delivery is not an error for the digest:** without `RESEND_API_KEY`/`NEWSLETTER_FROM` every delivery is recorded `failed` with `Newsletter delivery is not configured` and the route answers `200 {"success":false,…}`; only a missing token secret answers `503`. [`TestUnconfiguredDeliveryFailsEachDeliveryLikeNode`]
 13. **The bare cron secret is accepted** without `Bearer ` (Node only strips the prefix when present); `bearer` in any case and any whitespace run work; an empty or blank configured secret refuses everything. [`TestDigestAuthorizationMatchesNode`]
 14. **`limit` parsing:** `parseInt` semantics (`1e3` → 1, `7abc` → 7, `-3` → clamped to 1, `?limit=5&limit=9` → 5, `?limit=&limit=9` → 30), clamped to 1..100. [`TestEditionsLimitIsParsedLikeNode`, `TestEditionsReplayNode`]
@@ -115,11 +115,19 @@ None of these is visible in the recorded contracts.
 | A truthy non-string Resend `id` (`{"id":5}`) | stored as a number | stored as its JavaScript string (`"5"`) |
 | A lone surrogate in a slug (`encodeURIComponent`) | throws `URIError` | encoded as U+FFFD |
 | Unicode case mappings newer than Go's tables (Unicode 16 in Node 22, 15.0 in Go 1.25) | mapped | unchanged (the exhaustive test skips only code points Go does not assign) |
+| Shutdown | the process dies | digest runs and welcome emails are bound to the service lifecycle: shutdown cancels them (an interrupted send is recorded `failed` with `context canceled` and retried with the same key), a digest queued behind another gives up, and `App.Run` waits up to 15s after the HTTP server stops for their outcomes (`Service.Wait`) |
+| Transport failure logs | `console.error` of the error | the stored text stays `fetch failed`; the log carries the cause (`fetchError.LogValue`), never a recipient address |
 | `HEAD` on the GET routes | answered by Express | `405` (router-wide convention of the earlier slices) |
 
-## Approved changes
+## Approved changes (user decisions after review, 2026-09-24)
 
-None. Every contract-visible behavior is Node's; the Go-only rows above are robustness or transport conventions.
+These deliberately diverge from Node; they were applied as follow-up commits on `go-newsletter` (see "Follow-up after review").
+
+1. **Signup throttle per client IP with a global ceiling** (`internal/newsletter/signup_limit.go`). 30 attempts per rolling minute per client IP (Node: in total) and at most 300 per minute across all clients; a refused attempt is counted in neither; the answer stays `429 {"error":"Too many signup attempts. Please try again shortly."}`. The client IP is `RemoteAddr`, except that a loopback peer (the tunnel/reverse proxy on the same host) is replaced by the first `X-Forwarded-For` address when it parses; addresses are normalized with `netip` (IPv4-mapped IPv6 unmapped, zones dropped, canonical IPv6). The table holds at most 10,000 clients: on insert into a full table, idle clients (no attempt in the window) are evicted, then the least recently seen. Caveat: the website's `/api/subscribe` route calls the API from Vercel without forwarding the visitor's address, so website signups share one bucket until that route forwards `X-Forwarded-For`. [`TestSignupLimitIsPerClientIP`, `TestForwardedForIsTrustedOnlyFromLoopback`, `TestSignupHasAGlobalCeiling`, `TestSignupLimiterBoundsTrackedClients`]
+2. **`Retry-After` capped at 60s** (`maxRetryDelay` in `resend.go`). [`TestResendRetryDelayFollowsNodeTimers`]
+3. **Dashboard publish time round trip** (`apps/dashboard`, not the API). The edit page filled its `datetime-local` picker with UTC digits and both editor pages sent the picked wall-clock time without an offset, which the API reads in the server's zone, so every re-save shifted `published_at`. `apps/dashboard/lib/dates.ts` now shows stored values in the browser's zone (SQLite timestamps as UTC, like the API), sends picked values as `toISOString()` (`…Z`), and the edit page sends the stored value unchanged when the picker was not touched. Node and Go parse `…Z` identically, whatever their `TZ`. [`TestDashboardISOTimestampsAreTheSameInstantInEveryZone`; the helpers were checked in Node under `Europe/Istanbul` and `America/New_York`]
+
+Kept as Node parity by decision: unsubscribe tokens never expire, and signup reactivates unsubscribed addresses.
 
 ## Cutover checklist
 
@@ -138,6 +146,8 @@ None. Every contract-visible behavior is Node's; the Go-only rows above are robu
 - Cutover itself (migration task 14).
 
 ## Open questions for the user (Node behaviors that look like bugs)
+
+Decided on 2026-09-24: 1 and unsubscribe-token expiry are kept (parity); 2, 3, and 5 were changed (see "Approved changes"); 4 remains open.
 
 1. **Signup reactivates unsubscribed addresses without consent.** Anyone who knows an address can resubscribe it with one request; with double opt-in gone there is no confirmation. Keep (parity), or require the unsubscribe to be honoured unless the owner confirms?
 2. **The global signup throttle is a denial-of-service lever** (30 requests a minute from one client block signup for everyone). Make it per IP (behind Vercel, the forwarded IP) or keep it?
@@ -7092,3 +7102,21 @@ git commit -m "Document the Go newsletter port"
 - The digest never leaves a row `sending` because of Go's own cancellation (`TestShutdownStopsTheDigestBetweenDeliveries`).
 - Migration 6 is `IF NOT EXISTS` throughout and leaves a Node-created schema byte-identical (`TestNewsletterMigrationSQLKeepsTablesNodeAlreadyCreated`).
 - The branch has exactly the twelve commits above, with those messages and no co-author trailers.
+
+---
+
+## Follow-up after review (applied on `go-newsletter`)
+
+Each item was test-first where it changes behavior; the commits follow the twelve task commits.
+
+| Commit message | Change | Tests |
+|---|---|---|
+| Cap Resend Retry-After waits at 60 seconds and log transport failure causes | `maxRetryDelay`; `fetchError.LogValue` | `TestResendRetryDelayFollowsNodeTimers`, `TestFetchErrorsLogTheirCauseButStoreNodesMessage` |
+| Decode the edition route parameter once, like Express | unescape `chi.URLParam` only when `r.URL.RawPath` is set, so `/editions/100%25` looks up `100%` (404) instead of answering 400 | `TestEditionKeyIsDecodedOnceLikeExpress` |
+| Bind welcome emails to shutdown, track in-flight newsletter work, and let queued digests exit at shutdown | `Service.begin` (detached from the request, cancelled by the lifecycle, counted in flight), `Service.Wait`, the digest lock as a one-slot channel selected against the run context | `TestShutdownDuringASendRecordsAFailureAndTheRetryReusesTheKey`, `TestQueuedDigestRunsExitAtShutdown`, `TestWaitReturnsOnceInFlightRunsEnd`, `TestShutdownCancelsTheWelcomeEmail` |
+| Wait for in-flight newsletter work after the server stops | `App.Run` → `run(ctx, serve)`; after the server and background tasks stop, `Service.Wait` with `newsletterDrainTimeout` (15s), before the other drains | `TestRunWaitsForAnInFlightDigestAfterTheServerStops` (via `app.RunWithServeForTest`, no listener) |
+| Limit newsletter signups per client IP with a global ceiling | Approved change 1 | see above |
+| Keep an article's publish time when the dashboard editor saves it | Approved change 3 (dashboard; `tsc --noEmit` clean) | helper round trip checked in Node |
+| Pin that ISO timestamps from the dashboard parse the same in every zone | Go test only | `TestDashboardISOTimestampsAreTheSameInstantInEveryZone` |
+| Pin that migration 6 fails on a subscribers table without status | Go test only | `TestNewsletterMigrationFailsOnASubscribersTableWithoutStatus` |
+| Document the newsletter review follow-ups | README (approved changes, shutdown, same-day re-runs, supported databases) and this plan | |
