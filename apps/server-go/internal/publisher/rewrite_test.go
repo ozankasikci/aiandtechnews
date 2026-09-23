@@ -111,6 +111,17 @@ func TestRewriteClassifiesGeminiErrors(t *testing.T) {
 	}
 }
 
+func TestClassifyGeminiErrorImageBlocks(t *testing.T) {
+	blocked := fmt.Errorf("%w: %w (blocked: %q, finishReason: %q)", gemini.ErrNoImage, gemini.ErrBlocked, "", "IMAGE_SAFETY")
+	if err := publisher.ClassifyGeminiError(blocked); !publisher.IsPermanent(err) || publisher.IsSystemFault(err) {
+		t.Fatalf("blocked image: err=%v, want permanent", err)
+	}
+	noImage := fmt.Errorf("%w (blocked: %q, finishReason: %q)", gemini.ErrNoImage, "", "STOP")
+	if err := publisher.ClassifyGeminiError(noImage); publisher.IsPermanent(err) || publisher.IsSystemFault(err) {
+		t.Fatalf("plain no image: err=%v, want transient", err)
+	}
+}
+
 // nodeRewritePrompt reads the basePrompt template literal from the Node
 // importer and fills it the way Node would for the given input.
 func nodeRewritePrompt(t *testing.T, in publisher.RewriteInput) string {

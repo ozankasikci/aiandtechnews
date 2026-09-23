@@ -166,3 +166,34 @@ func TestReviewImageSendsSchemaAndReturnsText(t *testing.T) {
 		t.Fatalf("text=%q err=%v", text, err)
 	}
 }
+
+func TestGenerateImageBlockedIsBothNoImageAndBlocked(t *testing.T) {
+	for name, body := range map[string]string{
+		"prompt feedback":    `{"candidates":[],"promptFeedback":{"blockReason":"OTHER"}}`,
+		"safety":             `{"candidates":[{"finishReason":"SAFETY","content":{"parts":[]}}]}`,
+		"image safety":       `{"candidates":[{"finishReason":"IMAGE_SAFETY","content":{"parts":[]}}]}`,
+		"prohibited content": `{"candidates":[{"finishReason":"PROHIBITED_CONTENT","content":{"parts":[]}}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			_, err := gemini.New("k", "", gemini.WithBaseURL(server.URL)).GenerateImage(context.Background(), "draw", nil)
+			if !errors.Is(err, gemini.ErrNoImage) || !errors.Is(err, gemini.ErrBlocked) {
+				t.Fatalf("err = %v, want ErrNoImage and ErrBlocked", err)
+			}
+		})
+	}
+}
+
+func TestGenerateImageWithoutImageIsNotBlocked(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"no image today"}]}}]}`))
+	}))
+	defer server.Close()
+	_, err := gemini.New("k", "", gemini.WithBaseURL(server.URL)).GenerateImage(context.Background(), "draw", nil)
+	if !errors.Is(err, gemini.ErrNoImage) || errors.Is(err, gemini.ErrBlocked) {
+		t.Fatalf("err = %v, want ErrNoImage only", err)
+	}
+}

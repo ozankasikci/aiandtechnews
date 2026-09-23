@@ -207,8 +207,13 @@ func (c *Client) GenerateImage(ctx context.Context, prompt string, reference *In
 		return nil, err
 	}
 	finish := ""
+	blocked := response.PromptFeedback.BlockReason != ""
 	for _, candidate := range response.Candidates {
 		if finish == "" {
+			finish = candidate.FinishReason
+		}
+		if blockingFinishReasons[candidate.FinishReason] {
+			blocked = true
 			finish = candidate.FinishReason
 		}
 		for _, part := range candidate.Content.Parts {
@@ -226,8 +231,15 @@ func (c *Client) GenerateImage(ctx context.Context, prompt string, reference *In
 			}
 		}
 	}
+	if blocked {
+		return nil, fmt.Errorf("%w: %w (blocked: %q, finishReason: %q)", ErrNoImage, ErrBlocked, response.PromptFeedback.BlockReason, finish)
+	}
 	return nil, fmt.Errorf("%w (blocked: %q, finishReason: %q)", ErrNoImage, response.PromptFeedback.BlockReason, finish)
 }
+
+// blockingFinishReasons are candidate finish reasons that mean the safety
+// filters withheld the image, so regenerating the same prompt will not help.
+var blockingFinishReasons = map[string]bool{"SAFETY": true, "IMAGE_SAFETY": true, "PROHIBITED_CONTENT": true}
 
 // ReviewImage sends a JPEG with a prompt to the vision model (temperature 0,
 // JSON output constrained by schema) and returns the joined text.
