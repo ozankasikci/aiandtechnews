@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -132,6 +133,28 @@ func TestNewPublisherNotifierChoosesIndexNowOnlyWhenEnabled(t *testing.T) {
 }
 
 type unusedObjectAPI struct{ media.ObjectAPI }
+
+// TestIndexNowDisabledLogsOnceForBothNotifiers guards the single startup log
+// line: with IndexNowEnabled false and the publisher on (so both the
+// publisher and dashboard notifiers are built), the composition must log
+// exactly once, not once per notifier.
+func TestIndexNowDisabledLogsOnceForBothNotifiers(t *testing.T) {
+	stubPublisherStorage(t, func(context.Context, config.Config) (media.ObjectAPI, error) { return unusedObjectAPI{}, nil })
+	cfg := publisherConfig(t)
+	cfg.IndexNowEnabled = false
+	db, _ := testutil.OpenDatabase(t)
+	var logs bytes.Buffer
+	if _, err := NewWithDatabase(cfg, slog.New(slog.NewTextHandler(&logs, nil)), db); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Count(logs.String(), "IndexNow disabled")
+	if got != 1 {
+		t.Fatalf("IndexNow disabled log lines = %d, want 1; logs = %s", got, logs.String())
+	}
+	if !strings.Contains(logs.String(), "published and dashboard-changed URLs will not be submitted") {
+		t.Fatalf("log did not cover both notifiers: %s", logs.String())
+	}
+}
 
 func TestNewWithDatabaseWiresPublisherWhenStorageCheckPasses(t *testing.T) {
 	stubPublisherStorage(t, func(context.Context, config.Config) (media.ObjectAPI, error) { return unusedObjectAPI{}, nil })

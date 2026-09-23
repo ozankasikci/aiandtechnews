@@ -91,6 +91,9 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		newsroomCollector = feedCollector
 	}
 	newsroomHandler := newsroom.NewHandler(newsroomService, newsroomCollector, logger)
+	if !cfg.IndexNowEnabled {
+		logger.Info("IndexNow disabled; published and dashboard-changed URLs will not be submitted")
+	}
 	dashboardIndexNow, drainIndexNow := newDashboardIndexNow(cfg, logger)
 	dashboardContent := content.NewAdminHandler(content.NewAdminService(contentStore, now), dashboardIndexNow, logger)
 	dashboardSettings := settings.NewHandler(settings.NewService(settings.NewSQLiteStore(db)), logger)
@@ -146,12 +149,12 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 // newPublisherNotifier chooses the publisher's IndexNow notifier. A local dev
 // publish must never ping IndexNow for an article that only exists in a dev
 // database, so submission is opt-in via INDEXNOW_ENABLED; when it is off, a
-// no-op notifier is used instead and a single startup log line explains why.
+// no-op notifier is used instead. The startup log explaining that covers both
+// this and the dashboard notifier is logged once by the caller.
 func newPublisherNotifier(cfg config.Config, logger *slog.Logger) publisher.Notifier {
 	if cfg.IndexNowEnabled {
 		return indexnow.New()
 	}
-	logger.Info("IndexNow disabled; published URLs will not be submitted")
 	return publisher.NoopNotifier{}
 }
 

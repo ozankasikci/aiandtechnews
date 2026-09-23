@@ -30,7 +30,7 @@ func (s *blockingSubmitter) SubmitSlugs(ctx context.Context, slugs []string) err
 	return s.err
 }
 
-func TestIndexNowQueueNeverBlocksTheCallerAndDrainsOnWait(t *testing.T) {
+func TestIndexNowQueueNeverBlocksTheCallerAndDrainsOnClose(t *testing.T) {
 	submitter := &blockingSubmitter{release: make(chan struct{})}
 	queue := newIndexNowQueue(submitter, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	slugs := []string{"a", "b"}
@@ -50,12 +50,12 @@ func TestIndexNowQueueNeverBlocksTheCallerAndDrainsOnWait(t *testing.T) {
 
 	drained := make(chan struct{})
 	go func() {
-		queue.Wait()
+		queue.Close()
 		close(drained)
 	}()
 	select {
 	case <-drained:
-		t.Fatal("Wait returned before the submission finished")
+		t.Fatal("Close returned before the submission finished")
 	case <-time.After(50 * time.Millisecond):
 	}
 	close(submitter.release)
@@ -71,10 +71,52 @@ func TestIndexNowQueueLogsFailuresWithoutPropagating(t *testing.T) {
 	close(submitter.release)
 	queue := newIndexNowQueue(submitter, slog.New(slog.NewTextHandler(&logs, nil)))
 	queue.Notify([]string{"a"})
-	queue.Wait()
+	queue.Close()
 	if !strings.Contains(logs.String(), "IndexNow notification failed") || !strings.Contains(logs.String(), "403") {
 		t.Fatalf("logs = %q", logs.String())
 	}
+}
+
+func TestIndexNowQueueDropsNotifyAfterClose(t *testing.T) {
+	var logs bytes.Buffer
+	submitter := &blockingSubmitter{release: make(chan struct{})}
+	close(submitter.release)
+	queue := newIndexNowQueue(submitter, slog.New(slog.NewTextHandler(&logs, nil)))
+	queue.Close()
+
+	queue.Notify([]string{"late"})
+
+	if !strings.Contains(logs.String(), "IndexNow notification dropped after shutdown") {
+		t.Fatalf("logs = %q", logs.String())
+	}
+	submitter.mu.Lock()
+	defer submitter.mu.Unlock()
+	if len(submitter.calls) != 0 {
+		t.Fatalf("submitter.calls = %v, want none for a post-close Notify", submitter.calls)
+	}
+}
+
+func TestIndexNowQueueCloseAbandonsAfterDeadline(t *testing.T) {
+	var logs bytes.Buffer
+	submitter := &blockingSubmitter{release: make(chan struct{})}
+	queue := newIndexNowQueue(submitter, slog.New(slog.NewTextHandler(&logs, nil)))
+	queue.drainDeadline = 20 * time.Millisecond
+	queue.Notify([]string{"a"})
+
+	closed := make(chan struct{})
+	go func() {
+		queue.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return after its drain deadline expired")
+	}
+	if !strings.Contains(logs.String(), "IndexNow drain deadline exceeded") || !strings.Contains(logs.String(), "abandoned") {
+		t.Fatalf("logs = %q", logs.String())
+	}
+	close(submitter.release) // let the leaked goroutine finish so it doesn't outlive the test
 }
 
 func TestNewDashboardIndexNowHonorsIndexNowEnabled(t *testing.T) {
