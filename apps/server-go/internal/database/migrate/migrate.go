@@ -21,6 +21,20 @@ import (
 
 const rollbackTimeout = 2 * time.Second
 
+// ledgerSchema is the migration ledger's DDL, shared by Run and Adopt.
+const ledgerSchema = `CREATE TABLE schema_migrations (
+			version INTEGER PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			checksum TEXT NOT NULL,
+			applied_at TEXT NOT NULL
+		)`
+
+func recordMigration(ctx context.Context, conn *sql.Conn, descriptor Descriptor) error {
+	_, err := conn.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum, applied_at)
+			VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`, descriptor.Version, descriptor.Name, descriptor.Checksum())
+	return err
+}
+
 var (
 	ErrInvalidDescriptors = errors.New("invalid migration descriptors")
 	ErrIncompatibleLedger = errors.New("incompatible migration ledger")
@@ -93,12 +107,7 @@ func Run(ctx context.Context, db *sql.DB, descriptors []Descriptor) (err error) 
 		if !managed {
 			return ErrUnmanagedDatabase
 		}
-		if _, err := conn.ExecContext(ctx, `CREATE TABLE schema_migrations (
-			version INTEGER PRIMARY KEY,
-			name TEXT NOT NULL UNIQUE,
-			checksum TEXT NOT NULL,
-			applied_at TEXT NOT NULL
-		)`); err != nil {
+		if _, err := conn.ExecContext(ctx, ledgerSchema); err != nil {
 			return fmt.Errorf("create migration ledger: %w", err)
 		}
 	} else if err := validateLedger(ctx, conn); err != nil {
@@ -138,8 +147,7 @@ func Run(ctx context.Context, db *sql.DB, descriptors []Descriptor) (err error) 
 		if _, err := conn.ExecContext(ctx, descriptor.SQL); err != nil {
 			return fmt.Errorf("apply migration %d (%s): %w", descriptor.Version, descriptor.Name, err)
 		}
-		if _, err := conn.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, checksum, applied_at)
-			VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`, descriptor.Version, descriptor.Name, descriptor.Checksum()); err != nil {
+		if err := recordMigration(ctx, conn, descriptor); err != nil {
 			return fmt.Errorf("record migration %d (%s): %w", descriptor.Version, descriptor.Name, err)
 		}
 	}
@@ -353,12 +361,14 @@ func isSQLWordByte(value byte) bool {
 		value >= '0' && value <= '9' || value == '_'
 }
 
-type queryer interface {
+// Queryer is the read access the runner (and Adopt's verify callback) uses.
+// *sql.DB, *sql.Conn, and *sql.Tx satisfy it.
+type Queryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func ledgerExists(ctx context.Context, q queryer) (bool, error) {
+func ledgerExists(ctx context.Context, q Queryer) (bool, error) {
 	var kind string
 	err := q.QueryRowContext(ctx, `SELECT type FROM sqlite_schema WHERE name = 'schema_migrations'`).Scan(&kind)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -373,7 +383,7 @@ func ledgerExists(ctx context.Context, q queryer) (bool, error) {
 	return true, nil
 }
 
-func databaseIsEmpty(ctx context.Context, q queryer) (bool, error) {
+func databaseIsEmpty(ctx context.Context, q Queryer) (bool, error) {
 	var count int
 	err := q.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema
 		WHERE type IN ('table', 'view', 'trigger')
@@ -392,7 +402,7 @@ type columnInfo struct {
 	pk       int
 }
 
-func validateLedger(ctx context.Context, q queryer) error {
+func validateLedger(ctx context.Context, q Queryer) error {
 	rows, err := q.QueryContext(ctx, `PRAGMA table_info('schema_migrations')`)
 	if err != nil {
 		return fmt.Errorf("%w: inspect columns: %w", ErrIncompatibleLedger, err)
@@ -438,7 +448,7 @@ func boolInt(value bool) int {
 	return 0
 }
 
-func hasUniqueNameIndex(ctx context.Context, q queryer) (bool, error) {
+func hasUniqueNameIndex(ctx context.Context, q Queryer) (bool, error) {
 	rows, err := q.QueryContext(ctx, `PRAGMA index_list('schema_migrations')`)
 	if err != nil {
 		return false, fmt.Errorf("%w: inspect indexes: %w", ErrIncompatibleLedger, err)
@@ -492,7 +502,7 @@ func hasUniqueNameIndex(ctx context.Context, q queryer) (bool, error) {
 
 type appliedRecord struct{ name, checksum string }
 
-func readApplied(ctx context.Context, q queryer) (map[int64]appliedRecord, []int64, int64, error) {
+func readApplied(ctx context.Context, q Queryer) (map[int64]appliedRecord, []int64, int64, error) {
 	rows, err := q.QueryContext(ctx, `SELECT version, name, checksum, applied_at FROM schema_migrations ORDER BY version`)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("read migration ledger: %w", err)
