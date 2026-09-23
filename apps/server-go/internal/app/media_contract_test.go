@@ -226,6 +226,7 @@ UNION SELECT url FROM media WHERE url LIKE '/uploads/%'`)
 		if response.Code != http.StatusOK || response.Body.String() != "synthetic contract media\n" ||
 			response.Header().Get("Content-Type") != "image/png" ||
 			response.Header().Get("Cache-Control") != "public, max-age=0" ||
+			response.Header().Get("X-Content-Type-Options") != "nosniff" ||
 			response.Header().Get("Access-Control-Allow-Origin") != "*" {
 			t.Errorf("GET %s = %d %q %v", url, response.Code, response.Body.String(), response.Header())
 		}

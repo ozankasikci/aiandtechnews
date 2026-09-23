@@ -158,15 +158,14 @@ func TestUploadNamesAndMIMETypesMatchNode(t *testing.T) {
 		wantFilename, wantMIME string
 		wantExtension          string
 	}{
-		{"no extension", part{filename: "noext", contentType: "image/png"}, "noext", "image/png", ""},
 		{"extension case is kept", part{filename: "A.Photo.JPEG", contentType: "image/jpeg"}, "A.Photo.JPEG", "image/jpeg", ".JPEG"},
-		{"any extension is kept", part{filename: "evil.html", contentType: "image/png"}, "evil.html", "image/png", ".html"},
+		{".jpg is a JPEG", part{filename: "photo.jpg", contentType: "image/jpeg"}, "photo.jpg", "image/jpeg", ".jpg"},
+		{"mixed-case .Png is a PNG", part{filename: "shot.Png", contentType: "image/png"}, "shot.Png", "image/png", ".Png"},
+		{"GIF", part{filename: "anim.GIF", contentType: "image/gif"}, "anim.GIF", "image/gif", ".GIF"},
 		{"path is stripped", part{filename: "../../x.png", contentType: "image/png"}, "x.png", "image/png", ".png"},
 		{"backslash path is stripped", part{filename: `C:\dir\y.gif`, contentType: "image/gif"}, "y.gif", "image/gif", ".gif"},
 		{"UTF-8 name is decoded as latin1", part{filename: "café.webp", contentType: "image/webp"}, "cafÃ©.webp", "image/webp", ".webp"},
 		{"filename* is decoded", part{rawDisposition: `Content-Disposition: form-data; name="file"; filename*=UTF-8''caf%C3%A9.png`, contentType: "image/png"}, "café.png", "image/png", ".png"},
-		{"dotfile name has no extension", part{filename: ".png", contentType: "image/png"}, ".png", "image/png", ""},
-		{"trailing dot", part{filename: "a.", contentType: "image/png"}, "a.", "image/png", "."},
 		{"MIME type is lowercased", part{filename: "u.png", contentType: "IMAGE/PNG"}, "u.png", "image/png", ".png"},
 		{"MIME parameters are dropped", part{filename: "p.png", contentType: "image/png; charset=binary"}, "p.png", "image/png", ".png"},
 	} {
@@ -239,6 +238,18 @@ func TestUploadRejectionsAnswer500WithMulterMessagesAndLeaveNoFiles(t *testing.T
 		{"no part content type", []part{{name: "file", filename: "n.png", content: "x"}}, invalidType},
 		{"octet-stream", []part{{name: "file", filename: "o.png", contentType: "application/octet-stream", content: "x"}}, invalidType},
 		{"malformed part content type", []part{{name: "file", filename: "m.png", contentType: "image/png; =", content: "x"}}, invalidType},
+		// Approved change (not Node parity): the original extension must be an
+		// image extension that matches the declared type. Node stored these.
+		{"html extension declared as png", []part{{name: "file", filename: "evil.html", contentType: "image/png", content: "<script>alert(1)</script>"}}, invalidType},
+		{"no extension", []part{{name: "file", filename: "noext", contentType: "image/png", content: "x"}}, invalidType},
+		{"dotfile name has no extension", []part{{name: "file", filename: ".png", contentType: "image/png", content: "x"}}, invalidType},
+		{"trailing dot", []part{{name: "file", filename: "a.", contentType: "image/png", content: "x"}}, invalidType},
+		{"svg extension declared as png", []part{{name: "file", filename: "s.svg", contentType: "image/png", content: "x"}}, invalidType},
+		{"png extension declared as jpeg", []part{{name: "file", filename: "p.png", contentType: "image/jpeg", content: "x"}}, invalidType},
+		{"jpeg extension declared as png", []part{{name: "file", filename: "p.jpeg", contentType: "image/png", content: "x"}}, invalidType},
+		{"gif extension declared as webp", []part{{name: "file", filename: "p.gif", contentType: "image/webp", content: "x"}}, invalidType},
+		{"double extension", []part{{name: "file", filename: "p.png.html", contentType: "image/png", content: "x"}}, invalidType},
+		{"type is checked before the size", []part{{name: "file", filename: "big.html", contentType: "image/png", content: strings.Repeat("a", media.MaxUploadBytes)}}, invalidType},
 		{"wrong field", []part{{name: "image", filename: "w.png", contentType: "image/png", content: "x"}}, `{"error":"Unexpected field"}`},
 		{"wrong field is checked before the type", []part{{name: "image", filename: "w.txt", contentType: "text/plain", content: "x"}}, `{"error":"Unexpected field"}`},
 		{"second file", []part{

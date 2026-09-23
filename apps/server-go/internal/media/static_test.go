@@ -60,6 +60,8 @@ func TestStaticServesUploadsWithSendHeaders(t *testing.T) {
 		"Accept-Ranges":  "bytes",
 		"Last-Modified":  "Wed, 23 Sep 2026 19:43:31 GMT",
 		"ETag":           fmt.Sprintf(`W/"15-%x"`, modified.UnixMilli()),
+		// Approved change (not Node parity): browsers must not sniff uploads.
+		"X-Content-Type-Options": "nosniff",
 	}
 	if response.Code != http.StatusOK || response.Body.String() != "synthetic image bytes" {
 		t.Fatalf("GET = %d %q", response.Code, response.Body.String())
@@ -106,8 +108,13 @@ func TestStaticContentTypeFollowsTheStoredExtensionLikeNode(t *testing.T) {
 		"a.gif":                                 "image/gif",
 	} {
 		writeUpload(t, filepath.Join(dir, name), "x", modified)
-		if got := serveStatic(handler, http.MethodGet, "/uploads/"+name, nil).Header().Get("Content-Type"); got != want {
+		response := serveStatic(handler, http.MethodGet, "/uploads/"+name, nil)
+		if got := response.Header().Get("Content-Type"); got != want {
 			t.Errorf("%s Content-Type = %q, want %q", name, got, want)
+		}
+		// Legacy files Node accepted (any extension) stay served, but never sniffed.
+		if got := response.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Errorf("%s X-Content-Type-Options = %q", name, got)
 		}
 	}
 }
@@ -157,7 +164,8 @@ func TestStaticNeverServesOutsideTheUploadsDirectory(t *testing.T) {
 	} {
 		response := serveStatic(handler, http.MethodGet, target, nil)
 		if response.Code != http.StatusNotFound || response.Body.String() != `{"error":"Not found"}` ||
-			response.Header().Get("Content-Type") != "application/json; charset=utf-8" {
+			response.Header().Get("Content-Type") != "application/json; charset=utf-8" ||
+			response.Header().Get("X-Content-Type-Options") != "nosniff" {
 			t.Errorf("GET %s = %d %q", target, response.Code, response.Body.String())
 		}
 	}

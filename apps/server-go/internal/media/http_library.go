@@ -22,13 +22,22 @@ const uploadField = "file"
 // streamed straight to disk.
 const maxUploadRequestBytes = MaxUploadBytes + 1<<20
 
-// allowedMIMETypes is upload.ts's fileFilter allowlist, compared with the
-// part's lowercased type/subtype (busboy drops parameters).
-var allowedMIMETypes = map[string]bool{
-	"image/jpeg": true,
-	"image/png":  true,
-	"image/webp": true,
-	"image/gif":  true,
+// allowedExtensions is upload.ts's fileFilter MIME allowlist (the part's
+// lowercased type/subtype; busboy drops parameters), extended by an approved
+// change: the original name's extension, compared case-insensitively, must be
+// an image extension matching that type. Node checked the type only, so a
+// file named evil.html declared as image/png was stored and served as HTML.
+var allowedExtensions = map[string]map[string]bool{
+	"image/jpeg": {".jpg": true, ".jpeg": true},
+	"image/png":  {".png": true},
+	"image/webp": {".webp": true},
+	"image/gif":  {".gif": true},
+}
+
+// acceptedImage reports whether the declared type and the original name pass
+// the upload filter. The stored name keeps the extension's original case.
+func acceptedImage(mimeType, originalName string) bool {
+	return allowedExtensions[mimeType][strings.ToLower(nodeExtname(originalName))]
 }
 
 // Messages of the multer errors that Express turns into a 500 page.
@@ -138,7 +147,8 @@ type receivedUpload struct {
 //     application/octet-stream part); an empty name after busboy's basename is
 //     skipped, as multer ignores files without a name;
 //   - a file in any field but "file", or a second one there, is "Unexpected
-//     field"; then the MIME allowlist applies; then the size limit;
+//     field"; then the type filter applies (Node's MIME allowlist plus the
+//     approved extension match); then the size limit;
 //   - text fields are ignored.
 //
 // Parts are streamed; only the accepted file touches the disk, and it is
@@ -185,7 +195,7 @@ func (h *Handler) receive(w http.ResponseWriter, r *http.Request) (receivedUploa
 			return fail(&uploadError{messageUnexpectedField})
 		}
 		partType := partMIMEType(part.Header.Get("Content-Type"))
-		if !allowedMIMETypes[partType] {
+		if !acceptedImage(partType, filename) {
 			return fail(&uploadError{messageInvalidType})
 		}
 		file, err := h.files.Save(part, filename)

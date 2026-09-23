@@ -21,8 +21,13 @@ func (u *Uploads) MountStatic(router chi.Router) {
 // Content-Type table, "Cache-Control: public, max-age=0", a weak ETag of
 // W/"<size hex>-<mtime ms hex>", Last-Modified, byte ranges, and conditional
 // 304s. Missing files, directories, dotfiles (any segment starting with "."),
-// and anything outside the uploads directory answer 404.
+// and anything outside the uploads directory answer 404. Every response also
+// carries X-Content-Type-Options: nosniff (an approved change).
 func (u *Uploads) serve(w http.ResponseWriter, r *http.Request) {
+	// Approved change (not Node parity): no response from the uploads
+	// directory may be content-sniffed, including legacy files Node accepted
+	// with any extension.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	name, ok := staticName(r.URL.Path)
 	if !ok {
 		notFound(w)
