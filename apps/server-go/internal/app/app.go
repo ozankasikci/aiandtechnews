@@ -65,12 +65,18 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	editorialStore := editorial.NewSQLiteStore(db)
 	authors := editorial.NewPublicHandler(editorial.NewService(editorialStore), logger)
 	auth := editorial.NewAuthHandler(editorial.NewLoginService(editorialStore, editorial.NewBcryptVerifier(), tokens), tokens, logger)
+	newsroomService, err := newsroom.NewService(newsroom.NewSQLiteStore(db), now, newsroom.RandomMinutes)
+	if err != nil {
+		return nil, err
+	}
+	newsroomHandler := newsroom.NewHandler(newsroomService, nil, logger)
 	handler := httpserver.NewRouter(logger, func(router chi.Router) {
 		health.MountPublic(router)
 		articles.MountPublic(router)
 		categories.MountPublic(router)
 		authors.MountPublic(router)
 		auth.Mount(router)
+		newsroomHandler.Mount(router, auth.RequireAuth)
 	})
 	server := httpserver.NewServer(cfg.Address, handler, logger)
 	return &App{address: cfg.Address, handler: handler, server: server}, nil
