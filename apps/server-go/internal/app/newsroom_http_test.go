@@ -33,7 +33,7 @@ func newsroomApplication(t *testing.T) (http.Handler, *sql.DB, string) {
 	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4402", DatabasePath: filepath.Join(t.TempDir(), "unused.db"), JWTSecret: authTestSecret}
+	cfg := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4402", DatabasePath: filepath.Join(t.TempDir(), "unused.db"), JWTSecret: authTestSecret, UploadsDir: t.TempDir()}
 	clock := func() time.Time { return newsroomNow }
 	application, err := app.NewWithDatabaseAt(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), db, clock)
 	if err != nil {

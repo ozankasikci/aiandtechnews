@@ -22,7 +22,8 @@ import (
 )
 
 // dashboardContentOperations is every non-media dashboard operation in the
-// canonical Node fixture, in canonical order. Media (27-29) is plan 5b.
+// canonical Node fixture, in canonical order. Media (27-29) replays in
+// media_contract_test.go.
 var dashboardContentOperations = []string{
 	"dashboard.articles.list", "dashboard.articles.get", "dashboard.articles.create",
 	"dashboard.articles.update", "dashboard.articles.delete",
@@ -58,6 +59,13 @@ func seedContractSettings(t *testing.T, db *sql.DB) {
 // synthetic capture data.
 func dashboardApplication(t *testing.T) (http.Handler, *sql.DB) {
 	t.Helper()
+	handler, db, _ := dashboardApplicationWithUploads(t)
+	return handler, db
+}
+
+// dashboardApplicationWithUploads also returns the temporary uploads directory.
+func dashboardApplicationWithUploads(t *testing.T) (http.Handler, *sql.DB, string) {
+	t.Helper()
 	db, _ := testutil.OpenDatabase(t)
 	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {
 		t.Fatal(err)
@@ -65,12 +73,13 @@ func dashboardApplication(t *testing.T) (http.Handler, *sql.DB) {
 	seedContractArticles(t, db)
 	seedContractSettings(t, db)
 	fixed := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
-	cfg := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4402", DatabasePath: filepath.Join(t.TempDir(), "unused.db"), JWTSecret: authTestSecret}
+	uploads := t.TempDir()
+	cfg := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4402", DatabasePath: filepath.Join(t.TempDir(), "unused.db"), JWTSecret: authTestSecret, UploadsDir: uploads}
 	application, err := app.NewWithDatabaseAt(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), db, func() time.Time { return fixed })
 	if err != nil {
 		t.Fatal(err)
 	}
-	return application.Handler(), db
+	return application.Handler(), db, uploads
 }
 
 // contractBindings logs in through the recorded auth.login operation and
@@ -134,7 +143,8 @@ func TestDashboardContentMatchesApprovedNodeContractSequence(t *testing.T) {
 	}
 
 	// Canonical state: articles.getBySlug increments view_count 42 -> 43 before
-	// dashboard.articles.list is recorded. Newsletter (7-14) and media (27-29)
+	// dashboard.articles.list is recorded. Newsletter (7-14) and media (27-29,
+	// replayed by TestDashboardMediaMatchesApprovedNodeContractSequence)
 	// operations touch no table these operations read, so they are skipped.
 	previous := -1
 	for _, id := range []string{"articles.list", "articles.trending", "articles.getBySlug", "articles.getById", "categories.list", "authors.list"} {

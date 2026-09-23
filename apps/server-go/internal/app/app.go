@@ -69,6 +69,9 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	if cfg.UploadsDir == "" {
+		return nil, errors.New("uploads directory is required")
+	}
 	tokens, err := editorial.NewJWT(cfg.JWTSecret, now)
 	if err != nil {
 		return nil, err
@@ -97,6 +100,8 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	dashboardIndexNow, drainIndexNow := newDashboardIndexNow(cfg, logger)
 	dashboardContent := content.NewAdminHandler(content.NewAdminService(contentStore, now), dashboardIndexNow, logger)
 	dashboardSettings := settings.NewHandler(settings.NewService(settings.NewSQLiteStore(db)), logger)
+	uploads := media.NewUploads(cfg.UploadsDir)
+	dashboardMedia := media.NewHandler(media.NewLibrary(media.NewSQLiteLibrary(db), uploads, now), uploads, logger)
 	handler := httpserver.NewRouter(logger, func(router chi.Router) {
 		health.MountPublic(router)
 		articles.MountPublic(router)
@@ -110,8 +115,9 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			dashboard.Use(auth.RequireAuth)
 			dashboardContent.Mount(dashboard)
 			dashboardSettings.Mount(dashboard)
+			dashboardMedia.Mount(dashboard)
 		})
-	})
+	}, uploads.MountStatic)
 	server := httpserver.NewServer(cfg.Address, handler, logger)
 	application := &App{address: cfg.Address, handler: handler, server: server, drains: []func(){drainIndexNow}}
 	if feedCollector != nil {

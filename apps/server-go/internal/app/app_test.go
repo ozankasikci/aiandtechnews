@@ -41,7 +41,7 @@ func TestNewComposesHealthAPIWithoutOpeningDatabase(t *testing.T) {
 }
 
 func TestNewRejectsInvalidCompositionInputs(t *testing.T) {
-	valid := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4401", DatabasePath: filepath.Join(t.TempDir(), "dev.db"), JWTSecret: "synthetic-test-secret"}
+	valid := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4401", DatabasePath: filepath.Join(t.TempDir(), "dev.db"), JWTSecret: "synthetic-test-secret", UploadsDir: t.TempDir()}
 	if _, err := New(valid, nil); err == nil {
 		t.Fatal("New() with nil logger error = nil")
 	}
@@ -54,7 +54,7 @@ func TestNewRejectsInvalidCompositionInputs(t *testing.T) {
 }
 
 func TestNewWithDatabaseValidatesDependenciesWithoutDatabaseIOOrOwnership(t *testing.T) {
-	valid := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4401", DatabasePath: filepath.Join(t.TempDir(), "dev.db"), JWTSecret: "synthetic-test-secret"}
+	valid := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4401", DatabasePath: filepath.Join(t.TempDir(), "dev.db"), JWTSecret: "synthetic-test-secret", UploadsDir: t.TempDir()}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	if _, err := NewWithDatabase(valid, logger, nil); err == nil {
 		t.Fatal("NewWithDatabase() with nil database error = nil")
@@ -80,6 +80,12 @@ func TestNewWithDatabaseValidatesDependenciesWithoutDatabaseIOOrOwnership(t *tes
 	missingSecret.JWTSecret = ""
 	if _, err := NewWithDatabase(missingSecret, logger, db); err == nil {
 		t.Fatal("NewWithDatabase() with empty JWT secret error = nil")
+	}
+
+	missingUploads := valid
+	missingUploads.UploadsDir = ""
+	if _, err := NewWithDatabase(missingUploads, logger, db); err == nil || err.Error() != "uploads directory is required" {
+		t.Fatalf("NewWithDatabase() with no uploads directory error = %v", err)
 	}
 
 	if _, err := NewWithDatabaseAt(valid, logger, db, nil); err == nil {

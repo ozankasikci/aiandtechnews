@@ -84,7 +84,7 @@ func stubPublisherStorage(t *testing.T, open func(context.Context, config.Config
 
 func publisherConfig(t *testing.T) config.Config {
 	return config.Config{
-		Mode: config.ModeDevelopment, Address: "127.0.0.1:4401", DatabasePath: filepath.Join(t.TempDir(), "dev.db"), JWTSecret: "synthetic-test-secret",
+		Mode: config.ModeDevelopment, Address: "127.0.0.1:4401", DatabasePath: filepath.Join(t.TempDir(), "dev.db"), JWTSecret: "synthetic-test-secret", UploadsDir: t.TempDir(),
 		PublisherEnabled: true, PublisherInterval: time.Minute, GeminiAPIKey: "synthetic-gemini-key",
 		AWSRegion: "us-east-1", S3Bucket: "bucket", S3Prefix: "features", S3PublicURL: "https://images.example.invalid",
 	}
