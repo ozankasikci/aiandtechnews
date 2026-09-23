@@ -59,7 +59,7 @@ const (
 
 var ErrProductionDatabaseAlias = errors.New("production database path is forbidden outside APP_ENV=production")
 
-var ErrProductionUploadsAlias = errors.New("production uploads directory is forbidden outside APP_ENV=production")
+var ErrProductionUploadsAlias = errors.New("production uploads directory (or a directory overlapping it) is forbidden outside APP_ENV=production")
 
 type Config struct {
 	Mode         Mode
@@ -266,12 +266,31 @@ func (c Config) Validate() error {
 		if !filepath.IsAbs(c.UploadsDir) {
 			return fmt.Errorf("UPLOADS_DIR must be an absolute path, got %q", c.UploadsDir)
 		}
+		uploads, err := canonicalPath(c.UploadsDir)
+		if err != nil {
+			return fmt.Errorf("canonicalize UPLOADS_DIR: %w", err)
+		}
+		// The media library deletes files inside UPLOADS_DIR by name, so it
+		// must never contain the database (or be its directory).
+		if c.DatabasePath != "" {
+			database, err := canonicalPath(c.DatabasePath)
+			if err != nil {
+				return fmt.Errorf("canonicalize DATABASE_PATH: %w", err)
+			}
+			if pathWithin(database, uploads) {
+				return fmt.Errorf("UPLOADS_DIR must not contain DATABASE_PATH: %q contains %q", c.UploadsDir, c.DatabasePath)
+			}
+		}
 		if c.Mode != ModeProduction {
 			equivalent, err := pathsEquivalent(c.UploadsDir, ProductionUploadsDir)
 			if err != nil {
 				return fmt.Errorf("compare UPLOADS_DIR with production uploads directory: %w", err)
 			}
-			if equivalent {
+			production, err := canonicalPath(ProductionUploadsDir)
+			if err != nil {
+				return fmt.Errorf("canonicalize production uploads directory: %w", err)
+			}
+			if equivalent || pathWithin(uploads, production) || pathWithin(production, uploads) {
 				return fmt.Errorf("%w: %q", ErrProductionUploadsAlias, c.UploadsDir)
 			}
 		}
@@ -346,6 +365,15 @@ func (c Config) validateMediaS3() error {
 		return fmt.Errorf("MEDIA_S3_PREFIX must not overlap S3_FEATURE_IMAGE_PREFIX (%q)", features)
 	}
 	return nil
+}
+
+// pathWithin reports whether path is parent or lies below it (both
+// canonical). "/a/data" is not within "/a/dat".
+func pathWithin(path, parent string) bool {
+	if path == parent {
+		return true
+	}
+	return strings.HasPrefix(path, strings.TrimSuffix(parent, string(filepath.Separator))+string(filepath.Separator))
 }
 
 // pathsEquivalent compares canonical names first, then file identity when both

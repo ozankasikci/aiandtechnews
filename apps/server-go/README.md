@@ -10,7 +10,7 @@ Development configuration is deliberately isolated:
 
 - `SERVER_ADDR` defaults to `127.0.0.1:4401`.
 - `DATABASE_PATH` defaults to `data/technews.db` beneath the worktree root supplied by the composition root.
-- `UPLOADS_DIR` defaults to `data/uploads` beneath the worktree root (git-ignored). Production has no default: `cmd/api` refuses to start with `APP_ENV=production` unless `UPLOADS_DIR` is set explicitly. The Node MacBook uploads directory `/Users/ozan/Projects/technews/apps/server/uploads` (and any alias of it) is rejected unless `APP_ENV=production` is set.
+- `UPLOADS_DIR` defaults to `data/uploads` beneath the worktree root (git-ignored). Production has no default: `cmd/api` refuses to start with `APP_ENV=production` unless `UPLOADS_DIR` is set explicitly. The Node MacBook uploads directory `/Users/ozan/Projects/technews/apps/server/uploads` (any alias of it, and any directory above or below it) is rejected unless `APP_ENV=production` is set. `UPLOADS_DIR` must be absolute and must never contain `DATABASE_PATH` (it may not be the database's directory or an ancestor of it), in every mode.
 - Ports `3001` and `3002` are always rejected. Port `4001` and `/Users/ozan/Projects/technews/apps/server/data/technews.db` are rejected unless `APP_ENV=production` is explicitly set.
 - Development and tests must never use the production checkout or database. Tests should use temporary databases.
 

@@ -75,3 +75,45 @@ func TestConfigFormattingIncludesUploadsDir(t *testing.T) {
 		t.Fatalf("String() = %s", cfg.String())
 	}
 }
+
+func TestValidateRejectsAnUploadsDirThatContainsTheDatabase(t *testing.T) {
+	root := t.TempDir()
+	for name, tc := range map[string]struct{ database, uploads string }{
+		"database directory":   {filepath.Join(root, "data", "technews.db"), filepath.Join(root, "data")},
+		"ancestor of database": {filepath.Join(root, "data", "db", "technews.db"), filepath.Join(root, "data")},
+		"trailing slash":       {filepath.Join(root, "data", "technews.db"), filepath.Join(root, "data") + "/"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := Config{Mode: ModeDevelopment, Address: DefaultAddress, DatabasePath: tc.database, UploadsDir: tc.uploads}
+			if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "UPLOADS_DIR must not contain DATABASE_PATH") {
+				t.Fatalf("Validate() error = %v", err)
+			}
+		})
+	}
+	sibling := Config{Mode: ModeDevelopment, Address: DefaultAddress, DatabasePath: filepath.Join(root, "data", "technews.db"), UploadsDir: filepath.Join(root, "data", "uploads")}
+	if err := sibling.Validate(); err != nil {
+		t.Fatalf("sibling uploads directory rejected: %v", err)
+	}
+	prefixOnly := Config{Mode: ModeDevelopment, Address: DefaultAddress, DatabasePath: filepath.Join(root, "database", "technews.db"), UploadsDir: filepath.Join(root, "data")}
+	if err := prefixOnly.Validate(); err != nil {
+		t.Fatalf("name-prefix sibling rejected: %v", err)
+	}
+}
+
+func TestValidateRejectsOverlapWithTheProductionUploadsDirOutsideProduction(t *testing.T) {
+	for _, dir := range []string{
+		ProductionUploadsDir,
+		filepath.Dir(ProductionUploadsDir),
+		"/Users/ozan/Projects/technews",
+		ProductionUploadsDir + "/nested",
+	} {
+		cfg := Config{Mode: ModeDevelopment, Address: DefaultAddress, DatabasePath: filepath.Join(t.TempDir(), "dev.db"), UploadsDir: dir}
+		if err := cfg.Validate(); !errors.Is(err, ErrProductionUploadsAlias) {
+			t.Errorf("UploadsDir %q error = %v, want %v", dir, err, ErrProductionUploadsAlias)
+		}
+	}
+	sibling := Config{Mode: ModeDevelopment, Address: DefaultAddress, DatabasePath: filepath.Join(t.TempDir(), "dev.db"), UploadsDir: ProductionUploadsDir + "-copy"}
+	if err := sibling.Validate(); err != nil {
+		t.Fatalf("name-prefix sibling of the production directory rejected: %v", err)
+	}
+}
