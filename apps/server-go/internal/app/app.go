@@ -10,8 +10,6 @@ import (
 	"sync"
 	"time"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-chi/chi/v5"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/collector"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/config"
@@ -106,20 +104,19 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		})
 	}
 	if cfg.PublisherEnabled {
-		awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(cfg.AWSRegion))
+		objectAPI, err := openPublisherStorage(context.Background(), cfg)
 		if err != nil {
-			return nil, fmt.Errorf("load AWS configuration: %w", err)
+			return nil, fmt.Errorf("publisher storage check failed: %w", err)
 		}
 		geminiClient := gemini.New(cfg.GeminiAPIKey, cfg.GeminiTextModel,
 			gemini.WithImageModel(cfg.GeminiImageModel), gemini.WithVisionModel(cfg.GeminiVisionModel))
-		httpClient := &http.Client{}
 		imageStore := media.NewStore(media.Config{Region: cfg.AWSRegion, Bucket: cfg.S3Bucket, Prefix: cfg.S3Prefix, PublicBaseURL: cfg.S3PublicURL},
-			s3.NewFromConfig(awsCfg), httpClient, now)
+			objectAPI, &http.Client{}, now)
 		newsPublisher := publisher.New(publisher.Deps{
 			Store:       newsroomStore,
 			Fetcher:     collector.NewFetcher(),
 			Rewriter:    publisher.NewRewriter(geminiClient),
-			Illustrator: illustration.NewS3Illustrator(illustration.NewGenerator(geminiClient, logger), imageStore, httpClient, logger),
+			Illustrator: illustration.NewS3Illustrator(illustration.NewGenerator(geminiClient, logger), imageStore, illustration.NewReferenceClient(), logger),
 			Articles:    publisher.NewSQLiteArticles(db, now),
 			Notifier:    indexnow.New(),
 			Now:         now,
