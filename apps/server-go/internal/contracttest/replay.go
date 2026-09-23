@@ -20,12 +20,24 @@ import (
 // Replay executes one literal, fully resolved fixture operation against handler.
 // It compares only fixture-selected headers, plus exact status and semantic JSON.
 func Replay(handler http.Handler, operation Operation) error {
+	response, err := Execute(handler, operation)
+	if err != nil {
+		return err
+	}
+	return Verify(operation, response)
+}
+
+// Execute sends one literal, fully resolved fixture request to handler and
+// returns the recorded response without comparing it. Callers that must derive
+// a binding from the response (such as $UPLOAD_FILENAME) resolve it into the
+// expected response and then call Verify.
+func Execute(handler http.Handler, operation Operation) (*httptest.ResponseRecorder, error) {
 	if handler == nil {
-		return fmt.Errorf("replay %s: handler is nil", operation.OperationID)
+		return nil, fmt.Errorf("replay %s: handler is nil", operation.OperationID)
 	}
 	requestData, _ := json.Marshal(operation.Request)
 	if placeholder := placeholderPattern.Find(requestData); placeholder != nil {
-		return fmt.Errorf("replay %s: unresolved placeholder %s", operation.OperationID, placeholder)
+		return nil, fmt.Errorf("replay %s: unresolved placeholder %s", operation.OperationID, placeholder)
 	}
 
 	target := operation.Request.Path
@@ -49,10 +61,10 @@ func Replay(handler http.Handler, operation Operation) error {
 		if supplied := headerValue(operation.Request.Headers, "Content-Type"); supplied != "" {
 			mediaType, parameters, err := mime.ParseMediaType(supplied)
 			if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") || parameters["boundary"] == "" {
-				return fmt.Errorf("replay %s: invalid multipart content-type %q", operation.OperationID, supplied)
+				return nil, fmt.Errorf("replay %s: invalid multipart content-type %q", operation.OperationID, supplied)
 			}
 			if err := writer.SetBoundary(parameters["boundary"]); err != nil {
-				return fmt.Errorf("replay %s multipart boundary: %w", operation.OperationID, err)
+				return nil, fmt.Errorf("replay %s multipart boundary: %w", operation.OperationID, err)
 			}
 		}
 		multipartContentType = writer.FormDataContentType()
@@ -61,17 +73,17 @@ func Replay(handler http.Handler, operation Operation) error {
 		header.Set("Content-Type", part.MIMEType)
 		file, err := writer.CreatePart(header)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		content, err := base64.StdEncoding.DecodeString(part.ContentBase64)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if _, err := file.Write(content); err != nil {
-			return err
+			return nil, err
 		}
 		if err := writer.Close(); err != nil {
-			return err
+			return nil, err
 		}
 	} else if len(operation.Request.Body) > 0 {
 		body.Write(operation.Request.Body)
@@ -86,6 +98,15 @@ func Replay(handler http.Handler, operation Operation) error {
 	}
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
+	return response, nil
+}
+
+// Verify compares a recorded response with the fixture's exact status,
+// selected headers, and semantic JSON body.
+func Verify(operation Operation, response *httptest.ResponseRecorder) error {
+	if response == nil {
+		return fmt.Errorf("replay %s: response is nil", operation.OperationID)
+	}
 	if response.Code != operation.Response.Status {
 		return fmt.Errorf("replay %s: status = %d, want %d", operation.OperationID, response.Code, operation.Response.Status)
 	}

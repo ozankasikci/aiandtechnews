@@ -100,3 +100,37 @@ func TestReplayMultipartHeaderBoundaryMatchesEncodedBody(t *testing.T) {
 		t.Fatalf("Replay() error = %v", err)
 	}
 }
+
+func TestExecuteThenVerifyAllowsResponseDerivedBindings(t *testing.T) {
+	op := Operation{
+		OperationID: "derived",
+		Request:     Request{Method: "POST", Path: "/upload"},
+		Response:    Response{Status: 201, Body: []byte(`{"url":"/uploads/$UPLOAD_FILENAME"}`)},
+	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"url":"/uploads/random.png"}`))
+	})
+	if err := Replay(handler, op); err == nil {
+		t.Fatal("Replay() compared an unresolved response placeholder as equal")
+	}
+	response, err := Execute(handler, op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op.Response.Body = []byte(`{"url":"/uploads/random.png"}`)
+	if err := Verify(op, response); err != nil {
+		t.Fatalf("Verify() error = %v", err)
+	}
+	op.Response.Status = 200
+	if err := Verify(op, response); err == nil || !strings.Contains(err.Error(), "status = 201, want 200") {
+		t.Fatalf("Verify() status error = %v", err)
+	}
+}
+
+func TestExecuteRejectsUnresolvedRequestPlaceholders(t *testing.T) {
+	op := Operation{OperationID: "unresolved", Request: Request{Method: "GET", Path: "/x", Headers: map[string]string{"authorization": "$AUTHORIZATION"}}, Response: Response{Status: 200, Body: []byte(`{}`)}}
+	if _, err := Execute(http.NotFoundHandler(), op); err == nil || !strings.Contains(err.Error(), "unresolved placeholder $AUTHORIZATION") {
+		t.Fatalf("Execute() error = %v", err)
+	}
+}
