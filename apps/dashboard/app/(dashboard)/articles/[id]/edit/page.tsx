@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { ImageUploader } from "@/components/image-uploader";
 import { showToast } from "@/components/toast";
+import { fromDateTimeLocalValue, parseStoredDate, toDateTimeLocalValue } from "@/lib/dates";
 import { articlesApi, categoriesApi } from "@/lib/api";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
@@ -62,10 +63,7 @@ export default function EditArticlePage() {
         setContent(articleData.content);
         setExcerpt(articleData.excerpt);
         setStatus(articleData.status);
-        setPublishDate(articleData.published_at 
-          ? new Date(articleData.published_at).toISOString().slice(0, 16)
-          : ""
-        );
+        setPublishDate(toDateTimeLocalValue(parseStoredDate(articleData.published_at)));
         setCategoryId(articleData.category_id.toString());
         setFeaturedImage(articleData.featured_image);
         setMetaTitle(articleData.meta_title || "");
@@ -102,6 +100,10 @@ export default function EditArticlePage() {
     
     setSaving(true);
     try {
+      // Unchanged picker: keep the stored value exactly; changed: send UTC.
+      const publishedAt = publishDate === toDateTimeLocalValue(parseStoredDate(article?.published_at))
+        ? article?.published_at || null
+        : fromDateTimeLocalValue(publishDate);
       const updateData = {
         title: title.trim(),
         slug: slug.trim(),
@@ -110,9 +112,9 @@ export default function EditArticlePage() {
         featured_image: featuredImage,
         category_id: parseInt(categoryId),
         status: (newStatus || status) as "draft" | "published" | "scheduled",
-        published_at: (newStatus || status) === "published" ? (publishDate || new Date().toISOString()) : 
-                     (newStatus || status) === "scheduled" ? publishDate : 
-                     status === "published" && publishDate ? publishDate : null,
+        published_at: (newStatus || status) === "published" ? (publishedAt || new Date().toISOString()) : 
+                     (newStatus || status) === "scheduled" ? publishedAt : 
+                     status === "published" && publishedAt ? publishedAt : null,
         meta_title: metaTitle.trim() || null,
         meta_description: metaDescription.trim() || null,
       };

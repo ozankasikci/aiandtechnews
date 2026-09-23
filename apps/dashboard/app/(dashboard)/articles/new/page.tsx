@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { ImageUploader } from "@/components/image-uploader";
 import { showToast } from "@/components/toast";
+import { fromDateTimeLocalValue } from "@/lib/dates";
 import { articlesApi, categoriesApi } from "@/lib/api";
 import { slugify } from "@/lib/utils";
 import { ArrowLeft, Loader2 } from "lucide-react";
@@ -88,8 +89,8 @@ export default function NewArticlePage() {
         featured_image: featuredImage,
         category_id: parseInt(categoryId),
         status: newStatus,
-        published_at: newStatus === "published" ? (publishDate || new Date().toISOString()) : 
-                     newStatus === "scheduled" ? publishDate : null,
+        published_at: newStatus === "published" ? (fromDateTimeLocalValue(publishDate) || new Date().toISOString()) : 
+                     newStatus === "scheduled" ? fromDateTimeLocalValue(publishDate) : null,
         meta_title: metaTitle.trim() || null,
         meta_description: metaDescription.trim() || null,
       };
