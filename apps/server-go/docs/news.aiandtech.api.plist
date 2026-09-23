@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd job for the Go API on the Mac mini (template).
+
+  Replace __USER__ with the macOS account that owns the data (not root) and
+  __ROOT__ with the absolute production data root, the directory that holds
+  .technews-production, technews.env, bin/, data/, uploads/, and logs/.
+  Install as a LaunchDaemon so it runs at boot without a login session:
+
+    sudo cp news.aiandtech.api.plist /Library/LaunchDaemons/
+    sudo chown root:wheel /Library/LaunchDaemons/news.aiandtech.api.plist
+    sudo chmod 644 /Library/LaunchDaemons/news.aiandtech.api.plist
+    sudo launchctl bootstrap system /Library/LaunchDaemons/news.aiandtech.api.plist
+
+  Restart after an env change:  sudo launchctl kickstart -k system/news.aiandtech.api
+  Stop (and keep stopped):      sudo launchctl bootout system/news.aiandtech.api
+
+  Secrets stay in technews.env (chmod 600), not in this file.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>news.aiandtech.api</string>
+
+  <key>UserName</key>
+  <string>__USER__</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>set -a; . "__ROOT__/technews.env"; set +a; exec "__ROOT__/bin/api"</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__ROOT__</string>
+
+  <!-- Start at boot and restart whenever the process exits. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- Wait at least 10s between restarts (for example while the env is wrong). -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <!-- SIGTERM starts a graceful shutdown (HTTP drain, then up to 15s for
+       newsletter work to record its outcome); SIGKILL only after 60s. -->
+  <key>ExitTimeOut</key>
+  <integer>60</integer>
+
+  <key>StandardOutPath</key>
+  <string>__ROOT__/logs/api.log</string>
+  <key>StandardErrorPath</key>
+  <string>__ROOT__/logs/api.err.log</string>
+
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>4096</integer>
+  </dict>
+</dict>
+</plist>
