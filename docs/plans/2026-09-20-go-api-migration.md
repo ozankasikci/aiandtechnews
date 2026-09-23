@@ -250,6 +250,8 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 
 ### Task 12: Implement newsletter and Resend integration
 
+**Status (2026-09-24): Complete for the preserved migration slice via `docs/superpowers/plans/2026-09-24-go-newsletter.md`: `internal/newsletter` ports signup, confirm and unsubscribe links (byte-identical HMAC tokens), the edition archive, and the daily digest through Resend (byte-identical emails and request bodies, Node's idempotency keys, retry classes, delivery states, and Europe/Istanbul edition dates), with migration 6 (Node's newsletter tables) and the eight Node newsletter contracts replaying in `internal/app/newsletter_contract_test.go`. Parity vectors were recorded from the Node implementation (`internal/newsletter/testdata/node-golden.json`). This does not establish production or cutover readiness.**
+
 **Objective:** Port subscription, token compatibility, edition archive, digest selection, idempotent delivery, retries, and unsubscribe behavior.
 
 **Files:** Create module files/tests and capability-owned migration SQL under `internal/newsletter`; extend `internal/app` to add the newsletter descriptor in order.
