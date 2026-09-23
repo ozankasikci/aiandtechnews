@@ -18,8 +18,10 @@ import (
 const MaxRequestIDLength = 64
 
 // NewRouter creates the shared HTTP transport and mounts public capability
-// routes beneath /api.
-func NewRouter(logger *slog.Logger, mountAPI func(chi.Router)) http.Handler {
+// routes beneath /api. mountRoot registers routes outside /api (such as the
+// static /uploads/* files) on the same router, so they share its middleware:
+// request IDs, access logs, panic recovery, CORS, and the JSON 404/405 pages.
+func NewRouter(logger *slog.Logger, mountAPI func(chi.Router), mountRoot ...func(chi.Router)) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -51,6 +53,11 @@ func NewRouter(logger *slog.Logger, mountAPI func(chi.Router)) http.Handler {
 			mountAPI(api)
 		}
 	})
+	for _, mount := range mountRoot {
+		if mount != nil {
+			mount(router)
+		}
+	}
 	return router
 }
 

@@ -399,3 +399,27 @@ func assertJSONError(t *testing.T, handler http.Handler, method, path string, st
 		t.Errorf("Content-Type = %q", got)
 	}
 }
+
+func TestRootMountsShareTheRouterMiddleware(t *testing.T) {
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, func(root chi.Router) {
+		root.Get("/uploads/*", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("file")) })
+	})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/uploads/a.png", nil))
+	if response.Code != http.StatusOK || response.Body.String() != "file" {
+		t.Fatalf("GET /uploads/a.png = %d %q", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Access-Control-Allow-Origin") != "*" || response.Header().Get("X-Request-ID") == "" {
+		t.Fatalf("root route skipped middleware: %v", response.Header())
+	}
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/uploads/a.png", nil))
+	if response.Code != http.StatusMethodNotAllowed || response.Header().Get("Allow") != http.MethodGet {
+		t.Fatalf("POST /uploads/a.png = %d %v", response.Code, response.Header())
+	}
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/uploads", nil))
+	if response.Code != http.StatusNotFound || response.Body.String() != `{"error":"Not found"}` {
+		t.Fatalf("GET /uploads = %d %q", response.Code, response.Body.String())
+	}
+}
