@@ -3,7 +3,11 @@ package illustration_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/smithy-go"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/media"
@@ -86,5 +90,41 @@ func TestS3IllustratorStoreFailureIsTransient(t *testing.T) {
 	}
 	if publisher.IsPermanent(err) || publisher.IsSystemFault(err) {
 		t.Fatalf("expected transient error, got %v", err)
+	}
+}
+
+func TestS3IllustratorClassifiesStoreErrors(t *testing.T) {
+	operation := func(err error) error {
+		return fmt.Errorf("upload feature image: %w", &smithy.OperationError{ServiceID: "S3", OperationName: "PutObject", Err: err})
+	}
+	cases := []struct {
+		name   string
+		err    error
+		system bool
+	}{
+		{"access denied", operation(&smithy.GenericAPIError{Code: "AccessDenied"}), true},
+		{"no such bucket", operation(&smithy.GenericAPIError{Code: "NoSuchBucket"}), true},
+		{"invalid access key", operation(&smithy.GenericAPIError{Code: "InvalidAccessKeyId"}), true},
+		{"bad signature", operation(&smithy.GenericAPIError{Code: "SignatureDoesNotMatch"}), true},
+		{"expired token", operation(&smithy.GenericAPIError{Code: "ExpiredToken"}), true},
+		{"credential retrieval", operation(fmt.Errorf("get identity: get credentials: %w", errors.New("failed to refresh cached credentials, no EC2 IMDS role found"))), true},
+		{"signing credentials", operation(&v4.SigningError{Err: errors.New("failed to retrieve credentials: boom")}), true},
+		{"public 403", fmt.Errorf("uploaded feature image failed public verification: %w", &media.PublicStatusError{Status: 403}), true},
+		{"public 404", fmt.Errorf("uploaded feature image failed public verification: %w", &media.PublicStatusError{Status: 404}), true},
+		{"public 503", fmt.Errorf("uploaded feature image failed public verification: %w", &media.PublicStatusError{Status: 503}), false},
+		{"slow down", operation(&smithy.GenericAPIError{Code: "SlowDown"}), false},
+		{"internal error", operation(&smithy.GenericAPIError{Code: "InternalError"}), false},
+		{"network", errors.New("dial tcp: connection reset"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			model := &fakeModel{t: t, generatedImage: tinyPNG(t), reviews: []scriptedReview{{json: compliantJSON}}}
+			store := &fakeImageStore{storeErr: tc.err}
+			illustrator := illustration.NewS3Illustrator(illustration.NewGenerator(model, discardLogger()), store, nil, discardLogger())
+			_, err := illustrator.Illustrate(context.Background(), publisher.IllustrationRequest{Slug: "slug", Title: "T", Excerpt: "E"})
+			if !errors.Is(err, tc.err) || publisher.IsSystemFault(err) != tc.system || publisher.IsPermanent(err) {
+				t.Fatalf("err = %v system=%v, want system=%v", err, publisher.IsSystemFault(err), tc.system)
+			}
+		})
 	}
 }
