@@ -89,12 +89,18 @@ type Service struct {
 	pace        func(context.Context) error
 	logger      *slog.Logger
 
-	// digestMu serializes digest runs.
-	digestMu sync.Mutex
-	// lifecycle bounds digest runs (see Bind).
+	// digestSlot serializes digest runs; waiting for it ends at shutdown.
+	digestSlot chan struct{}
+	// lifecycle bounds digest runs and welcome emails (see Bind).
 	lifecycle struct {
 		sync.Mutex
 		ctx context.Context
+	}
+	// inflight counts running digests and welcome emails (see Wait).
+	inflight struct {
+		sync.Mutex
+		count int
+		idle  chan struct{}
 	}
 }
 
@@ -108,7 +114,8 @@ func NewService(store *SQLiteStore, sender Sender, cfg ServiceConfig, logger *sl
 	if err != nil {
 		return nil, err
 	}
-	service := &Service{store: store, sender: sender, siteURL: siteURL, tokenSecret: cfg.TokenSecret, local: cfg.Local, pace: cfg.Pace, logger: logger}
+	service := &Service{store: store, sender: sender, siteURL: siteURL, tokenSecret: cfg.TokenSecret, local: cfg.Local, pace: cfg.Pace, logger: logger,
+		digestSlot: make(chan struct{}, 1)}
 	if service.local == nil {
 		service.local = time.Local
 	}
@@ -219,7 +226,11 @@ func (s *Service) Confirm(ctx context.Context, token string, now time.Time) (Con
 		return ConfirmationResult{State: state}, err
 	}
 	unsubscribeURL := s.unsubscribeURL(id, secret)
-	if _, err := s.sender.Send(context.WithoutCancel(ctx), WelcomeEmail(email, s.siteURL, unsubscribeURL), "newsletter-welcome-"+strconv.FormatInt(id, 10)); err != nil {
+	// Like Node, the send outlives the request; shutdown cancels it.
+	sendCtx, finish := s.begin(ctx)
+	_, err = s.sender.Send(sendCtx, WelcomeEmail(email, s.siteURL, unsubscribeURL), "newsletter-welcome-"+strconv.FormatInt(id, 10))
+	finish()
+	if err != nil {
 		s.logger.ErrorContext(ctx, "Failed to send newsletter welcome email", "error", err, "subscriber_id", id)
 		return ConfirmationResult{State: ConfirmationConfirmed}, nil
 	}

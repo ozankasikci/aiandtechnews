@@ -424,3 +424,134 @@ func TestDigestArticlesJSONIsJSONStringify(t *testing.T) {
 		t.Fatal("empty list")
 	}
 }
+
+// blockingSender stands in for a Resend request that is still in flight at
+// shutdown: it signals, then waits for its context to end.
+type blockingSender struct {
+	started chan string
+	release chan struct{}
+}
+
+func newBlockingSender() *blockingSender {
+	return &blockingSender{started: make(chan string, 16), release: make(chan struct{})}
+}
+
+func (b *blockingSender) Send(ctx context.Context, _ Email, key string) (string, error) {
+	b.started <- key
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-b.release:
+		return "released", nil
+	}
+}
+
+func TestShutdownDuringASendRecordsAFailureAndTheRetryReusesTheKey(t *testing.T) {
+	db := migratedDatabase(t)
+	seedDeliveryLifecycle(t, db)
+	lifecycle, stop := context.WithCancel(context.Background())
+	sender := newBlockingSender()
+	service := newTestService(t, db, sender, ServiceConfig{TokenSecret: testTokenSecret})
+	service.Bind(lifecycle)
+	type outcome struct {
+		result DigestResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := service.SendDailyDigest(context.Background(), mustTime(t, "2026-09-20T05:00:00.000Z"))
+		done <- outcome{result, err}
+	}()
+	key := <-sender.started
+	if key != "newsletter-digest-2026-09-20-1" {
+		t.Fatalf("first key = %q", key)
+	}
+	stop()
+	got := <-done
+	if !errors.Is(got.err, context.Canceled) || got.result.Failed != 1 || got.result.Sent != 0 {
+		t.Fatalf("result = %+v, %v", got.result, got.err)
+	}
+	for _, row := range deliveryRows(t, db) {
+		if row.SubscriberID == 1 && (row.Status != "failed" || row.Error == nil || *row.Error != "context canceled") {
+			t.Fatalf("interrupted delivery = %+v (error %v)", row, row.Error)
+		}
+	}
+	// The next run retries the interrupted delivery with the same key.
+	recorder := &recordingSender{}
+	resumed := newTestService(t, db, recorder, ServiceConfig{TokenSecret: testTokenSecret})
+	if _, err := resumed.SendDailyDigest(context.Background(), mustTime(t, "2026-09-20T05:05:00.000Z")); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.sent) == 0 || recorder.sent[0].key != "newsletter-digest-2026-09-20-1" {
+		t.Fatalf("resumed keys = %+v", recorder.sent)
+	}
+}
+
+func TestQueuedDigestRunsExitAtShutdown(t *testing.T) {
+	db := migratedDatabase(t)
+	seedDeliveryLifecycle(t, db)
+	lifecycle, stop := context.WithCancel(context.Background())
+	sender := newBlockingSender()
+	service := newTestService(t, db, sender, ServiceConfig{TokenSecret: testTokenSecret})
+	service.Bind(lifecycle)
+	first := make(chan error, 1)
+	go func() {
+		_, err := service.SendDailyDigest(context.Background(), mustTime(t, "2026-09-20T05:00:00.000Z"))
+		first <- err
+	}()
+	<-sender.started
+	queued := make(chan error, 1)
+	go func() {
+		_, err := service.SendDailyDigest(context.Background(), mustTime(t, "2026-09-20T05:00:00.000Z"))
+		queued <- err
+	}()
+	select {
+	case err := <-queued:
+		t.Fatalf("queued run did not wait for the running one: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	stop()
+	for name, result := range map[string]chan error{"running": first, "queued": queued} {
+		select {
+		case err := <-result:
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("%s run = %v, want context.Canceled", name, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s run did not exit at shutdown", name)
+		}
+	}
+	if len(sender.started) != 0 {
+		t.Fatal("the queued run sent after shutdown")
+	}
+}
+
+func TestWaitReturnsOnceInFlightRunsEnd(t *testing.T) {
+	db := migratedDatabase(t)
+	seedDeliveryLifecycle(t, db)
+	sender := newBlockingSender()
+	service := newTestService(t, db, sender, ServiceConfig{TokenSecret: testTokenSecret})
+	if err := service.Wait(context.Background()); err != nil {
+		t.Fatalf("idle Wait = %v", err)
+	}
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		_, _ = service.SendDailyDigest(context.Background(), mustTime(t, "2026-09-20T05:00:00.000Z"))
+	}()
+	<-sender.started
+	short, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := service.Wait(short); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Wait during a run = %v, want the deadline", err)
+	}
+	close(sender.release)
+	if err := service.Wait(context.Background()); err != nil {
+		t.Fatalf("Wait = %v", err)
+	}
+	select {
+	case <-finished:
+	default:
+		t.Fatal("Wait returned before the run finished")
+	}
+}

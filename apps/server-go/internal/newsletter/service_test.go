@@ -405,3 +405,37 @@ func TestConfirmDoesNotSendTwiceForConcurrentClicks(t *testing.T) {
 		t.Fatalf("welcome emails = %d, want 1", len(sender.sent))
 	}
 }
+
+// Shutdown cancels a welcome email still in flight; the confirmation itself
+// is already committed, so the answer is confirmed with welcomeSent false.
+func TestShutdownCancelsTheWelcomeEmail(t *testing.T) {
+	db := migratedDatabase(t)
+	exec(t, db, `INSERT INTO subscribers (id, email, status, created_at, updated_at) VALUES (1, 'pending@example.com', 'pending', 'c', 'u')`)
+	lifecycle, stop := context.WithCancel(context.Background())
+	sender := newBlockingSender()
+	service := newTestService(t, db, sender, ServiceConfig{TokenSecret: testTokenSecret})
+	service.Bind(lifecycle)
+	done := make(chan ConfirmationResult, 1)
+	go func() {
+		result, err := service.Confirm(context.Background(), CreateToken(1, PurposeConfirm, testTokenSecret, nil), time.Now())
+		if err != nil {
+			t.Error(err)
+		}
+		done <- result
+	}()
+	if key := <-sender.started; key != "newsletter-welcome-1" {
+		t.Fatalf("key = %q", key)
+	}
+	stop()
+	select {
+	case result := <-done:
+		if result.State != ConfirmationConfirmed || result.WelcomeSent {
+			t.Fatalf("result = %+v", result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the welcome email ignored shutdown")
+	}
+	if err := service.Wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}

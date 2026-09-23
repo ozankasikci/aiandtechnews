@@ -177,20 +177,69 @@ func (s *Service) boundLifecycle() context.Context {
 	return context.Background()
 }
 
+// begin starts work that outlives its caller's context (Node never stops
+// it when the client goes away) but ends with the bound lifecycle, and
+// counts it as in flight until finish is called.
+func (s *Service) begin(ctx context.Context) (context.Context, func()) {
+	s.inflight.Lock()
+	s.inflight.count++
+	s.inflight.Unlock()
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(s.boundLifecycle(), cancel)
+	return runCtx, func() {
+		stop()
+		cancel()
+		s.inflight.Lock()
+		s.inflight.count--
+		if s.inflight.count == 0 && s.inflight.idle != nil {
+			close(s.inflight.idle)
+			s.inflight.idle = nil
+		}
+		s.inflight.Unlock()
+	}
+}
+
+// Wait blocks until no digest run or welcome email is in flight, or until
+// ctx ends. App.Run calls it after the HTTP server stops, so the outcome of
+// the last delivery is recorded before the process exits.
+func (s *Service) Wait(ctx context.Context) error {
+	s.inflight.Lock()
+	if s.inflight.count == 0 {
+		s.inflight.Unlock()
+		return nil
+	}
+	if s.inflight.idle == nil {
+		s.inflight.idle = make(chan struct{})
+	}
+	idle := s.inflight.idle
+	s.inflight.Unlock()
+	select {
+	case <-idle:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // SendDailyDigest is Node's sendDailyDigest. Like Node, a started digest is
 // not stopped when the caller (the cron's HTTP request) goes away: it runs
 // on a context detached from ctx and bounded only by the bound lifecycle
 // (shutdown), which stops it between deliveries. Runs are serialized, so two
 // overlapping requests never deliver the same edition twice from this
-// process; Node relied on Resend's idempotency key for that.
+// process (Node relied on Resend's idempotency key for that); a run waiting
+// for its turn gives up at shutdown.
 func (s *Service) SendDailyDigest(ctx context.Context, now time.Time) (DigestResult, error) {
-	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	defer cancel()
-	stop := context.AfterFunc(s.boundLifecycle(), cancel)
-	defer stop()
-
-	s.digestMu.Lock()
-	defer s.digestMu.Unlock()
+	runCtx, finish := s.begin(ctx)
+	defer finish()
+	select {
+	case s.digestSlot <- struct{}{}:
+	case <-runCtx.Done():
+		return DigestResult{}, runCtx.Err()
+	}
+	defer func() { <-s.digestSlot }()
+	if err := runCtx.Err(); err != nil {
+		return DigestResult{}, err
+	}
 	return s.sendDailyDigest(runCtx, now)
 }
 
