@@ -77,3 +77,17 @@ The service is a single binary with a `cmd` plus `internal` layout:
 - Interfaces are declared by the consuming package at the point of use. Constructors return concrete types unless a consumer needs an interface.
 
 Capability packages do not import one another. Cross-capability behavior is injected through narrow interfaces owned by the consumer. Domain and service code remain independent of HTTP and concrete SQLite types. Do not create generic `utils`, `common`, or global service-locator packages.
+
+## Newsroom (editorial queue)
+
+`internal/newsroom` owns the `candidates` table (migration 3) and the
+authenticated `/api/newsroom/*` routes described in
+`contracts/newsroom.openapi.yaml`. Candidates are policy-passing feed items
+awaiting an editor's decision. Publishing queues them one after another,
+each `random(min..max)` minutes after the previous queue entry (defaults 30–40,
+stored in `settings`). Rejected candidates are kept so their URLs are never
+re-collected.
+
+The collector and publisher are not implemented yet: `POST /api/newsroom/collect`
+answers `503` and queued items are not processed. Design:
+`docs/superpowers/specs/2026-09-23-ai-tech-news-newsroom-design.md`.
