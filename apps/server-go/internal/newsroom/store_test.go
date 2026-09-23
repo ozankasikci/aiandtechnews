@@ -163,6 +163,200 @@ func TestLatestScheduledIncludesProcessing(t *testing.T) {
 	}
 }
 
+func TestPublishDelayRejectsInvalidStoredValues(t *testing.T) {
+	store, db := openStore(t)
+	if _, err := db.Exec(`UPDATE settings SET value = '50' WHERE key = 'newsroom.publish_delay_min_minutes'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE settings SET value = '40' WHERE key = 'newsroom.publish_delay_max_minutes'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PublishDelay(context.Background()); !errors.Is(err, newsroom.ErrInvalidDelay) {
+		t.Fatalf("delay err = %v, want ErrInvalidDelay", err)
+	}
+}
+
+func TestMarkQueuedGuardsSourceStatus(t *testing.T) {
+	store, db := openStore(t)
+	ctx := context.Background()
+	id := insert(t, store, "https://example.com/a", t0)
+	if err := store.MarkQueued(ctx, id, newsroom.StatusPending, t0.Add(30*time.Minute), t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkQueued(ctx, id, newsroom.StatusQueued, t0.Add(90*time.Minute), t0); !errors.Is(err, newsroom.ErrStaleTransition) {
+		t.Fatalf("queued->queued err = %v, want ErrStaleTransition", err)
+	}
+	var scheduledFor string
+	if err := db.QueryRow(`SELECT scheduled_for FROM candidates WHERE id = ?`, id).Scan(&scheduledFor); err != nil {
+		t.Fatal(err)
+	}
+	if scheduledFor != "2026-09-20T12:30:00Z" {
+		t.Fatalf("scheduled_for changed: %s", scheduledFor)
+	}
+}
+
+func TestListRejectsInvalidInputs(t *testing.T) {
+	store, _ := openStore(t)
+	ctx := context.Background()
+	if _, err := store.List(ctx, []newsroom.Status{newsroom.StatusPending}, 1, 0); err == nil {
+		t.Fatal("limit 0: want error")
+	}
+	if _, err := store.List(ctx, []newsroom.Status{newsroom.StatusPending}, 0, 20); err == nil {
+		t.Fatal("page 0: want error")
+	}
+	if _, err := store.List(ctx, nil, 1, 20); err == nil {
+		t.Fatal("no statuses: want error")
+	}
+}
+
+func TestInsertStoresOptionalFieldsAndNormalizesTimezone(t *testing.T) {
+	store, _ := openStore(t)
+	ctx := context.Background()
+	imageURL := "https://cdn.example.com/a.jpg"
+	feedPublished := time.Date(2026, 9, 20, 9, 30, 0, 0, time.FixedZone("x", 3*3600))
+	id, inserted, err := store.Insert(ctx, newsroom.NewCandidate{
+		SourceURL: "https://example.com/opt", SourceName: "The Verge", FeedURL: "https://www.theverge.com/rss/index.xml",
+		Title: "T", FeedSummary: "S", SourceImageURL: &imageURL, FeedPublishedAt: &feedPublished,
+	}, t0)
+	if err != nil || !inserted {
+		t.Fatalf("insert: inserted=%v err=%v", inserted, err)
+	}
+	got := mustGet(t, store, id)
+	if got.SourceImageURL == nil || *got.SourceImageURL != imageURL {
+		t.Fatalf("source image = %v", got.SourceImageURL)
+	}
+	if got.FeedPublishedAt == nil || *got.FeedPublishedAt != "2026-09-20T06:30:00Z" {
+		t.Fatalf("feed published at = %v", got.FeedPublishedAt)
+	}
+}
+
+func TestRejectedURLStaysDeduped(t *testing.T) {
+	store, _ := openStore(t)
+	ctx := context.Background()
+	id := insert(t, store, "https://example.com/rej", t0)
+	if err := store.MarkRejected(ctx, id, t0); err != nil {
+		t.Fatal(err)
+	}
+	_, inserted, err := store.Insert(ctx, newsroom.NewCandidate{
+		SourceURL: "https://example.com/rej", SourceName: "X", FeedURL: "https://x/rss", Title: "Different Title",
+	}, t0)
+	if err != nil || inserted {
+		t.Fatalf("re-insert after reject: inserted=%v err=%v", inserted, err)
+	}
+	got := mustGet(t, store, id)
+	if got.Status != newsroom.StatusRejected || got.Title != "Title https://example.com/rej" {
+		t.Fatalf("rejected candidate = %#v", got)
+	}
+}
+
+func TestArticleSlugJoinAndDeleteSetsNull(t *testing.T) {
+	store, db := openStore(t)
+	ctx := context.Background()
+	id := insert(t, store, "https://example.com/withArticle", t0)
+	if _, err := db.Exec(`INSERT INTO authors (name, email, password_hash, role) VALUES ('A','a@example.invalid','x','admin')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO categories (name, slug) VALUES ('AI','ai')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO articles (title, slug, category_id, author_id, status) VALUES ('T','the-slug',1,1,'published')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE candidates SET article_id = 1 WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+	got := mustGet(t, store, id)
+	if got.ArticleSlug == nil || *got.ArticleSlug != "the-slug" {
+		t.Fatalf("article slug = %v", got.ArticleSlug)
+	}
+	if _, err := db.Exec(`DELETE FROM articles WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	got = mustGet(t, store, id)
+	if got.ArticleSlug != nil {
+		t.Fatalf("article slug after delete = %v", got.ArticleSlug)
+	}
+	_ = ctx
+}
+
+func TestListOrdersByStatusGroup(t *testing.T) {
+	store, db := openStore(t)
+	ctx := context.Background()
+	processing := insert(t, store, "https://example.com/processing", t0)
+	queued := insert(t, store, "https://example.com/queued", t0)
+	failed := insert(t, store, "https://example.com/failed", t0)
+	pending := insert(t, store, "https://example.com/pending", t0)
+	published := insert(t, store, "https://example.com/published", t0)
+
+	if err := store.MarkQueued(ctx, queued, newsroom.StatusPending, t0.Add(30*time.Minute), t0); err != nil {
+		t.Fatal(err)
+	}
+	setStatus(t, db, processing, "processing", t0)
+	setStatus(t, db, failed, "failed", t0)
+	setStatus(t, db, published, "published", t0)
+	_ = pending
+
+	page, err := store.List(ctx, []newsroom.Status{
+		newsroom.StatusProcessing, newsroom.StatusQueued, newsroom.StatusFailed,
+		newsroom.StatusPending, newsroom.StatusPublished,
+	}, 1, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertIDs(t, page.Candidates, processing, queued, failed, pending, published)
+}
+
+func TestOverviewUsesPublishedAtNotUpdatedAt(t *testing.T) {
+	store, db := openStore(t)
+	ctx := context.Background()
+	id := insert(t, store, "https://example.com/pubat", t0)
+	// published_at is old (outside window) even though updated_at is recent.
+	if _, err := db.Exec(`UPDATE candidates SET status = 'published', published_at = ?, updated_at = ? WHERE id = ?`,
+		t0.Add(-48*time.Hour).UTC().Format(time.RFC3339), t0.UTC().Format(time.RFC3339), id); err != nil {
+		t.Fatal(err)
+	}
+	overview, err := store.Overview(ctx, t0.Add(-2*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.PublishedToday != 0 {
+		t.Fatalf("published_today = %d, want 0 (published_at outside window despite recent updated_at)", overview.PublishedToday)
+	}
+}
+
+func TestListOrdersPublishedByPublishedAtDesc(t *testing.T) {
+	store, db := openStore(t)
+	ctx := context.Background()
+	earlier := insert(t, store, "https://example.com/earlier", t0)
+	later := insert(t, store, "https://example.com/later", t0)
+	// updated_at is set opposite of published_at to prove published_at drives the order.
+	if _, err := db.Exec(`UPDATE candidates SET status = 'published', published_at = ?, updated_at = ? WHERE id = ?`,
+		t0.Add(time.Hour).UTC().Format(time.RFC3339), t0.UTC().Format(time.RFC3339), earlier); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE candidates SET status = 'published', published_at = ?, updated_at = ? WHERE id = ?`,
+		t0.Add(2*time.Hour).UTC().Format(time.RFC3339), t0.Add(-time.Hour).UTC().Format(time.RFC3339), later); err != nil {
+		t.Fatal(err)
+	}
+	page, err := store.List(ctx, []newsroom.Status{newsroom.StatusPublished}, 1, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertIDs(t, page.Candidates, later, earlier)
+}
+
+func TestOverviewOnEmptyTable(t *testing.T) {
+	store, _ := openStore(t)
+	overview, err := store.Overview(context.Background(), t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Pending != 0 || overview.Queued != 0 || overview.Processing != 0 || overview.Failed != 0 ||
+		overview.PublishedToday != 0 || overview.NextPublishAt != nil || overview.LastCollectedAt != nil {
+		t.Fatalf("overview = %+v", overview)
+	}
+}
+
 func assertIDs(t *testing.T, candidates []newsroom.Candidate, want ...int64) {
 	t.Helper()
 	got := make([]int64, len(candidates))

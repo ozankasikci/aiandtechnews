@@ -33,6 +33,7 @@ const listOrder = ` ORDER BY CASE c.status WHEN 'processing' THEN 0 WHEN 'queued
 	WHEN 'pending' THEN 3 WHEN 'published' THEN 4 ELSE 5 END,
 	CASE WHEN c.status = 'queued' THEN c.scheduled_for END ASC,
 	CASE WHEN c.status = 'pending' THEN c.discovered_at END DESC,
+	CASE WHEN c.status = 'published' THEN c.published_at END DESC,
 	c.updated_at DESC, c.id DESC`
 
 type rowScanner interface{ Scan(...any) error }
@@ -90,6 +91,9 @@ func (s *SQLiteStore) Get(ctx context.Context, id int64) (Candidate, error) {
 
 // List returns one page of candidates in any of statuses. statuses must be non-empty.
 func (s *SQLiteStore) List(ctx context.Context, statuses []Status, page, limit int) (Page, error) {
+	if page < 1 || limit < 1 || len(statuses) == 0 {
+		return Page{}, fmt.Errorf("list candidates: invalid page=%d limit=%d statuses=%d", page, limit, len(statuses))
+	}
 	args := make([]any, 0, len(statuses)+2)
 	for _, status := range statuses {
 		args = append(args, string(status))
@@ -144,6 +148,9 @@ func (s *SQLiteStore) transition(ctx context.Context, id int64, query string, ar
 
 // MarkQueued moves a candidate from `from` (pending or failed) into the queue.
 func (s *SQLiteStore) MarkQueued(ctx context.Context, id int64, from Status, scheduledFor, now time.Time) error {
+	if from != StatusPending && from != StatusFailed {
+		return fmt.Errorf("mark queued from %q: %w", from, ErrStaleTransition)
+	}
 	return s.transition(ctx, id, `UPDATE candidates SET status = 'queued', scheduled_for = ?, attempts = 0,
 		last_error = NULL, updated_at = ? WHERE id = ? AND status = ?`,
 		formatTime(scheduledFor), formatTime(now), id, string(from))
@@ -187,7 +194,7 @@ func (s *SQLiteStore) Overview(ctx context.Context, publishedSince time.Time) (O
 		COALESCE(SUM(status = 'queued'), 0),
 		COALESCE(SUM(status = 'processing'), 0),
 		COALESCE(SUM(status = 'failed'), 0),
-		COALESCE(SUM(status = 'published' AND updated_at >= ?), 0),
+		COALESCE(SUM(status = 'published' AND published_at >= ?), 0),
 		MIN(CASE WHEN status = 'queued' THEN scheduled_for END)
 		FROM candidates`, formatTime(publishedSince)).Scan(
 		&overview.Pending, &overview.Queued, &overview.Processing, &overview.Failed,
@@ -229,6 +236,9 @@ func (s *SQLiteStore) PublishDelay(ctx context.Context) (PublishDelay, error) {
 			return PublishDelay{}, fmt.Errorf("parse setting %s=%q: %w", key, *value, err)
 		}
 		*target = parsed
+	}
+	if err := delay.Validate(); err != nil {
+		return PublishDelay{}, fmt.Errorf("stored publish delay %+v: %w", delay, err)
 	}
 	return delay, nil
 }

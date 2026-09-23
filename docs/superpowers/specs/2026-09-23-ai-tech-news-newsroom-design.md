@@ -44,7 +44,7 @@ the public site and `articles.status` CHECK stay untouched.
 | `source_name` | TEXT NOT NULL | Feed display name, e.g. "The Verge" |
 | `feed_url` | TEXT NOT NULL | Approved feed it came from |
 | `title` | TEXT NOT NULL | |
-| `feed_summary` | TEXT | Plain text, from the RSS item |
+| `feed_summary` | TEXT NOT NULL DEFAULT '' | Plain text, from the RSS item |
 | `source_image_url` | TEXT | From RSS enclosure/media tags when present |
 | `feed_published_at` | TEXT | RFC 3339 UTC |
 | `discovered_at` | TEXT NOT NULL | RFC 3339 UTC |
@@ -52,7 +52,8 @@ the public site and `articles.status` CHECK stay untouched.
 | `scheduled_for` | TEXT | RFC 3339 UTC; set while `queued` |
 | `attempts` | INTEGER NOT NULL DEFAULT 0 | Publisher attempts for the current queue entry |
 | `last_error` | TEXT | Human-readable failure reason |
-| `article_id` | INTEGER | FK → `articles.id`, set when published |
+| `article_id` | INTEGER | FK → `articles.id` ON DELETE SET NULL, set when published |
+| `published_at` | TEXT | RFC 3339 UTC; set when status becomes published |
 | `updated_at` | TEXT NOT NULL | RFC 3339 UTC |
 
 Indexes: `(status, scheduled_for)`, `(status, discovered_at)`.
@@ -162,7 +163,7 @@ the pagination envelope's `totalPages` (matching existing Go endpoints).
 Ordering: `pending` by `discovered_at` desc; `queued` by `scheduled_for` asc;
 `failed`/`processing` by `updated_at` desc; `published` by `updated_at` desc.
 
-`published_today` counts candidates that reached `published` since local
+`published_today` counts candidates whose `published_at` falls since local
 midnight in `Europe/Istanbul` (matching the existing scheduler's timezone).
 
 ### Candidate

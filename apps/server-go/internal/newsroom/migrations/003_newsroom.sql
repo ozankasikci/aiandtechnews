@@ -22,10 +22,11 @@ CREATE TABLE candidates (
     scheduled_for TEXT,
     attempts INTEGER NOT NULL DEFAULT 0,
     last_error TEXT,
-    article_id INTEGER,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (article_id) REFERENCES articles(id)
+    article_id INTEGER REFERENCES articles(id) ON DELETE SET NULL,
+    published_at TEXT,
+    updated_at TEXT NOT NULL
 );
 
 CREATE INDEX idx_candidates_status_scheduled ON candidates(status, scheduled_for);
 CREATE INDEX idx_candidates_status_discovered ON candidates(status, discovered_at);
+CREATE INDEX idx_candidates_article ON candidates(article_id);

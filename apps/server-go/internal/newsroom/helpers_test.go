@@ -40,10 +40,13 @@ func insert(t *testing.T, store *newsroom.SQLiteStore, url string, at time.Time)
 }
 
 // setStatus forces a status the phase-1 API cannot produce (processing, published, failed).
+// When status is "published", published_at is also set to the same timestamp as updated_at.
 func setStatus(t *testing.T, db *sql.DB, id int64, status string, updatedAt time.Time) {
 	t.Helper()
-	if _, err := db.Exec(`UPDATE candidates SET status = ?, updated_at = ? WHERE id = ?`,
-		status, updatedAt.UTC().Format(time.RFC3339), id); err != nil {
+	stamp := updatedAt.UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`UPDATE candidates SET status = ?, updated_at = ?,
+		published_at = CASE WHEN ? = 'published' THEN ? ELSE published_at END WHERE id = ?`,
+		status, stamp, status, stamp, id); err != nil {
 		t.Fatal(err)
 	}
 }
