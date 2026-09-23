@@ -24,6 +24,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/media"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsroom"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/settings"
 )
 
 type App struct {
@@ -32,6 +33,9 @@ type App struct {
 	server        *httpserver.Server
 	background    []func(context.Context)
 	feedCollector *collector.Collector
+	// drains run after the server and background tasks stop, to finish
+	// fire-and-forget work such as dashboard IndexNow submissions.
+	drains []func()
 }
 
 // New composes the health-only application without opening or inspecting a database.
@@ -87,6 +91,9 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		newsroomCollector = feedCollector
 	}
 	newsroomHandler := newsroom.NewHandler(newsroomService, newsroomCollector, logger)
+	dashboardIndexNow, drainIndexNow := newDashboardIndexNow(cfg, logger)
+	dashboardContent := content.NewAdminHandler(content.NewAdminService(contentStore, now), dashboardIndexNow, logger)
+	dashboardSettings := settings.NewHandler(settings.NewService(settings.NewSQLiteStore(db)), logger)
 	handler := httpserver.NewRouter(logger, func(router chi.Router) {
 		health.MountPublic(router)
 		articles.MountPublic(router)
@@ -94,9 +101,16 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		authors.MountPublic(router)
 		auth.Mount(router)
 		newsroomHandler.Mount(router, auth.RequireAuth)
+		// Node guards every dashboard path, including unknown ones, with
+		// requireAuth before routing (dashboard.ts:94).
+		router.Route("/dashboard", func(dashboard chi.Router) {
+			dashboard.Use(auth.RequireAuth)
+			dashboardContent.Mount(dashboard)
+			dashboardSettings.Mount(dashboard)
+		})
 	})
 	server := httpserver.NewServer(cfg.Address, handler, logger)
-	application := &App{address: cfg.Address, handler: handler, server: server}
+	application := &App{address: cfg.Address, handler: handler, server: server, drains: []func(){drainIndexNow}}
 	if feedCollector != nil {
 		application.feedCollector = feedCollector
 		application.background = append(application.background, func(ctx context.Context) {
@@ -174,6 +188,9 @@ func (a *App) Run(ctx context.Context) error {
 	wg.Wait()
 	if a.feedCollector != nil {
 		a.feedCollector.Wait()
+	}
+	for _, drain := range a.drains {
+		drain()
 	}
 	return err
 }
