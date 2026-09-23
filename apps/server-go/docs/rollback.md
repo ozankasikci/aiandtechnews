@@ -41,49 +41,72 @@ is not trustworthy.
 
 **On the Mac mini**
 
+```sh
+ROOT="$HOME/technews"
+STAMP=$(date -u +%Y%m%dT%H%M%SZ); echo "$STAMP"   # note it for the MacBook steps
+```
+
 1. Stop the Go API and keep it stopped:
-   `sudo launchctl bootout system/news.aiandtech.api`
-   (`lsof -iTCP:4001 -sTCP:LISTEN` prints nothing). If the publisher or
-   collector were enabled, they stop with it.
-2. Stop the Mac mini's tunnel job (`sudo launchctl bootout system/<its label>`)
-   so the `technews` subdomain is free.
-3. For option A: take a consistent copy and note what it holds.
+   `sudo launchctl bootout system/news.aiandtech.api`;
+   `lsof -nP -iTCP:4001 -sTCP:LISTEN` prints nothing. The collector and
+   publisher, if enabled, stop with it. Stop the dashboard job too if the
+   dashboard goes back to the MacBook:
+   `sudo launchctl bootout system/news.aiandtech.dashboard`.
+2. Stop the Mac mini's tunnel job(s) (`sudo launchctl bootout system/<label>`)
+   so the `technews` subdomain (and `technewsweb`, if it was moved) is free.
+3. For option A only: take a consistent copy and fingerprint it.
 
    ```sh
-   STAMP=$(date -u +%Y%m%dT%H%M%SZ)
    sqlite3 "$ROOT/data/technews.db" ".backup '$ROOT/data/technews-rollback-$STAMP.db'"
    sqlite3 "$ROOT/data/technews-rollback-$STAMP.db" 'PRAGMA integrity_check'   # ok
    shasum -a 256 "$ROOT/data/technews-rollback-$STAMP.db"
    ```
 
-   Copy it to the MacBook, and copy new uploads without deleting anything:
-   `rsync -a "$ROOT/uploads/" macbook:"$NODE/apps/server/uploads/"`.
+   Copy it and the new uploads to the MacBook, into a temporary name and
+   without deleting anything there (`Projects/technews/...` on the MacBook
+   side is relative to the MacBook user's home, that is `$NODE`):
+
+   ```sh
+   rsync -a "$ROOT/data/technews-rollback-$STAMP.db" "<macbook>:Projects/technews/apps/server/data/incoming-rollback-$STAMP.db"
+   rsync -a "$ROOT/uploads/" "<macbook>:Projects/technews/apps/server/uploads/"
+   ```
 
 **On the MacBook**
 
-4. Make sure Node is not running (`lsof -iTCP:4001 -sTCP:LISTEN`).
-5. For option A: keep the freeze-time database aside, then put the Go
-   database in place (remove stale `-wal`/`-shm` files of the old one only
-   while Node is stopped):
+```sh
+NODE=/Users/ozan/Projects/technews
+STAMP=<the value noted on the Mac mini>
+```
+
+4. Make sure Node is not running: `lsof -nP -iTCP:4001 -sTCP:LISTEN` prints
+   nothing.
+5. For option A: check the copy, keep the freeze-time database aside, then put
+   the Go database in place, never overwriting:
 
    ```sh
    cd "$NODE/apps/server/data"
-   mv technews.db technews-before-rollback-$STAMP.db
-   rm -f technews.db-wal technews.db-shm
-   cp /path/to/technews-rollback-$STAMP.db technews.db
+   shasum -a 256 "incoming-rollback-$STAMP.db"                       # equals the Mac mini's
+   mv -n technews.db "technews-before-rollback-$STAMP.db"
+   ls technews.db 2>/dev/null && echo "STOP: technews.db still in place"
+   for f in technews.db-wal technews.db-shm; do [ -e "$f" ] && mv -n "$f" "technews-before-rollback-$STAMP.db${f#technews.db}"; done
+   mv -n "incoming-rollback-$STAMP.db" technews.db
+   ls "incoming-rollback-$STAMP.db" 2>/dev/null && echo "STOP: not moved"
    ```
 
+   (The freeze-time database was checkpointed when Node stopped, so no
+   `-wal`/`-shm` files are expected; if any exist, they move aside with it.)
    For option B: change nothing; `technews.db` is the freeze-time database.
-6. Start the Node API the way it was supervised before the cutover, check
-   `curl -fsS http://127.0.0.1:4001/api/health`.
-7. Start the MacBook's `technews` tunnel client again; check
-   `curl -fsS https://technews.subtunnel.dev/api/health`.
-8. Restart the `news:daily` scheduler (only after making sure the Go publisher
-   is stopped: step 1).
-9. Verify as in cutover step 5.10-5.13: homepage, article pages, sitemap,
-   newsletter archive, `npm run smoke:production`, the GitHub smoke workflow,
-   a dashboard sign-in (Node's `JWT_SECRET` differs from Go's if you changed
-   it, so editors sign in again).
+6. Start the Node API the way it was supervised before the cutover (cutover
+   step 1.1), then `curl -fsS http://127.0.0.1:4001/api/health`.
+7. Start the MacBook's `technews` tunnel client again (and `technewsweb`, if it
+   was moved); check `curl -fsS https://technews.subtunnel.dev/api/health`.
+8. Restart the `news:daily` scheduler, only after step 1 (the Go publisher is
+   stopped).
+9. Restart the dashboard on the MacBook if it went back there. Verify as in
+   cutover steps 5.11-5.14: homepage, article pages, sitemap, newsletter
+   archive, `npm run smoke:production`, the GitHub smoke workflow, a dashboard
+   sign-in (sessions stay valid because both servers use the same
+   `JWT_SECRET`, unless it was rotated at cutover).
 
 ## Notes
 

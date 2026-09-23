@@ -3,10 +3,16 @@
 <!--
   launchd job for the Go API on the Mac mini (template).
 
-  Replace __USER__ with the macOS account that owns the data (not root) and
-  __ROOT__ with the absolute production data root, the directory that holds
-  .technews-production, technews.env, bin/, data/, uploads/, and logs/.
-  Install as a LaunchDaemon so it runs at boot without a login session:
+  Replace __USER__ with the macOS account that owns the data (not root),
+  __HOME__ with its home directory (the AWS SDK reads ~/.aws/credentials from
+  it), and __ROOT__ with the absolute production data root, the directory
+  that holds .technews-production, technews.env, bin/, data/, uploads/, and
+  logs/.
+
+  Keep the filled-in file in $ROOT until cutover step 5: a LaunchDaemon starts
+  as soon as it is bootstrapped (and at every boot once it is in
+  /Library/LaunchDaemons). Install it as a LaunchDaemon, so it runs at boot
+  without a login session, only in that step:
 
     sudo cp news.aiandtech.api.plist /Library/LaunchDaemons/
     sudo chown root:wheel /Library/LaunchDaemons/news.aiandtech.api.plist
@@ -25,6 +31,12 @@
 
   <key>UserName</key>
   <string>__USER__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>__HOME__</string>
+  </dict>
 
   <key>ProgramArguments</key>
   <array>

@@ -208,3 +208,42 @@ and when `bash`/`curl` are missing) to prove it passes and cleans up.
 `gofmt -l . && go vet ./... && go test -p 2 ./... && make contracts-check`, plus
 `go test -race -p 2` on `internal/config`, `internal/database/...`, and `cmd/adopt`.
 `govulncheck` only if already installed (it is not; installing it globally is not allowed).
+
+## Review changes (2026-09-24)
+
+Applied after code review, test-first:
+
+- **Verifier strictness (false accepts fixed).** Besides the PRAGMA-level
+  comparison, each column's full definition text, the table constraints, and
+  the `CREATE INDEX` text are compared after normalizing only whitespace,
+  keyword case, identifier quoting, and comments. `UNIQUE ON CONFLICT
+  REPLACE`, `NOT NULL ON CONFLICT IGNORE`, `COLLATE NOCASE`, generated
+  columns, `DEFERRABLE` foreign keys, table-level `ON CONFLICT`, a CHECK
+  moved from a column to the table, and a partial index are rejected. False
+  rejects are accepted as the price of no false accepts; the known Node
+  variant is matched on its exact definition (`created_at text`).
+- **Adoption transaction.** `migrate.Adopt` takes `AdoptChecks{Verify,
+  BeforeCommit}`. Verify recounts every table and requires the backup's
+  counts; BeforeCommit requires the complete schema and that no existing table
+  vanished, lost rows, or gained rows beyond `settings` +2. A WAL-mode source
+  with uncheckpointed frames is fully captured by the backup (regression
+  test). The optional refusal of a non-empty `-wal` was not added: a `-wal`
+  after an unclean stop is normal, SQLite reads it, and the in-transaction
+  recount already stops concurrent writers.
+- **Production startup.** `cmd/api` in production opens with
+  `database.OpenForServing` (no create; the serving pragmas, unlike the
+  read-only-oriented `OpenExisting`) and refuses to serve unless
+  `migrate.Status` reports a valid ledger with nothing pending.
+- **Production config.** `JWT_SECRET` at least 32 bytes and not Node's
+  fallback; `TZ` required and loadable.
+- **Health.** With a database, `/api/health` runs `SELECT 1` (2s timeout):
+  unchanged `200 {"status":"ok"}`, or `503 {"status":"error"}`.
+- **Runbooks.** Per-machine variable blocks; launchd plists installed only at
+  the start steps (with `HOME` set); copy into a temporary name and `mv -n`;
+  `umask 077` + `mktemp -d` rehearsal; `read -s` for the smoke password;
+  secrets copied as files, never printed; user answers folded in: dashboard on
+  the Mac mini (build, launchd template, reached on `127.0.0.1:3001` via SSH
+  tunnel or the moved tunnel), `technewsweb` discovery and decision point, the
+  existing `JWT_SECRET` reused, Apple silicon build on the Mac mini with
+  user-local Go/Node/pnpm (Homebrew or a tarball in `~/`) and Xcode CLT.
+- **Smoke script** requires `sqlite3` (no `cp` fallback).
