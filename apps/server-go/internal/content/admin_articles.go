@@ -357,3 +357,29 @@ func (s *AdminService) UpdateArticle(ctx context.Context, id string, body jsonbo
 	}
 	return change, nil
 }
+
+// DeleteArticle ports dashboard.ts:464-479.
+func (s *AdminService) DeleteArticle(ctx context.Context, id string) (ArticleChange, error) {
+	var change ArticleChange
+	err := s.store.inAdminTx(ctx, func(tx adminTx) error {
+		slug, status, found, err := tx.articleSlugStatus(ctx, id)
+		if err != nil {
+			return err
+		}
+		deleted, err := tx.deleteRow(ctx, "articles", id)
+		if err != nil {
+			return err
+		}
+		if !deleted {
+			return articleNotFound()
+		}
+		if found && status == "published" {
+			change.IndexNowSlugs = []string{slug}
+		}
+		return nil
+	})
+	if err != nil {
+		return ArticleChange{}, err
+	}
+	return change, nil
+}
