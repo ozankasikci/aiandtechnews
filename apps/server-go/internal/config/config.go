@@ -20,6 +20,11 @@ const (
 
 	DefaultAddress         = "127.0.0.1:4401"
 	ProductionDatabasePath = "/Users/ozan/Projects/technews/apps/server/data/technews.db"
+	// ProductionUploadsDir is the Node server's uploads directory on the
+	// production MacBook (apps/server/src/index.ts:12). Like the production
+	// database it is rejected outside APP_ENV=production, so development can
+	// never serve from or delete files in it.
+	ProductionUploadsDir = "/Users/ozan/Projects/technews/apps/server/uploads"
 
 	// DefaultCollectorInterval is how often the feed collector loop runs when
 	// COLLECTOR_INTERVAL is not set.
@@ -39,11 +44,17 @@ const (
 
 var ErrProductionDatabaseAlias = errors.New("production database path is forbidden outside APP_ENV=production")
 
+var ErrProductionUploadsAlias = errors.New("production uploads directory is forbidden outside APP_ENV=production")
+
 type Config struct {
 	Mode         Mode
 	Address      string
 	DatabasePath string
 	JWTSecret    string
+	// UploadsDir is the dashboard media library's directory, served at
+	// /uploads/*. Development defaults to <worktree>/data/uploads; production
+	// has no default and cmd/api requires UPLOADS_DIR explicitly.
+	UploadsDir string
 
 	// CollectorEnabled wires the feed collector (manual "Collect now" and the loop).
 	CollectorEnabled  bool
@@ -67,10 +78,10 @@ type Config struct {
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("Config{Mode:%q Address:%q DatabasePath:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
+	return fmt.Sprintf("Config{Mode:%q Address:%q DatabasePath:%q UploadsDir:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
 		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiVisionModel:%q "+
 		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t}",
-		c.Mode, c.Address, c.DatabasePath, c.CollectorEnabled, c.CollectorInterval,
+		c.Mode, c.Address, c.DatabasePath, c.UploadsDir, c.CollectorEnabled, c.CollectorInterval,
 		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiVisionModel,
 		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled)
 }
@@ -102,6 +113,15 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 		cfg.DatabasePath = value
 	}
 	cfg.JWTSecret = lookup("JWT_SECRET")
+	// Production never gets a default uploads directory: cmd/api refuses to
+	// start without an explicit UPLOADS_DIR there. Commands that do not serve
+	// media (cmd/migrate) do not need it.
+	switch value := lookup("UPLOADS_DIR"); {
+	case value != "":
+		cfg.UploadsDir = value
+	case cfg.Mode != ModeProduction:
+		cfg.UploadsDir = filepath.Join(worktreeRoot, "data", "uploads")
+	}
 
 	cfg.CollectorInterval = DefaultCollectorInterval
 	collectorEnabled, err := parseOnOff("COLLECTOR_ENABLED", lookup("COLLECTOR_ENABLED"))
@@ -202,6 +222,20 @@ func (c Config) Validate() error {
 		}
 		if equivalent {
 			return fmt.Errorf("%w: %q", ErrProductionDatabaseAlias, c.DatabasePath)
+		}
+	}
+	if c.UploadsDir != "" {
+		if !filepath.IsAbs(c.UploadsDir) {
+			return fmt.Errorf("UPLOADS_DIR must be an absolute path, got %q", c.UploadsDir)
+		}
+		if c.Mode != ModeProduction {
+			equivalent, err := pathsEquivalent(c.UploadsDir, ProductionUploadsDir)
+			if err != nil {
+				return fmt.Errorf("compare UPLOADS_DIR with production uploads directory: %w", err)
+			}
+			if equivalent {
+				return fmt.Errorf("%w: %q", ErrProductionUploadsAlias, c.UploadsDir)
+			}
 		}
 	}
 	return nil

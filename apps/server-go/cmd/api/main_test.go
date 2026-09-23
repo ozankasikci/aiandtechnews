@@ -136,3 +136,42 @@ func TestRunConfiguredOwnsDatabaseWithoutMigratingOrListening(t *testing.T) {
 		})
 	}
 }
+
+func TestRunConfiguredCreatesUploadsDirectoryBeforeComposing(t *testing.T) {
+	uploads := filepath.Join(t.TempDir(), "nested", "uploads")
+	environment := map[string]string{
+		"DATABASE_PATH": filepath.Join(t.TempDir(), "api.db"),
+		"SERVER_ADDR":   "127.0.0.1:4402",
+		"UPLOADS_DIR":   uploads,
+	}
+	compose := func(cfg config.Config, _ *slog.Logger, _ *sql.DB) (apiApplication, error) {
+		if cfg.UploadsDir != uploads {
+			t.Fatalf("UploadsDir = %q, want %q", cfg.UploadsDir, uploads)
+		}
+		info, err := os.Stat(uploads)
+		if err != nil || !info.IsDir() {
+			t.Fatalf("uploads directory missing at composition: %v", err)
+		}
+		return stubAPIApplication{err: errors.New("stop without listener")}, nil
+	}
+	err := runConfigured(context.Background(), t.TempDir(), func(key string) string { return environment[key] }, database.Open, compose, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil {
+		t.Fatal("runConfigured error = nil")
+	}
+}
+
+func TestRunConfiguredRequiresExplicitUploadsDirInProduction(t *testing.T) {
+	environment := map[string]string{"APP_ENV": "production", "DATABASE_PATH": filepath.Join(t.TempDir(), "api.db"), "SERVER_ADDR": "127.0.0.1:4402"}
+	open := func(context.Context, string) (*sql.DB, error) {
+		t.Fatal("database opened without an uploads directory")
+		return nil, nil
+	}
+	compose := func(config.Config, *slog.Logger, *sql.DB) (apiApplication, error) {
+		t.Fatal("composed without an uploads directory")
+		return nil, nil
+	}
+	err := runConfigured(context.Background(), t.TempDir(), func(key string) string { return environment[key] }, open, compose, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil || err.Error() != "UPLOADS_DIR is required when APP_ENV=production" {
+		t.Fatalf("runConfigured error = %v", err)
+	}
+}

@@ -12,3 +12,6 @@ dist/
 .claude/settings.local.json
 memory/
 .vercel
+
+# Go API development uploads (UPLOADS_DIR default)
+/data/uploads/

@@ -93,6 +93,14 @@ func runConfigured(
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
+	// Like Node's index.ts, create the uploads directory at startup; the media
+	// library opens it per request and never creates it itself.
+	if cfg.UploadsDir == "" {
+		return errors.New("UPLOADS_DIR is required when APP_ENV=production")
+	}
+	if err := os.MkdirAll(cfg.UploadsDir, 0o755); err != nil {
+		return fmt.Errorf("create uploads directory: %w", err)
+	}
 	db, err := openDatabase(ctx, cfg.DatabasePath)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)

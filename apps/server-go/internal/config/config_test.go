@@ -215,9 +215,13 @@ func TestLoadAllowsProductionResourcesOnlyInExplicitProductionMode(t *testing.T)
 		"APP_ENV":       string(ModeProduction),
 		"SERVER_ADDR":   wantAddress,
 		"DATABASE_PATH": ProductionDatabasePath,
+		"UPLOADS_DIR":   ProductionUploadsDir,
 	}), t.TempDir())
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.UploadsDir != ProductionUploadsDir {
+		t.Errorf("UploadsDir = %q, want %q", cfg.UploadsDir, ProductionUploadsDir)
 	}
 	if cfg.Mode != ModeProduction {
 		t.Errorf("Mode = %q, want %q", cfg.Mode, ModeProduction)
