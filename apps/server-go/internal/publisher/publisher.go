@@ -193,7 +193,7 @@ func (p *Publisher) publish(ctx context.Context, candidate newsroom.Candidate) (
 		return 0, "", err
 	}
 	sourceText := ExtractSourceText(body)
-	if jsLength(sourceText) < MinSourceTextLength {
+	if content.JavaScriptLength(sourceText) < MinSourceTextLength {
 		return 0, "", Permanent(errors.New("source text is too short for an accurate rewrite"))
 	}
 

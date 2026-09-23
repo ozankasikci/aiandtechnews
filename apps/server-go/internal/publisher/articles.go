@@ -34,18 +34,29 @@ type NewArticle struct {
 	SourceURL     string
 }
 
-// Categories in Node's CATEGORY_KEYWORDS insertion order; "tech" is the fallback.
+// Categories in Node's CATEGORY_KEYWORDS insertion order (the matching
+// order); "tech" is the fallback.
 var categoryKeywords = []struct {
 	slug     string
-	color    string
 	keywords []string
 }{
-	{"ai", "#8b5cf6", []string{"artificial intelligence", "machine learning", "llm", "openai", "chatgpt", "anthropic", "gemini", "generative ai", "neural network", "ai model"}},
-	{"science", "#10b981", []string{"science", "space", "nasa", "physics", "biology", "climate", "quantum", "telescope", "asteroid", "fusion", "genome"}},
-	{"entertainment", "#ec4899", []string{"game", "gaming", "movie", "film", "streaming", "playstation", "xbox", "nintendo", "netflix", "spotify"}},
-	{"reviews", "#f59e0b", []string{"review", "hands-on", "benchmark", "comparison", "tested", "unboxing"}},
-	{"creators", "#f97316", []string{"creator", "youtube", "tiktok", "influencer", "podcast", "twitch", "patreon"}},
-	{"tech", "#3b82f6", nil},
+	{"ai", []string{"artificial intelligence", "machine learning", "llm", "openai", "chatgpt", "anthropic", "gemini", "generative ai", "neural network", "ai model"}},
+	{"science", []string{"science", "space", "nasa", "physics", "biology", "climate", "quantum", "telescope", "asteroid", "fusion", "genome"}},
+	{"entertainment", []string{"game", "gaming", "movie", "film", "streaming", "playstation", "xbox", "nintendo", "netflix", "spotify"}},
+	{"reviews", []string{"review", "hands-on", "benchmark", "comparison", "tested", "unboxing"}},
+	{"creators", []string{"creator", "youtube", "tiktok", "influencer", "podcast", "twitch", "patreon"}},
+	{"tech", nil},
+}
+
+// categoryColors is Node's CATEGORY_COLORS in insertion order, which is the
+// order ensureCategories inserts them (and so their ids on a fresh database).
+var categoryColors = []struct{ slug, color string }{
+	{"tech", "#3b82f6"},
+	{"reviews", "#f59e0b"},
+	{"science", "#10b981"},
+	{"entertainment", "#ec4899"},
+	{"ai", "#8b5cf6"},
+	{"creators", "#f97316"},
 }
 
 // Categorize ports categorize: a keyword in the headline wins; otherwise two
@@ -119,7 +130,7 @@ func (a *SQLiteArticles) Publish(ctx context.Context, article NewArticle) (id in
 		}
 	}()
 
-	for _, category := range categoryKeywords {
+	for _, category := range categoryColors {
 		name := strings.ToUpper(category.slug[:1]) + category.slug[1:]
 		if _, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO categories (name, slug, description, color) VALUES (?, ?, ?, ?)`,
 			name, category.slug, category.slug+" news", category.color); err != nil {

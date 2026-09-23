@@ -85,7 +85,7 @@ func ExtractOGImage(html, pageURL string) string {
 // present, otherwise the richest paragraph set among <article>, <main> and the
 // whole page, with navigation/boilerplate removed; capped at 14000 JS chars.
 func ExtractSourceText(html string) string {
-	if body := extractJSONLDArticleBody(html); jsLength(body) >= MinSourceTextLength {
+	if body := extractJSONLDArticleBody(html); content.JavaScriptLength(body) >= MinSourceTextLength {
 		return truncateJS(body, maxSourceTextLength)
 	}
 	cleaned := noiseBlock.ReplaceAllString(htmlComment.ReplaceAllString(html, " "), " ")
@@ -100,7 +100,7 @@ func ExtractSourceText(html string) string {
 
 	best := ""
 	for _, scope := range scopes {
-		if text := extractParagraphs(scope); jsLength(text) > jsLength(best) {
+		if text := extractParagraphs(scope); content.JavaScriptLength(text) > content.JavaScriptLength(best) {
 			best = text
 		}
 	}
@@ -112,10 +112,10 @@ func extractParagraphs(scope string) string {
 	var paragraphs []string
 	for _, block := range paragraphBlock.FindAllString(scope, -1) {
 		text := collector.DecodeHTMLEntities(content.StripHTML(block))
-		if jsLength(text) < 60 || boilerplateStart.MatchString(text) {
+		if content.JavaScriptLength(text) < 60 || boilerplateStart.MatchString(text) {
 			continue
 		}
-		if boilerplateMention.MatchString(text) && jsLength(text) < 250 {
+		if boilerplateMention.MatchString(text) && content.JavaScriptLength(text) < 250 {
 			continue
 		}
 		key := strings.ToLower(text)
@@ -124,7 +124,7 @@ func extractParagraphs(scope string) string {
 		}
 		seen[key] = true
 		paragraphs = append(paragraphs, text)
-		if jsLength(strings.Join(paragraphs, "\n\n")) >= maxSourceTextLength {
+		if content.JavaScriptLength(strings.Join(paragraphs, "\n\n")) >= maxSourceTextLength {
 			break
 		}
 	}
@@ -156,7 +156,7 @@ func findArticleBody(value any) string {
 			}
 		}
 	case map[string]any:
-		if body, ok := typed["articleBody"].(string); ok && jsLength(body) > minJSONLDArticleLength {
+		if body, ok := typed["articleBody"].(string); ok && content.JavaScriptLength(body) > minJSONLDArticleLength {
 			return body
 		}
 		keys := make([]string, 0, len(typed))

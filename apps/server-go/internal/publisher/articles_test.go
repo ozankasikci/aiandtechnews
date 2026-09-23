@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,10 +56,21 @@ func TestPublishInsertsArticleLikeNode(t *testing.T) {
 		t.Fatalf("row = %s %s %s %s %s %s %s %s %d", status, publishedAt, createdAt, author, category, source, sourceURL, image, views)
 	}
 
-	var categories int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM categories`).Scan(&categories)
-	if categories != 6 {
-		t.Fatalf("categories = %d, want the 6 Node categories", categories)
+	var categories []string
+	rows, err := db.Query(`SELECT slug FROM categories ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			t.Fatal(err)
+		}
+		categories = append(categories, slug)
+	}
+	rows.Close()
+	if strings.Join(categories, ",") != "tech,reviews,science,entertainment,ai,creators" {
+		t.Fatalf("categories = %v, want the 6 Node categories in CATEGORY_COLORS order", categories)
 	}
 
 	if exists, _ := articles.Exists(ctx, "https://techcrunch.com/other", "openai-model"); !exists {

@@ -183,7 +183,7 @@ func TestPublishNextSkipsAlreadyPublishedStory(t *testing.T) {
 	ctx := context.Background()
 	id, _, err := h.store.Insert(ctx, newsroom.NewCandidate{SourceURL: sourceURL + "?amp=1", SourceName: "TechCrunch", FeedURL: "x", Title: "Anthropic launches new model again"}, h.now)
 	if err != nil || id == 0 {
-		t.Skipf("normalizer merged the URL (id=%d err=%v); duplicate path covered by articles tests", id, err)
+		t.Fatalf("second candidate was not inserted (id=%d err=%v)", id, err)
 	}
 	if err := h.store.MarkQueued(ctx, id, newsroom.StatusPending, h.now, h.now); err != nil {
 		t.Fatal(err)

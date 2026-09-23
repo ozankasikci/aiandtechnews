@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -106,5 +108,45 @@ func TestRewriteClassifiesGeminiErrors(t *testing.T) {
 				t.Fatalf("err=%v permanent=%v system=%v", err, publisher.IsPermanent(err), publisher.IsSystemFault(err))
 			}
 		})
+	}
+}
+
+// nodeRewritePrompt reads the basePrompt template literal from the Node
+// importer and fills it the way Node would for the given input.
+func nodeRewritePrompt(t *testing.T, in publisher.RewriteInput) string {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Join("..", "..", "..", "server", "scripts", "news-importer.ts"))
+	if err != nil {
+		t.Fatalf("read Node importer: %v", err)
+	}
+	const open = "const basePrompt = `"
+	text := string(source)
+	start := strings.Index(text, open)
+	if start < 0 {
+		t.Fatal("basePrompt not found in news-importer.ts")
+	}
+	text = text[start+len(open):]
+	end := strings.Index(text, "`;")
+	if end < 0 {
+		t.Fatal("basePrompt terminator not found in news-importer.ts")
+	}
+	return strings.NewReplacer(
+		"${minWords}", "150", "${maxWords}", "800",
+		"${item.source}", in.Source, "${item.title}", in.Title, "${item.url}", in.CanonicalURL,
+		"${sourceText}", in.SourceText,
+	).Replace(text[:end])
+}
+
+func TestRewritePromptMatchesNodeImporter(t *testing.T) {
+	text := &scriptedText{responses: []string{validArticleJSON()}}
+	if _, err := publisher.NewRewriter(text).Rewrite(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	want := nodeRewritePrompt(t, input)
+	if strings.Contains(want, "${") {
+		t.Fatalf("unsubstituted placeholder in Node prompt:\n%s", want)
+	}
+	if text.prompts[0] != want {
+		t.Fatalf("Go prompt differs from Node prompt.\n--- go ---\n%s\n--- node ---\n%s", text.prompts[0], want)
 	}
 }
