@@ -51,11 +51,16 @@
 
   <key>WorkingDirectory</key>
   <string>__REPO__/apps/dashboard</string>
-
-  <key>RunAtLoad</key>
-  <true/>
   <key>KeepAlive</key>
-  <true/>
+  <!-- The data lives on an external drive: run only while it is mounted,
+       and restart whenever the process exits. -->
+  <dict>
+    <key>PathState</key>
+    <dict>
+      <key>__REPO__/apps/dashboard/.next/BUILD_ID</key>
+      <true/>
+    </dict>
+  </dict>
   <key>ThrottleInterval</key>
   <integer>10</integer>
 

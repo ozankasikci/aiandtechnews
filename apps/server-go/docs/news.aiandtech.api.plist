@@ -47,12 +47,16 @@
 
   <key>WorkingDirectory</key>
   <string>__ROOT__</string>
-
-  <!-- Start at boot and restart whenever the process exits. -->
-  <key>RunAtLoad</key>
-  <true/>
   <key>KeepAlive</key>
-  <true/>
+  <!-- The data lives on an external drive: run only while it is mounted,
+       and restart whenever the process exits. -->
+  <dict>
+    <key>PathState</key>
+    <dict>
+      <key>__ROOT__/technews.env</key>
+      <true/>
+    </dict>
+  </dict>
   <!-- Wait at least 10s between restarts (for example while the env is wrong). -->
   <key>ThrottleInterval</key>
   <integer>10</integer>

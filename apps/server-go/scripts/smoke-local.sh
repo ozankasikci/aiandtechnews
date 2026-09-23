@@ -85,7 +85,15 @@ mkdir -p "$work/data" "$work/uploads" "$work/bin"
 db="$work/data/technews.db"
 
 printf 'smoke: copying %s\n' "$source_db"
-sqlite3 -readonly "$source_db" ".backup '$db'" || fail "sqlite3 .backup of $source_db failed"
+# Newer sqlite3 builds (3.51 on macOS 26) refuse a -readonly open of a WAL
+# database whose -shm file is missing, as after a clean shutdown. The fallback
+# opens it query-only and skips the checkpoint on close, so the database and
+# its -wal stay byte-identical; only a -shm index may be created beside them.
+if ! sqlite3 -readonly "$source_db" ".backup '$db'" 2>/dev/null; then
+  rm -f "$db"
+  sqlite3 -cmd ".dbconfig no_ckpt_on_close on" -cmd "PRAGMA query_only=1" \
+    "$source_db" ".backup '$db'" >/dev/null || fail "sqlite3 .backup of $source_db failed"
+fi
 
 sample_upload=""
 if [ -n "$source_uploads" ]; then

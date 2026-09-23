@@ -119,23 +119,40 @@ NODE=/Users/ozan/Projects/technews   # the Node checkout that serves production
 ## 2. Mac mini: prerequisites (no downtime)
 
 ```sh
-ROOT="$HOME/technews"            # production data root; not under ~/Documents, ~/Desktop, ~/Downloads
-REPO="$HOME/src/aiandtechnews"   # repository checkout used for building
+ROOT=/Volumes/Samsung990PRO/AIAndTechNewsWorkspace   # production root on the external SSD
+REPO="$ROOT/repo"                                      # repository checkout used for building
+. "$ROOT/env.sh"                                       # toolchains and caches on the drive
 ```
 
-1. **Keep it on.** System Settings → Energy: prevent automatic sleeping and
-   start up after a power failure (or `sudo pmset -a sleep 0 disksleep 0
-   autorestart 1`). `uname -m` prints `arm64`.
-2. **Toolchains, user-local.** Xcode command line tools (cgo for the WebP
-   encoder, `github.com/chai2010/webp`): `xcode-select --install`. Homebrew
-   (it lives in `/opt/homebrew`, owned by your user; <https://brew.sh>), then
-   `brew install go node pnpm`. Check `go version` (1.25+), `node --version`
-   (22), `pnpm --version` (10), and that `/usr/bin/sqlite3` exists. Instead of
-   Homebrew, Go can be a go.dev tarball unpacked under `~/` (for example
-   `~/sdk/go`, with `~/sdk/go/bin` on `PATH`).
-3. **Repository.** `git clone <repo url> "$REPO"` (or `git -C "$REPO" pull`
-   on the branch being deployed).
-4. **Build and test the Go binaries**:
+Everything (toolchains, caches, checkout, binaries, data, logs) lives on the
+external SSD, not the internal disk. `$ROOT/env.sh` puts Go and Node on `PATH`
+and keeps `GOPATH`, `GOCACHE`, `GOMODCACHE`, corepack and the pnpm store under
+`$ROOT/cache`, with `GOTOOLCHAIN=local`.
+
+1. **Keep it on and logged in.** System Settings → Energy: prevent automatic
+   sleeping and start up after a power failure (`pmset -g` shows `sleep 0`,
+   `autorestart 1`). FileVault off and automatic login for the owning account,
+   so the external drive is mounted after a reboot (macOS mounts external
+   volumes at login unless `AutomountDisksWithoutUserLogin` is set in
+   `/Library/Preferences/SystemConfiguration/autodiskmount`). The launchd jobs
+   only run while their files on the drive exist (`KeepAlive` → `PathState`).
+2. **Remote access to the drive.** macOS privacy protection blocks SSH from
+   external volumes. Remote Login (ⓘ) → "Allow full disk access for remote
+   users", and Privacy & Security → Full Disk Access for
+   `/usr/libexec/sshd-keygen-wrapper`; then turn Remote Login off and on.
+3. **Toolchains on the drive, no Homebrew, no sudo.** Xcode or its command line
+   tools (cgo for the WebP encoder, `github.com/chai2010/webp`). Go (the
+   go.dev `darwin-arm64` tarball, unpacked to `$ROOT/tools/go`) and Node 22
+   (the nodejs.org tarball, unpacked to `$ROOT/tools/node`), each checked
+   against its published SHA-256; pnpm 10 through corepack:
+   `corepack enable --install-directory "$ROOT/tools/node/bin" pnpm`. Check
+   `go version` (1.25+), `node --version` (22), `pnpm --version` (10), and that
+   `/usr/bin/sqlite3` exists.
+4. **Repository.** The production checkout is a plain git repository at
+   `$REPO` with `receive.denyCurrentBranch updateInstead`; deploy by pushing
+   from a development machine:
+   `git push ssh://<user>@<macmini>$REPO main`.
+5. **Build and test the Go binaries**:
 
    ```sh
    cd "$REPO/apps/server-go"
@@ -146,7 +163,7 @@ REPO="$HOME/src/aiandtechnews"   # repository checkout used for building
    go build -p 2 -trimpath -o "$ROOT/bin/migrate" ./cmd/migrate
    ```
 
-5. **Build the dashboard**:
+6. **Build the dashboard**:
 
    ```sh
    cd "$REPO"
@@ -157,8 +174,8 @@ REPO="$HOME/src/aiandtechnews"   # repository checkout used for building
 ## 3. Mac mini: data root and environment (no downtime)
 
 ```sh
-ROOT="$HOME/technews"
-REPO="$HOME/src/aiandtechnews"
+ROOT=/Volumes/Samsung990PRO/AIAndTechNewsWorkspace
+REPO="$ROOT/repo"
 ```
 
 1. Directories and the production marker:
@@ -254,8 +271,8 @@ Copy that `technews.db` and `$NODE/apps/server/uploads/` to the Mac mini, then
 `rm -rf "$REHEARSAL"` on the MacBook. On the Mac mini:
 
 ```sh
-ROOT="$HOME/technews"
-REPO="$HOME/src/aiandtechnews"
+ROOT=/Volumes/Samsung990PRO/AIAndTechNewsWorkspace
+REPO="$ROOT/repo"
 umask 077
 R=$(mktemp -d)                                  # a throwaway production root
 mkdir -p "$R/data" "$R/uploads" && touch "$R/.technews-production"
@@ -334,7 +351,7 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ); echo "$STAMP"   # note it: step 5.5 and the ro
 **On the Mac mini**
 
 ```sh
-ROOT="$HOME/technews"
+ROOT=/Volumes/Samsung990PRO/AIAndTechNewsWorkspace
 STAMP=<the value noted on the MacBook>
 ```
 
