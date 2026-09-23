@@ -161,7 +161,7 @@ the pagination envelope's `totalPages` (matching existing Go endpoints).
 | PUT | `/settings` | same shape | same shape; `400` on invalid range |
 
 Ordering: `pending` by `discovered_at` desc; `queued` by `scheduled_for` asc;
-`failed`/`processing` by `updated_at` desc; `published` by `updated_at` desc.
+`failed`/`processing` by `updated_at` desc; `published` by `published_at` desc.
 
 `published_today` counts candidates whose `published_at` falls since local
 midnight in `Europe/Istanbul` (matching the existing scheduler's timezone).
