@@ -6,9 +6,15 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
+
+// DownloadWriteTimeout replaces the server's WriteTimeout (30s) for files
+// served from /uploads/*, so a large legacy file on a slow link is not cut
+// off. It is set only once a file is about to be sent.
+const DownloadWriteTimeout = 2 * time.Minute
 
 // MountStatic registers GET and HEAD /uploads/* on the root router, the Go
 // counterpart of app.use("/uploads", express.static(uploadRoot)) (app.ts:30).
@@ -65,6 +71,9 @@ func (u *Uploads) serve(w http.ResponseWriter, r *http.Request) {
 		header.Set("Content-Security-Policy", "sandbox; default-src 'none'")
 		header.Set("Content-Disposition", "attachment")
 	}
+	// An error means the writer has no deadline support (httptest) or the
+	// connection is gone, in which case ServeContent fails on its own.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(DownloadWriteTimeout))
 	http.ServeContent(w, r, "", info.ModTime(), file)
 }
 

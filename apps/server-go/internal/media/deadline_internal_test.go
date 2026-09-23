@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -51,3 +53,33 @@ func TestExtendUploadDeadlinesToleratesWritersWithoutDeadlines(t *testing.T) {
 }
 
 var _ http.ResponseWriter = (*deadlineRecorder)(nil)
+
+func TestServeExtendsTheWriteDeadlineForDownloadsOnly(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.png"), []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	uploads := NewUploads(dir)
+
+	before := time.Now()
+	recorder := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	uploads.serve(recorder, httptest.NewRequest(http.MethodGet, "/uploads/a.png", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	if !recorder.read.IsZero() {
+		t.Fatalf("read deadline changed to %v", recorder.read)
+	}
+	if recorder.write.Before(before.Add(DownloadWriteTimeout)) || recorder.write.After(time.Now().Add(DownloadWriteTimeout)) {
+		t.Fatalf("write deadline = %v, want now + %v", recorder.write, DownloadWriteTimeout)
+	}
+	if DownloadWriteTimeout != 2*time.Minute {
+		t.Fatalf("DownloadWriteTimeout = %v", DownloadWriteTimeout)
+	}
+
+	missing := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	uploads.serve(missing, httptest.NewRequest(http.MethodGet, "/uploads/missing.png", nil))
+	if missing.Code != http.StatusNotFound || !missing.write.IsZero() {
+		t.Fatalf("404 = %d, write deadline %v", missing.Code, missing.write)
+	}
+}
