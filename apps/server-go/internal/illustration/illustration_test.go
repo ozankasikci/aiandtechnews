@@ -16,6 +16,7 @@ import (
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/gemini"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
 )
 
 func tinyPNG(t *testing.T) []byte {
@@ -207,6 +208,98 @@ func TestGenerateReturnsImmediatelyOnTextOnlyFailure(t *testing.T) {
 	}
 	if model.generateCalls != 1 {
 		t.Fatalf("generateCalls = %d", model.generateCalls)
+	}
+}
+
+const injuryViolationJSON = `{"has_text":false,"has_logo_or_watermark":false,"depicts_unsupported_injury_or_violence":true,"notes":"injury"}`
+
+func TestGenerateReviewSystemFaultStopsWithoutRegenerating(t *testing.T) {
+	reviewErr := &gemini.Error{Status: 404}
+	model := &fakeModel{t: t, generatedImage: tinyPNG(t), reviews: []scriptedReview{{err: reviewErr}}}
+	_, err := illustration.NewGenerator(model, discardLogger()).Generate(context.Background(), illustration.Article{Title: "T", Excerpt: "E"}, nil)
+	if !errors.Is(err, reviewErr) || !publisher.IsSystemFault(err) {
+		t.Fatalf("err = %v, want system fault wrapping the review error", err)
+	}
+	if model.generateCalls != 1 {
+		t.Fatalf("generateCalls = %d, want 1", model.generateCalls)
+	}
+}
+
+func TestGenerateReviewTransientErrorStopsWithoutRegenerating(t *testing.T) {
+	for name, reviewErr := range map[string]error{
+		"503":      &gemini.Error{Status: 503},
+		"429":      &gemini.Error{Status: 429},
+		"network":  errors.New("connection reset"),
+		"deadline": context.DeadlineExceeded,
+	} {
+		t.Run(name, func(t *testing.T) {
+			model := &fakeModel{t: t, generatedImage: tinyPNG(t), reviews: []scriptedReview{{err: reviewErr}}}
+			_, err := illustration.NewGenerator(model, discardLogger()).Generate(context.Background(), illustration.Article{Title: "T", Excerpt: "E"}, nil)
+			if !errors.Is(err, reviewErr) || publisher.IsSystemFault(err) || publisher.IsPermanent(err) {
+				t.Fatalf("err = %v, want transient review error", err)
+			}
+			if model.generateCalls != 1 {
+				t.Fatalf("generateCalls = %d, want 1", model.generateCalls)
+			}
+		})
+	}
+}
+
+func TestGenerateReviewPermanentErrorRegeneratesAsUnverified(t *testing.T) {
+	reviewErr := &gemini.Error{Status: 400}
+	model := &fakeModel{t: t, generatedImage: tinyPNG(t), reviews: []scriptedReview{{err: reviewErr}, {err: reviewErr}, {err: reviewErr}}}
+	_, err := illustration.NewGenerator(model, discardLogger()).Generate(context.Background(), illustration.Article{Title: "T", Excerpt: "E"}, nil)
+	if !errors.Is(err, illustration.ErrNoCompliantImage) {
+		t.Fatalf("err = %v, want ErrNoCompliantImage", err)
+	}
+	if model.generateCalls != 3 {
+		t.Fatalf("generateCalls = %d, want 3", model.generateCalls)
+	}
+}
+
+func TestGenerateReviewEmptyResponseRegeneratesAsUnverified(t *testing.T) {
+	model := &fakeModel{t: t, generatedImage: tinyPNG(t), reviews: []scriptedReview{{err: gemini.ErrEmptyResponse}, {json: compliantJSON}}}
+	_, err := illustration.NewGenerator(model, discardLogger()).Generate(context.Background(), illustration.Article{Title: "T", Excerpt: "E"}, nil)
+	if err != nil || model.generateCalls != 2 {
+		t.Fatalf("err = %v generateCalls = %d, want success on attempt 2", err, model.generateCalls)
+	}
+}
+
+func TestGenerateKeepsReferenceOnInjuryRejection(t *testing.T) {
+	model := &fakeModel{t: t, generatedImage: tinyPNG(t), reviews: []scriptedReview{{json: injuryViolationJSON}, {json: compliantJSON}}}
+	_, err := illustration.NewGenerator(model, discardLogger()).Generate(context.Background(), illustration.Article{Title: "T", Excerpt: "E"}, tinyPNG(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(model.referenceSeen) != 2 || !model.referenceSeen[0] || !model.referenceSeen[1] {
+		t.Fatalf("referenceSeen = %v, want reference kept", model.referenceSeen)
+	}
+}
+
+func TestGenerateUndecodableReferenceGeneratesFromText(t *testing.T) {
+	model := &fakeModel{t: t, generatedImage: tinyPNG(t), reviews: []scriptedReview{{json: compliantJSON}}}
+	_, err := illustration.NewGenerator(model, discardLogger()).Generate(context.Background(), illustration.Article{Title: "T", Excerpt: "E"}, []byte("not an image"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(model.referenceSeen) != 1 || model.referenceSeen[0] {
+		t.Fatalf("referenceSeen = %v, want text-only", model.referenceSeen)
+	}
+}
+
+func TestGenerateReturnsLastGenerationErrorOnFinalAttempt(t *testing.T) {
+	genErr := errors.New("final boom")
+	model := &fakeModel{t: t, generatedImage: tinyPNG(t), generateErrs: []error{nil, nil, genErr},
+		reviews: []scriptedReview{{json: textViolationJSON}, {json: textViolationJSON}}}
+	_, err := illustration.NewGenerator(model, discardLogger()).Generate(context.Background(), illustration.Article{Title: "T", Excerpt: "E"}, nil)
+	if !errors.Is(err, genErr) {
+		t.Fatalf("err = %v, want final generation error", err)
+	}
+}
+
+func TestErrNoCompliantImageMentionsAttemptLimit(t *testing.T) {
+	if !strings.Contains(illustration.ErrNoCompliantImage.Error(), "3 generation attempts") {
+		t.Fatalf("ErrNoCompliantImage = %q", illustration.ErrNoCompliantImage)
 	}
 }
 

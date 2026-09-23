@@ -3,10 +3,12 @@ package illustration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/gemini"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/imaging"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
 )
 
 const (
@@ -18,7 +20,7 @@ const (
 )
 
 // ErrNoCompliantImage means every attempt was rejected or failed.
-var ErrNoCompliantImage = errors.New("no compliant illustration after 3 generation attempts")
+var ErrNoCompliantImage = fmt.Errorf("no compliant illustration after %d generation attempts", MaxGenerationAttempts)
 
 type ImageModel interface {
 	GenerateImage(ctx context.Context, prompt string, reference *gemini.InlineImage) ([]byte, error)
@@ -36,7 +38,9 @@ func NewGenerator(model ImageModel, logger *slog.Logger) *Generator {
 
 // Generate ports generateIllustration: at most 3 generation calls; a failed
 // referenced call retries once text-only; rejected images regenerate with a
-// correction; text/logo rejections drop the reference.
+// correction; text/logo rejections drop the reference. A compliance review
+// that fails for a system fault or a transient reason stops immediately
+// instead of spending another generation.
 func (g *Generator) Generate(ctx context.Context, article Article, rawReference []byte) ([]byte, error) {
 	var reference *gemini.InlineImage
 	if len(rawReference) > 0 {
@@ -47,11 +51,11 @@ func (g *Generator) Generate(ctx context.Context, article Article, rawReference 
 		}
 	}
 	correction := ""
-	var lastErr error
+	var generateErr error
 	for attempt := 1; attempt <= MaxGenerationAttempts; attempt++ {
 		image, err := g.model.GenerateImage(ctx, BuildPrompt(article, reference != nil, correction), reference)
+		generateErr = err
 		if err != nil {
-			lastErr = err
 			if reference != nil {
 				g.logger.InfoContext(ctx, "referenced illustration failed; retrying from text", "error", err)
 				reference = nil
@@ -59,7 +63,10 @@ func (g *Generator) Generate(ctx context.Context, article Article, rawReference 
 			}
 			return nil, err
 		}
-		verdict := g.review(ctx, article, image)
+		verdict, err := g.review(ctx, article, image)
+		if err != nil {
+			return nil, err
+		}
 		if verdict.Compliant {
 			return image, nil
 		}
@@ -69,25 +76,33 @@ func (g *Generator) Generate(ctx context.Context, article Article, rawReference 
 		if reference != nil && (verdict.HasText || verdict.HasLogo) {
 			reference = nil
 		}
-		lastErr = ErrNoCompliantImage
 	}
-	if lastErr == nil {
-		lastErr = ErrNoCompliantImage
-	}
-	if !errors.Is(lastErr, ErrNoCompliantImage) {
-		return nil, lastErr
+	if generateErr != nil {
+		return nil, generateErr
 	}
 	return nil, ErrNoCompliantImage
 }
 
-func (g *Generator) review(ctx context.Context, article Article, image []byte) Verdict {
+// review returns an unverified verdict (so the caller regenerates) when the
+// image cannot be decoded, the reviewer rejects the request permanently, or
+// its answer is empty or unusable. System faults (bad key, unknown model) and
+// transient failures (rate limits, 5xx, network, context) are returned as
+// errors: regenerating would only burn paid generations.
+func (g *Generator) review(ctx context.Context, article Article, image []byte) (Verdict, error) {
 	jpeg, err := imaging.FitJPEG(image, reviewMaxEdge, reviewQuality)
 	if err != nil {
-		return unverified("compliance check could not decode the generated image")
+		return unverified("compliance check could not decode the generated image"), nil
 	}
 	raw, err := g.model.ReviewImage(ctx, BuildCompliancePrompt(article), jpeg, ComplianceSchema)
 	if err != nil {
-		return unverified("compliance check request failed: " + err.Error())
+		if errors.Is(err, gemini.ErrEmptyResponse) {
+			return unverified("compliance check returned no content"), nil
+		}
+		classified := publisher.ClassifyGeminiError(err)
+		if publisher.IsPermanent(classified) {
+			return unverified("compliance check request failed: " + err.Error()), nil
+		}
+		return Verdict{}, fmt.Errorf("compliance review: %w", classified)
 	}
-	return ParseVerdict(raw)
+	return ParseVerdict(raw), nil
 }
