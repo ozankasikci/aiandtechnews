@@ -70,9 +70,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// Deviation from the plan: cap page at 100000 (rather than leaving it
-	// unbounded) so a huge page number cannot overflow the store's OFFSET
-	// computation.
+	// Cap page so (page-1)*limit cannot overflow the store's OFFSET.
 	page := parsePositive(query.Get("page"), 1, 100000)
 	limit := parsePositive(query.Get("limit"), DefaultPageLimit, MaxPageLimit)
 	result, err := h.service.List(r.Context(), statuses, page, limit)
