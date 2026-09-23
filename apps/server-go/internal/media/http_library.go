@@ -191,7 +191,7 @@ func (h *Handler) receive(w http.ResponseWriter, r *http.Request) (receivedUploa
 	var accepted *receivedUpload
 	fail := func(err error) (receivedUpload, error) {
 		if accepted != nil {
-			if removeErr := h.files.Remove(r.Context(), accepted.file.URL); removeErr != nil {
+			if removeErr := removeDetached(r.Context(), h.files, accepted.file.URL); removeErr != nil {
 				err = errors.Join(err, removeErr)
 			}
 		}

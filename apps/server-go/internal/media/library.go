@@ -137,7 +137,7 @@ func (l *Library) Record(ctx context.Context, file StoredFile, originalName, mim
 		UploadedAt: l.now().UTC().Format(time.DateTime),
 	})
 	if err != nil {
-		if removeErr := l.files.Remove(ctx, file.URL); removeErr != nil {
+		if removeErr := removeDetached(ctx, l.files, file.URL); removeErr != nil {
 			err = errors.Join(err, fmt.Errorf("remove orphaned upload: %w", removeErr))
 		}
 		return Item{}, err
@@ -157,4 +157,13 @@ func (l *Library) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	return l.store.Delete(ctx, id)
+}
+
+// removeDetached deletes a just-stored file after a failure. The request may
+// already be canceled (that can be the failure), so the cleanup runs on a
+// context detached from it and bounded by cleanupTimeout.
+func removeDetached(ctx context.Context, files Storage, url string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+	defer cancel()
+	return files.Remove(cleanupCtx, url)
 }
