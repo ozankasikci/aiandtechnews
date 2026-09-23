@@ -39,7 +39,7 @@ func (f *fakeCollector) Start(context.Context) error {
 	}
 }
 
-func request2(t *testing.T, handler http.Handler, method, path string) *httptest.ResponseRecorder {
+func serve(t *testing.T, handler http.Handler, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(""))
 	response := httptest.NewRecorder()
@@ -55,7 +55,7 @@ func TestCollectReportsStartedInProgressAndError(t *testing.T) {
 	router := chi.NewRouter()
 	handlerUnderTest.Mount(router, passThroughAuth)
 
-	started := request2(t, router, http.MethodPost, "/newsroom/collect")
+	started := serve(t, router, http.MethodPost, "/newsroom/collect")
 	if started.Code != http.StatusAccepted || started.Body.String() != `{"started":true}` {
 		t.Fatalf("first collect = %d %s", started.Code, started.Body.String())
 	}
@@ -63,12 +63,12 @@ func TestCollectReportsStartedInProgressAndError(t *testing.T) {
 		t.Fatalf("Content-Type = %q", contentType)
 	}
 
-	inProgress := request2(t, router, http.MethodPost, "/newsroom/collect")
+	inProgress := serve(t, router, http.MethodPost, "/newsroom/collect")
 	if inProgress.Code != http.StatusConflict || inProgress.Body.String() != `{"error":"Collection already running"}` {
 		t.Fatalf("second collect = %d %s", inProgress.Code, inProgress.Body.String())
 	}
 
-	failed := request2(t, router, http.MethodPost, "/newsroom/collect")
+	failed := serve(t, router, http.MethodPost, "/newsroom/collect")
 	if failed.Code != http.StatusInternalServerError || failed.Body.String() != `{"error":"Internal server error"}` {
 		t.Fatalf("third collect = %d %s", failed.Code, failed.Body.String())
 	}
@@ -81,12 +81,12 @@ func TestListStatusQueryTrailingComma(t *testing.T) {
 	router := chi.NewRouter()
 	handlerUnderTest.Mount(router, passThroughAuth)
 
-	trailing := request2(t, router, http.MethodGet, "/newsroom/candidates?status=pending,")
+	trailing := serve(t, router, http.MethodGet, "/newsroom/candidates?status=pending,")
 	if trailing.Code != http.StatusOK {
 		t.Fatalf("status=pending, = %d %s", trailing.Code, trailing.Body.String())
 	}
 
-	onlyComma := request2(t, router, http.MethodGet, "/newsroom/candidates?status=,")
+	onlyComma := serve(t, router, http.MethodGet, "/newsroom/candidates?status=,")
 	if onlyComma.Code != http.StatusOK {
 		t.Fatalf("status=, = %d %s", onlyComma.Code, onlyComma.Body.String())
 	}
