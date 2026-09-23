@@ -15,6 +15,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/editorial"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/health"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/httpserver"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsroom"
 )
 
 type App struct {
@@ -78,7 +79,8 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 // Migrations explicitly collects capability-owned descriptors in global order.
 func Migrations() []migrate.Descriptor {
 	descriptors := editorial.Migrations()
-	return append(descriptors, content.Migrations()...)
+	descriptors = append(descriptors, content.Migrations()...)
+	return append(descriptors, newsroom.Migrations()...)
 }
 
 func (a *App) Address() string               { return a.address }
