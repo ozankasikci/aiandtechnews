@@ -265,3 +265,29 @@ func TestRoundHalfUpMatchesMathRound(t *testing.T) {
 		t.Error("Math.round(NaN) is NaN")
 	}
 }
+
+// The dashboard editor sends published_at as toISOString() output ("...Z").
+// Node's Date.parse and Go read it as the same instant whatever the process
+// time zone, so the digest window no longer depends on the server's TZ.
+func TestDashboardISOTimestampsAreTheSameInstantInEveryZone(t *testing.T) {
+	const submitted = "2026-09-20T01:30:00.000Z"
+	var recorded *int64
+	for _, vector := range golden(t).Primitives.DatesParsed {
+		if vector.Input == "2026-09-19T12:00:00.000Z" {
+			recorded = vector.MS
+		}
+	}
+	if recorded == nil || *recorded != time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC).UnixMilli() {
+		t.Fatalf("Node's Date.parse of an ISO Z timestamp = %v", recorded)
+	}
+	want := time.Date(2026, 9, 20, 1, 30, 0, 0, time.UTC).UnixMilli()
+	for _, name := range []string{"UTC", "Europe/Istanbul", "America/New_York", "Asia/Kolkata"} {
+		zone, err := time.LoadLocation(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := parseArticleTimestamp(submitted, zone); !ok || got != want {
+			t.Errorf("%s: %d, %t, want %d", name, got, ok, want)
+		}
+	}
+}
