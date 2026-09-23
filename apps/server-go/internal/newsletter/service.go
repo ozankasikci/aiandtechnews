@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -87,6 +88,14 @@ type Service struct {
 	local       *time.Location
 	pace        func(context.Context) error
 	logger      *slog.Logger
+
+	// digestMu serializes digest runs.
+	digestMu sync.Mutex
+	// lifecycle bounds digest runs (see Bind).
+	lifecycle struct {
+		sync.Mutex
+		ctx context.Context
+	}
 }
 
 // NewService validates NEWSLETTER_SITE_URL like Node's constructor does, so
