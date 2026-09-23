@@ -95,15 +95,29 @@ type Config struct {
 	// IndexNowEnabled wires the IndexNow notifier into the publisher. When
 	// false (the default), published URLs are not submitted to IndexNow.
 	IndexNowEnabled bool
+
+	// Newsletter settings keep Node's names (apps/server/.env.example) and
+	// raw values: Node trims each one where it uses it, and so does
+	// internal/newsletter. None of them is required to start: like Node,
+	// signup works unconfigured, and the other routes answer 503 until
+	// NEWSLETTER_TOKEN_SECRET is set.
+	NewsletterSiteURL     string // NEWSLETTER_SITE_URL (default https://aiandtech.news)
+	NewsletterTokenSecret string // NEWSLETTER_TOKEN_SECRET, signs confirm/unsubscribe links (secret)
+	NewsletterCronSecret  string // NEWSLETTER_CRON_SECRET || CRON_SECRET, guards the digest (secret)
+	ResendAPIKey          string // RESEND_API_KEY (secret)
+	NewsletterFrom        string // NEWSLETTER_FROM
+	NewsletterReplyTo     string // NEWSLETTER_REPLY_TO (optional)
 }
 
 func (c Config) String() string {
 	return fmt.Sprintf("Config{Mode:%q Address:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
 		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiVisionModel:%q "+
-		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t}",
+		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t "+
+		"NewsletterSiteURL:%q NewsletterTokenSecret:[REDACTED] NewsletterCronSecret:[REDACTED] ResendAPIKey:[REDACTED] NewsletterFrom:%q NewsletterReplyTo:%q}",
 		c.Mode, c.Address, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
 		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiVisionModel,
-		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled)
+		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled,
+		c.NewsletterSiteURL, c.NewsletterFrom, c.NewsletterReplyTo)
 }
 
 func (c Config) GoString() string { return c.String() }
@@ -200,6 +214,18 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.IndexNowEnabled = indexNowEnabled
+
+	cfg.NewsletterSiteURL = lookup("NEWSLETTER_SITE_URL")
+	cfg.NewsletterTokenSecret = lookup("NEWSLETTER_TOKEN_SECRET")
+	// Node: process.env.NEWSLETTER_CRON_SECRET || process.env.CRON_SECRET || ""
+	// (apps/server/src/index.ts), so only an empty value falls through.
+	cfg.NewsletterCronSecret = lookup("NEWSLETTER_CRON_SECRET")
+	if cfg.NewsletterCronSecret == "" {
+		cfg.NewsletterCronSecret = lookup("CRON_SECRET")
+	}
+	cfg.ResendAPIKey = lookup("RESEND_API_KEY")
+	cfg.NewsletterFrom = lookup("NEWSLETTER_FROM")
+	cfg.NewsletterReplyTo = lookup("NEWSLETTER_REPLY_TO")
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
