@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
 )
 
 const (
@@ -47,7 +49,8 @@ func scanCandidate(row rowScanner) (Candidate, error) {
 }
 
 // Insert stores a new pending candidate. It reports false without error when
-// the source URL is already known (including rejected candidates).
+// the source URL is already a candidate (including rejected ones) or the
+// story was already published as an article (same source URL or title slug).
 func (s *SQLiteStore) Insert(ctx context.Context, candidate NewCandidate, now time.Time) (int64, bool, error) {
 	var feedPublished *string
 	if candidate.FeedPublishedAt != nil {
@@ -57,10 +60,12 @@ func (s *SQLiteStore) Insert(ctx context.Context, candidate NewCandidate, now ti
 	stamp := formatTime(now)
 	result, err := s.db.ExecContext(ctx, `INSERT INTO candidates
 		(source_url, source_name, feed_url, title, feed_summary, source_image_url, feed_published_at, discovered_at, status, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?
+		WHERE NOT EXISTS (SELECT 1 FROM articles WHERE source_url = ? OR slug = ?)
 		ON CONFLICT(source_url) DO NOTHING`,
 		candidate.SourceURL, candidate.SourceName, candidate.FeedURL, candidate.Title, candidate.FeedSummary,
-		candidate.SourceImageURL, feedPublished, stamp, stamp)
+		candidate.SourceImageURL, feedPublished, stamp, stamp,
+		candidate.SourceURL, content.Slugify(candidate.Title))
 	if err != nil {
 		return 0, false, fmt.Errorf("insert candidate: %w", err)
 	}
@@ -207,6 +212,15 @@ func (s *SQLiteStore) Overview(ctx context.Context, publishedSince time.Time) (O
 		return Overview{}, err
 	}
 	return overview, nil
+}
+
+// SetLastCollected records when the collector last completed a run.
+func (s *SQLiteStore) SetLastCollected(ctx context.Context, at time.Time) error {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, settingLastCollected, formatTime(at)); err != nil {
+		return fmt.Errorf("record last collection: %w", err)
+	}
+	return nil
 }
 
 func (s *SQLiteStore) setting(ctx context.Context, key string) (*string, error) {

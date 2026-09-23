@@ -51,6 +51,13 @@ func setStatus(t *testing.T, db *sql.DB, id int64, status string, updatedAt time
 	}
 }
 
+func mustExec(t *testing.T, db *sql.DB, query string, args ...any) {
+	t.Helper()
+	if _, err := db.Exec(query, args...); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func mustGet(t *testing.T, store *newsroom.SQLiteStore, id int64) newsroom.Candidate {
 	t.Helper()
 	candidate, err := store.Get(context.Background(), id)

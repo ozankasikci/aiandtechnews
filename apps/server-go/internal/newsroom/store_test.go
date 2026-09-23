@@ -381,3 +381,37 @@ func assertIDs(t *testing.T, candidates []newsroom.Candidate, want ...int64) {
 		}
 	}
 }
+
+func TestInsertSkipsStoriesAlreadyPublishedAsArticles(t *testing.T) {
+	store, db := openStore(t)
+	ctx := context.Background()
+	mustExec(t, db, `INSERT INTO authors (name, email, password_hash, role) VALUES ('A', 'a@example.invalid', 'x', 'admin')`)
+	mustExec(t, db, `INSERT INTO categories (name, slug) VALUES ('AI', 'ai')`)
+	mustExec(t, db, `INSERT INTO articles (title, slug, category_id, author_id, status, source_url)
+		VALUES ('Old', 'openai-ships-a-model', 1, 1, 'published', 'https://techcrunch.com/2026/09/01/old/')`)
+
+	_, inserted, err := store.Insert(ctx, newsroom.NewCandidate{
+		SourceURL: "https://techcrunch.com/2026/09/01/old/", SourceName: "TechCrunch", FeedURL: "https://techcrunch.com/feed/", Title: "Different title",
+	}, t0)
+	if err != nil || inserted {
+		t.Fatalf("same source URL: inserted=%v err=%v", inserted, err)
+	}
+	_, inserted, err = store.Insert(ctx, newsroom.NewCandidate{
+		SourceURL: "https://techcrunch.com/2026/09/02/new/", SourceName: "TechCrunch", FeedURL: "https://techcrunch.com/feed/", Title: "OpenAI ships a model",
+	}, t0)
+	if err != nil || inserted {
+		t.Fatalf("same slug: inserted=%v err=%v", inserted, err)
+	}
+	insert(t, store, "https://techcrunch.com/2026/09/03/fresh/", t0)
+}
+
+func TestSetLastCollectedShowsInOverview(t *testing.T) {
+	store, _ := openStore(t)
+	if err := store.SetLastCollected(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+	overview, err := store.Overview(context.Background(), t0.Add(-time.Hour))
+	if err != nil || overview.LastCollectedAt == nil || *overview.LastCollectedAt != "2026-09-20T12:00:00Z" {
+		t.Fatalf("overview = %+v err=%v", overview, err)
+	}
+}
