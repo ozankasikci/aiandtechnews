@@ -84,19 +84,14 @@ type libraryService interface {
 	Delete(context.Context, string) error
 }
 
-type fileSaver interface {
-	Save(io.Reader, string) (StoredFile, error)
-	RemoveStored(StoredFile) error
-}
-
 // Handler serves the authenticated dashboard media routes.
 type Handler struct {
 	library libraryService
-	files   fileSaver
+	files   Storage
 	logger  *slog.Logger
 }
 
-func NewHandler(library libraryService, files fileSaver, logger *slog.Logger) *Handler {
+func NewHandler(library libraryService, files Storage, logger *slog.Logger) *Handler {
 	return &Handler{library: library, files: files, logger: logger}
 }
 
@@ -179,8 +174,8 @@ type receivedUpload struct {
 //     approved extension match); then the size limit;
 //   - text fields are ignored.
 //
-// Parts are streamed; only the accepted file touches the disk, and it is
-// removed again if a later part fails.
+// Parts are streamed; only the accepted file reaches the storage backend, and
+// it is removed again if a later part fails.
 func (h *Handler) receive(w http.ResponseWriter, r *http.Request) (receivedUpload, error) {
 	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || !strings.HasPrefix(mediaType, "multipart/") {
@@ -196,7 +191,7 @@ func (h *Handler) receive(w http.ResponseWriter, r *http.Request) (receivedUploa
 	var accepted *receivedUpload
 	fail := func(err error) (receivedUpload, error) {
 		if accepted != nil {
-			if removeErr := h.files.RemoveStored(accepted.file); removeErr != nil {
+			if removeErr := h.files.Remove(r.Context(), accepted.file.URL); removeErr != nil {
 				err = errors.Join(err, removeErr)
 			}
 		}
@@ -226,7 +221,7 @@ func (h *Handler) receive(w http.ResponseWriter, r *http.Request) (receivedUploa
 		if !acceptedImage(partType, filename) {
 			return fail(&uploadError{messageInvalidType})
 		}
-		file, err := h.files.Save(part, filename)
+		file, err := h.files.Save(r.Context(), part, filename, partType)
 		if errors.Is(err, ErrFileTooLarge) {
 			return fail(&uploadError{ErrFileTooLarge.Error()})
 		}

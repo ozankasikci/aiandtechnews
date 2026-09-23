@@ -2,6 +2,7 @@ package media_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -53,14 +54,14 @@ func TestSaveNamesFilesLikeMulterDiskStorage(t *testing.T) {
 		"a.":           ".",
 		"cafÃ©.webp":   ".webp",
 	} {
-		file, err := uploads.Save(strings.NewReader("synthetic image bytes"), original)
+		file, err := uploads.Save(context.Background(), strings.NewReader("synthetic image bytes"), original, "image/png")
 		if err != nil {
 			t.Fatalf("Save(%q) error = %v", original, err)
 		}
 		if !storedName.MatchString(file.Name) || strings.TrimPrefix(file.Name, file.Name[:32]) != extension {
 			t.Errorf("Save(%q) name = %q, want 32 hex digits + %q", original, file.Name, extension)
 		}
-		if file.URL() != "/uploads/"+file.Name || file.Size != 21 {
+		if file.URL != "/uploads/"+file.Name || file.Size != 21 {
 			t.Errorf("Save(%q) = %+v", original, file)
 		}
 		content, err := os.ReadFile(filepath.Join(dir, file.Name))
@@ -74,7 +75,7 @@ func TestSaveUsesTheInjectedRandomSourceForNames(t *testing.T) {
 	_, dir := uploadsDir(t)
 	uploads := media.NewUploads(dir)
 	uploads.SetRandomForTest(bytes.NewReader(bytes.Repeat([]byte{0xab}, 16)))
-	file, err := uploads.Save(strings.NewReader("x"), "a.png")
+	file, err := uploads.Save(context.Background(), strings.NewReader("x"), "a.png", "image/png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +88,7 @@ func TestSaveFailsWithoutRandomBytesAndLeavesNothing(t *testing.T) {
 	_, dir := uploadsDir(t)
 	uploads := media.NewUploads(dir)
 	uploads.SetRandomForTest(iotest.ErrReader(errors.New("entropy unavailable")))
-	if _, err := uploads.Save(strings.NewReader("x"), "a.png"); err == nil || !strings.Contains(err.Error(), "entropy unavailable") {
+	if _, err := uploads.Save(context.Background(), strings.NewReader("x"), "a.png", "image/png"); err == nil || !strings.Contains(err.Error(), "entropy unavailable") {
 		t.Fatalf("Save() error = %v", err)
 	}
 	if names := dirNames(t, dir); len(names) != 0 {
@@ -103,7 +104,7 @@ func TestSaveNeverOverwritesAnExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	uploads.SetRandomForTest(bytes.NewReader(make([]byte, 16)))
-	if _, err := uploads.Save(strings.NewReader("replacement"), "a.png"); err == nil {
+	if _, err := uploads.Save(context.Background(), strings.NewReader("replacement"), "a.png", "image/png"); err == nil {
 		t.Fatal("Save() overwrote an existing file")
 	}
 	content, _ := os.ReadFile(filepath.Join(dir, name))
@@ -117,7 +118,7 @@ func TestSaveNamesAreUnique(t *testing.T) {
 	uploads := media.NewUploads(dir)
 	seen := map[string]bool{}
 	for i := 0; i < 64; i++ {
-		file, err := uploads.Save(strings.NewReader("x"), "a.png")
+		file, err := uploads.Save(context.Background(), strings.NewReader("x"), "a.png", "image/png")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -131,12 +132,12 @@ func TestSaveNamesAreUnique(t *testing.T) {
 func TestSaveRejectsFilesThatReachFiveMiB(t *testing.T) {
 	_, dir := uploadsDir(t)
 	uploads := media.NewUploads(dir)
-	largest, err := uploads.Save(bytes.NewReader(make([]byte, media.MaxUploadBytes-1)), "big.png")
+	largest, err := uploads.Save(context.Background(), bytes.NewReader(make([]byte, media.MaxUploadBytes-1)), "big.png", "image/png")
 	if err != nil || largest.Size != media.MaxUploadBytes-1 {
 		t.Fatalf("5 MiB - 1 byte: %+v, %v", largest, err)
 	}
 	for _, size := range []int{media.MaxUploadBytes, media.MaxUploadBytes + 1} {
-		if _, err := uploads.Save(bytes.NewReader(make([]byte, size)), "huge.png"); !errors.Is(err, media.ErrFileTooLarge) {
+		if _, err := uploads.Save(context.Background(), bytes.NewReader(make([]byte, size)), "huge.png", "image/png"); !errors.Is(err, media.ErrFileTooLarge) {
 			t.Fatalf("size %d error = %v, want ErrFileTooLarge", size, err)
 		}
 	}
@@ -149,7 +150,7 @@ func TestSaveRemovesThePartialFileWhenTheStreamFails(t *testing.T) {
 	_, dir := uploadsDir(t)
 	uploads := media.NewUploads(dir)
 	broken := io.MultiReader(strings.NewReader("partial"), iotest.ErrReader(io.ErrUnexpectedEOF))
-	if _, err := uploads.Save(broken, "a.png"); !errors.Is(err, io.ErrUnexpectedEOF) {
+	if _, err := uploads.Save(context.Background(), broken, "a.png", "image/png"); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("Save() error = %v", err)
 	}
 	if names := dirNames(t, dir); len(names) != 0 {
@@ -159,14 +160,14 @@ func TestSaveRemovesThePartialFileWhenTheStreamFails(t *testing.T) {
 
 func TestSaveFailsWhenTheUploadsDirectoryIsMissing(t *testing.T) {
 	uploads := media.NewUploads(filepath.Join(t.TempDir(), "missing"))
-	if _, err := uploads.Save(strings.NewReader("x"), "a.png"); err == nil {
+	if _, err := uploads.Save(context.Background(), strings.NewReader("x"), "a.png", "image/png"); err == nil {
 		t.Fatal("Save() error = nil")
 	}
 }
 
 func TestSaveRejectsANULInTheExtension(t *testing.T) {
 	_, dir := uploadsDir(t)
-	if _, err := media.NewUploads(dir).Save(strings.NewReader("x"), "a.p\x00g"); err == nil {
+	if _, err := media.NewUploads(dir).Save(context.Background(), strings.NewReader("x"), "a.p\x00g", "image/png"); err == nil {
 		t.Fatal("Save() error = nil")
 	}
 }
@@ -185,11 +186,11 @@ func TestRemoveDeletesTheURLBasenameInsideTheUploadsDirectory(t *testing.T) {
 	write(filepath.Join(dir, "secret.txt"), "inside")
 	write(filepath.Join(parent, "secret.txt"), "outside")
 
-	if err := uploads.Remove("/uploads/gone.png"); err != nil {
+	if err := uploads.Remove(context.Background(), "/uploads/gone.png"); err != nil {
 		t.Fatal(err)
 	}
 	// path.basename confines "/uploads/../secret.txt" to <uploads>/secret.txt.
-	if err := uploads.Remove("/uploads/../secret.txt"); err != nil {
+	if err := uploads.Remove(context.Background(), "/uploads/../secret.txt"); err != nil {
 		t.Fatal(err)
 	}
 	if names := dirNames(t, dir); len(names) != 1 || names[0] != "kept.png" {
@@ -202,7 +203,7 @@ func TestRemoveDeletesTheURLBasenameInsideTheUploadsDirectory(t *testing.T) {
 
 func TestRemoveTreatsAMissingFileAsDone(t *testing.T) {
 	_, dir := uploadsDir(t)
-	if err := media.NewUploads(dir).Remove("/uploads/missing.png"); err != nil {
+	if err := media.NewUploads(dir).Remove(context.Background(), "/uploads/missing.png"); err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
 }
@@ -214,7 +215,7 @@ func TestRemoveRefusesDirectoriesAndTheUploadsDirectoryItself(t *testing.T) {
 	}
 	uploads := media.NewUploads(dir)
 	for _, url := range []string{"/uploads/sub", "/uploads/sub/", "", "/", "/uploads/.", "/uploads/.."} {
-		if err := uploads.Remove(url); err == nil {
+		if err := uploads.Remove(context.Background(), url); err == nil {
 			t.Errorf("Remove(%q) error = nil", url)
 		}
 	}
@@ -238,7 +239,7 @@ func TestRemoveDeletesASymlinkButNeverItsTarget(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(dir, "link.txt")); err != nil {
 		t.Skipf("symlinks unsupported: %v", err)
 	}
-	if err := media.NewUploads(dir).Remove("https://cdn.example/a/link.txt"); err != nil {
+	if err := media.NewUploads(dir).Remove(context.Background(), "https://cdn.example/a/link.txt"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(dir, "link.txt")); !errors.Is(err, os.ErrNotExist) {
@@ -248,3 +249,6 @@ func TestRemoveDeletesASymlinkButNeverItsTarget(t *testing.T) {
 		t.Fatalf("symlink target changed: %q, %v", content, err)
 	}
 }
+
+// Uploads is the local backend of the media library's Storage.
+var _ media.Storage = (*media.Uploads)(nil)

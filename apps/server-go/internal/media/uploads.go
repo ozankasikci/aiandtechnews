@@ -1,6 +1,7 @@
 package media
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -47,22 +48,30 @@ func (u *Uploads) Dir() string { return u.dir }
 type StoredFile struct {
 	Name string // the generated file name, also the last segment of the URL
 	Size int64
+	URL  string // what media.url records: /uploads/<name> locally, an absolute URL on S3
 }
 
-// URL is the public path Node stores in media.url.
-func (f StoredFile) URL() string { return "/uploads/" + f.Name }
-
-// Save streams content into a new file named like multer's diskStorage
-// callback: 16 crypto/rand bytes as hex followed by path.extname(originalName).
-// Content that reaches MaxUploadBytes is rejected with ErrFileTooLarge; on any
-// error the partial file is removed.
-func (u *Uploads) Save(content io.Reader, originalName string) (StoredFile, error) {
+// newUploadName is multer's diskStorage filename callback: 16 crypto/rand
+// bytes as hex followed by path.extname(originalName). Every backend uses it.
+func newUploadName(random io.Reader, originalName string) (string, error) {
 	var token [16]byte
-	if _, err := io.ReadFull(u.random, token[:]); err != nil {
-		return StoredFile{}, fmt.Errorf("generate upload name: %w", err)
+	if _, err := io.ReadFull(random, token[:]); err != nil {
+		return "", fmt.Errorf("generate upload name: %w", err)
 	}
 	name := hex.EncodeToString(token[:]) + nodeExtname(originalName)
 	if err := checkStoredName(name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+// Save streams content into a new file under newUploadName. Content that
+// reaches MaxUploadBytes is rejected with ErrFileTooLarge; on any error the
+// partial file is removed. The content type is implied by the extension when
+// the file is served, so it is not stored.
+func (u *Uploads) Save(_ context.Context, content io.Reader, originalName, _ string) (StoredFile, error) {
+	name, err := newUploadName(u.random, originalName)
+	if err != nil {
 		return StoredFile{}, err
 	}
 	root, err := os.OpenRoot(u.dir)
@@ -83,7 +92,7 @@ func (u *Uploads) Save(content io.Reader, originalName string) (StoredFile, erro
 		_ = root.Remove(name)
 		return StoredFile{}, err
 	}
-	return StoredFile{Name: name, Size: size}, nil
+	return StoredFile{Name: name, Size: size, URL: "/uploads/" + name}, nil
 }
 
 // Remove deletes the file Node's delete handler would address,
@@ -92,7 +101,7 @@ func (u *Uploads) Save(content io.Reader, originalName string) (StoredFile, erro
 // (an empty, "." or ".." basename), or a path outside the directory is an
 // error, as Node's unlinkSync fails for them too; nothing is removed then. A
 // symlink is removed itself, never its target.
-func (u *Uploads) Remove(url string) error {
+func (u *Uploads) Remove(_ context.Context, url string) error {
 	name := nodeBasename(url)
 	if err := checkStoredName(name); err != nil {
 		return err
@@ -116,11 +125,6 @@ func (u *Uploads) Remove(url string) error {
 		return fmt.Errorf("remove upload: %w", err)
 	}
 	return nil
-}
-
-// RemoveStored deletes a file Save just created (used when recording it fails).
-func (u *Uploads) RemoveStored(file StoredFile) error {
-	return u.Remove(file.URL())
 }
 
 // checkStoredName accepts a single, non-empty path segment only.

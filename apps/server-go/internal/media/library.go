@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 )
 
@@ -97,38 +98,46 @@ type libraryStore interface {
 	Delete(context.Context, string) error
 }
 
-type uploadFiles interface {
-	Remove(url string) error
-	RemoveStored(StoredFile) error
+// Storage is where the media library keeps files. The handlers and the media
+// table only see StoredFile.URL, so the backend can change: Uploads keeps
+// files in UPLOADS_DIR (URLs /uploads/<name>, served by this API), and
+// S3Uploads puts them in a bucket (absolute public URLs).
+type Storage interface {
+	// Save stores content under a new multer-style name derived from
+	// originalName, enforcing MaxUploadBytes (ErrFileTooLarge).
+	Save(ctx context.Context, content io.Reader, originalName, contentType string) (StoredFile, error)
+	// Remove deletes the file a media row's URL names; a missing file is not
+	// an error.
+	Remove(ctx context.Context, url string) error
 }
 
 // Library holds the dashboard media rules (dashboard.ts:575-628).
 type Library struct {
 	store libraryStore
-	files uploadFiles
+	files Storage
 	now   func() time.Time
 }
 
-func NewLibrary(store libraryStore, files uploadFiles, now func() time.Time) *Library {
+func NewLibrary(store libraryStore, files Storage, now func() time.Time) *Library {
 	return &Library{store: store, files: files, now: now}
 }
 
 func (l *Library) List(ctx context.Context) ([]Item, error) { return l.store.List(ctx) }
 
-// Record inserts the row for a file Save stored. uploaded_at uses Node's
+// Record inserts the row for a file Storage.Save stored. uploaded_at uses Node's
 // formatSqliteTimestamp (UTC "YYYY-MM-DD HH:MM:SS"). If the row cannot be
 // written the file is removed, so a failed upload leaves no orphan (Node
 // leaves the file behind).
 func (l *Library) Record(ctx context.Context, file StoredFile, originalName, mimeType string) (Item, error) {
 	item, err := l.store.Insert(ctx, NewItem{
 		Filename:   originalName,
-		URL:        file.URL(),
+		URL:        file.URL,
 		MIMEType:   mimeType,
 		Size:       file.Size,
 		UploadedAt: l.now().UTC().Format(time.DateTime),
 	})
 	if err != nil {
-		if removeErr := l.files.RemoveStored(file); removeErr != nil {
+		if removeErr := l.files.Remove(ctx, file.URL); removeErr != nil {
 			err = errors.Join(err, fmt.Errorf("remove orphaned upload: %w", removeErr))
 		}
 		return Item{}, err
@@ -144,7 +153,7 @@ func (l *Library) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := l.files.Remove(item.URL); err != nil {
+	if err := l.files.Remove(ctx, item.URL); err != nil {
 		return err
 	}
 	return l.store.Delete(ctx, id)
