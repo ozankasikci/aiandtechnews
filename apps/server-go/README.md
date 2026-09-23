@@ -2,7 +2,7 @@
 
 This directory is an isolated Go module for the API migration. It does not share a Go module or developer commands with the existing Node server.
 
-Tasks 5 through 8 currently provide the four public article reads, public category and author listings, compatible login, current-user, and logout endpoints, and a pure Go port of the retained publishing policy. This is a migration slice, not a claim of production or cutover readiness; the remaining capabilities and cutover verification are still pending.
+Tasks 5 through 10 currently provide the four public article reads, public category and author listings, compatible login, current-user, and logout endpoints, a pure Go port of the retained publishing policy, and the authenticated dashboard content administration (dashboard article list/get/create/update/delete, category list/create/update/delete, and site settings get/put). This is a migration slice, not a claim of production or cutover readiness; media, newsletter, and cutover verification are still pending.
 
 ## Safety defaults
 
@@ -48,7 +48,7 @@ Review contract changes in this order:
 | `S3_FEATURE_IMAGE_BUCKET` | none | Required when `PUBLISHER_ENABLED=1`; bucket that stores generated feature images |
 | `S3_FEATURE_IMAGE_PREFIX` | `features` | Key prefix under which feature images are stored |
 | `S3_FEATURE_IMAGE_PUBLIC_URL` | none | Required when `PUBLISHER_ENABLED=1`; public `https://` base URL feature images are served from |
-| `INDEXNOW_ENABLED` | `0` | Submits each published article's URL to IndexNow. Off by default, so a local dev publish never pings IndexNow for an article that only exists in the dev database |
+| `INDEXNOW_ENABLED` | `0` | Submits article URLs to IndexNow: each publisher-published article, and dashboard publishes, unpublishes, published-slug renames, and deletions of published articles. Off by default, so local runs never ping IndexNow for an article that only exists in the dev database |
 
 AWS credentials always come from the default AWS SDK credential chain (for example `AWS_PROFILE`), never from a file in this repo.
 
@@ -58,7 +58,7 @@ At startup, an enabled publisher also loads AWS credentials and calls `HeadBucke
 
 Authentication preserves the reviewed Node bcrypt hashes, HS256 JWT shape, seven-day lifetime, and stateless logout behavior. JWT verification requires all identity and timestamp claims, exact integer numeric claims, a single JSON document in each segment, an HS256 header, a valid signature, and `exp` strictly after the current time. Login parsing intentionally caps request bodies at 100 KiB and returns the same stable JSON error for oversized and otherwise malformed bodies. Secrets, passwords, and raw JWTs are not included in client errors or compatibility-test failure output.
 
-The pure `internal/content` publishing policy mirrors the retained TypeScript source allowlist, URL normalization, item rejection, AI-only gate, and rewritten-article validation. It performs no network, database, HTTP, or listener work. Dashboard publication routes and policy integration remain part of a later migration task.
+The pure `internal/content` publishing policy mirrors the retained TypeScript source allowlist, URL normalization, item rejection, AI-only gate, and rewritten-article validation. It performs no network, database, HTTP, or listener work. The dashboard article routes apply it exactly as Node does: only to articles whose next status is `published`, including the source/source-URL match.
 
 ## Developer commands
 
@@ -75,7 +75,7 @@ make contracts-accept  # explicitly accept the reviewed canonical Node fixture
 go run ./cmd/migrate   # explicitly migrate the guarded configured database
 ```
 
-`cmd/api` opens and closes its configured database but never migrates or seeds it. Run `cmd/migrate` as an explicit deployment step first. `app.New` remains a no-I/O health-only composition; `app.NewWithDatabase` audibly mounts article, category, author, and authentication routes around a caller-owned database.
+`cmd/api` opens and closes its configured database but never migrates or seeds it. Run `cmd/migrate` as an explicit deployment step first. `app.New` remains a no-I/O health-only composition; `app.NewWithDatabase` audibly mounts article, category, author, authentication, newsroom, and authenticated `/api/dashboard` content and settings routes around a caller-owned database.
 
 The migration runner supports fresh databases and databases already managed by its ledger. It intentionally cannot stamp or adopt an existing unmanaged database initialized by the Node server, although `cmd/api` can read that compatible schema. Cutover requires a future explicit full-schema verifier/adoption command; do not weaken `migrate.Run` or partially stamp an unmanaged database.
 
@@ -86,12 +86,19 @@ The service is a single binary with a `cmd` plus `internal` layout:
 - `cmd/api` loads guarded configuration, opens and owns the SQLite pool, injects it into the application, and closes it after shutdown. `cmd/migrate` is the only schema deployment entry point.
 - `internal/app` wires modules and infrastructure, including gathering capability-owned migration descriptors in execution order.
 - `editorial` owns the foundational v1 authors schema and public author read stack, while `content` owns the v2 categories/articles schema and the public article and category read stacks. Their public handlers mount relative route manifests from the composition root.
-- Future cohesive capabilities such as `newsletter`, `media`, and `settings` own their domain, repository, service, HTTP handlers, relative route mounting, and migration SQL.
+- `settings` owns the dashboard site-settings behavior but no migration: newsroom migration 3 creates the shared `settings` table with Node's schema.
+- Future cohesive capabilities such as `newsletter` and `media` own their domain, repository, service, HTTP handlers, relative route mounting, and migration SQL.
 - `internal/database/migrate` owns only the migration ledger and runner; it does not own capability schema SQL. The runner owns migration transaction boundaries, so descriptors must not contain transaction control, `VACUUM`, `ATTACH`, `DETACH`, or `PRAGMA` statements. `ATTACH`, `DETACH`, and `PRAGMA` are rejected because their file, attachment, or connection effects can survive a rollback.
 - Narrow infrastructure packages live under `internal` and are named for their purpose.
 - Interfaces are declared by the consuming package at the point of use. Constructors return concrete types unless a consumer needs an interface.
 
 Capability packages do not import one another. Cross-capability behavior is injected through narrow interfaces owned by the consumer. Domain and service code remain independent of HTTP and concrete SQLite types. Do not create generic `utils`, `common`, or global service-locator packages.
+
+## Dashboard content administration
+
+`internal/content` (`AdminService`, `AdminHandler`) and `internal/settings` port every non-media route of `apps/server/src/routes/dashboard.ts`. All of them sit in one chi group, `/api/dashboard`, behind `RequireAuth`; like Node, unknown dashboard paths answer `401` without a token, and any valid token may use every route (Node has no roles). `internal/jsonbody` reproduces `express.json()` and the JavaScript/better-sqlite3 value semantics the Node handlers rely on (undefined vs `null`, truthiness, `String()` coercion, numbers binding as REAL). Each mutation runs in one SQLite transaction. IndexNow notifications for dashboard changes are queued after the response, never block it, are drained on shutdown, and only run with `INDEXNOW_ENABLED=1`.
+
+Node behaviors that are kept for parity although they look wrong are listed, with tests, in `docs/superpowers/plans/2026-09-24-go-admin-content.md` ("Known Node behaviors kept"). The most visible: duplicate category slugs fail with `500`. Two reviewed contract changes intentionally diverge from Node: **changed: blank settings are stored as empty strings** -- Node upserts a blank social/webhook field as SQL `NULL`, which violates `settings.value NOT NULL` and rolls the whole update back with a `500` (the dashboard sends `null` for every blank field on every save, so Node cannot save settings while any of them is blank); Go stores an empty string instead. And `GET /api/dashboard/settings` hides keys with the `newsroom.` prefix, and `PUT` can never write them, instead of exposing newsroom's own state on the dashboard settings surface as Node does. Transport-level differences from Express (JSON instead of HTML error pages, `400 {"error":"Invalid request body"}` for malformed or oversized bodies) follow the auth slice.
 
 ## Newsroom (editorial queue)
 

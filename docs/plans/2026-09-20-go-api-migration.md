@@ -220,6 +220,8 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 
 ### Task 9: Implement dashboard article CRUD
 
+**Status (2026-09-24): Complete for the preserved migration slice via `docs/superpowers/plans/2026-09-24-go-admin-content.md`; the Node dashboard contracts replay in `internal/app/dashboard_contract_test.go`. This does not establish production or cutover readiness.**
+
 **Objective:** Port authenticated article administration, policy validation, duplicate handling, editorial author assignment, and publication timestamps.
 
 **Files:** Extend `internal/content/*` and add integration tests.
@@ -227,6 +229,8 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 **TDD cycle:** Cover create/update/delete, partial updates, invalid categories, duplicate slug/source URL, publication rules, and transaction rollback. Commit only after contract parity.
 
 ### Task 10: Implement category CRUD and settings
+
+**Status (2026-09-24): Complete for the preserved migration slice via `docs/superpowers/plans/2026-09-24-go-admin-content.md`; the Node dashboard contracts replay in `internal/app/dashboard_contract_test.go`. This does not establish production or cutover readiness.**
 
 **Objective:** Port protected category CRUD and settings allowlisted upsert behavior.
 
