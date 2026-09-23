@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +35,8 @@ type App struct {
 	server        *httpserver.Server
 	background    []func(context.Context)
 	feedCollector *collector.Collector
+	// newsletter is bound to Run's context so shutdown stops a digest run.
+	newsletter *newsletter.Service
 	// drains run after the server and background tasks stop, to finish
 	// fire-and-forget work such as dashboard IndexNow submissions.
 	drains []func()
@@ -121,6 +124,20 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			objectAPI, newPublicHTTPClient())
 	}
 	mediaStorage := media.NewStorage(uploads, s3Uploads)
+	newsletterService, err := newsletter.NewService(newsletter.NewSQLiteStore(db),
+		newsletter.NewResendSender(newsletter.ResendConfig{
+			APIKey: cfg.ResendAPIKey, From: cfg.NewsletterFrom, ReplyTo: cfg.NewsletterReplyTo,
+			Endpoint: resendEndpoint, Client: newResendHTTPClient(),
+		}),
+		newsletter.ServiceConfig{SiteURL: cfg.NewsletterSiteURL, TokenSecret: cfg.NewsletterTokenSecret, Pace: newsletterPace},
+		logger)
+	if err != nil {
+		return nil, fmt.Errorf("newsletter: %w", err)
+	}
+	if strings.TrimSpace(cfg.ResendAPIKey) == "" || strings.TrimSpace(cfg.NewsletterFrom) == "" {
+		logger.Info("Newsletter delivery not configured (RESEND_API_KEY, NEWSLETTER_FROM); signups still work, digest deliveries will fail")
+	}
+	newsletterHandler := newsletter.NewHandler(newsletterService, cfg.NewsletterCronSecret, now, logger)
 	dashboardMedia := media.NewHandler(media.NewLibrary(media.NewSQLiteLibrary(db), mediaStorage, now), mediaStorage, logger)
 	handler := httpserver.NewRouter(logger, func(router chi.Router) {
 		health.MountPublic(router)
@@ -128,6 +145,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		categories.MountPublic(router)
 		authors.MountPublic(router)
 		auth.Mount(router)
+		newsletterHandler.Mount(router)
 		newsroomHandler.Mount(router, auth.RequireAuth)
 		// Node guards every dashboard path, including unknown ones, with
 		// requireAuth before routing (dashboard.ts:94).
@@ -139,7 +157,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		})
 	}, uploads.MountStatic)
 	server := httpserver.NewServer(cfg.Address, handler, logger)
-	application := &App{address: cfg.Address, handler: handler, server: server, drains: []func(){drainIndexNow}}
+	application := &App{address: cfg.Address, handler: handler, server: server, newsletter: newsletterService, drains: []func(){drainIndexNow}}
 	if feedCollector != nil {
 		application.feedCollector = feedCollector
 		application.background = append(application.background, func(ctx context.Context) {
@@ -167,6 +185,16 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	}
 	return application, nil
 }
+
+// resendEndpoint, newResendHTTPClient, and newsletterPace configure newsletter
+// delivery. They are variables only so app tests can point delivery at an
+// httptest server and skip Node's 550ms pause; nil means the newsletter
+// package's defaults (a client with ResendAttemptTimeout, 550ms pacing).
+var (
+	resendEndpoint                                  = newsletter.DefaultResendEndpoint
+	newResendHTTPClient                             = func() *http.Client { return nil }
+	newsletterPace      func(context.Context) error = nil
+)
 
 // newPublicHTTPClient builds the client that verifies uploaded objects
 // through their public URL. It is a variable so app tests can stay offline.
@@ -203,6 +231,10 @@ func (a *App) Handler() http.Handler { return a.handler }
 // instead of being abandoned mid-write on shutdown.
 func (a *App) Run(ctx context.Context) error {
 	tasksCtx, cancel := context.WithCancel(ctx)
+	if a.newsletter != nil {
+		// A digest outlives its HTTP request (like Node) but not shutdown.
+		a.newsletter.Bind(ctx)
+	}
 	if a.feedCollector != nil {
 		a.feedCollector.Bind(tasksCtx)
 	}
