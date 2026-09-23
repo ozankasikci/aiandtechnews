@@ -218,6 +218,27 @@ func newPublisherNotifier(cfg config.Config, logger *slog.Logger) publisher.Noti
 	return publisher.NoopNotifier{}
 }
 
+// CheckSchema is the read-only startup check for production: the database
+// must be managed by the migration ledger (never a Node-created database
+// that was not adopted) with every migration applied and unchanged.
+func CheckSchema(ctx context.Context, q migrate.Queryer) error {
+	pending, err := migrate.Status(ctx, q, Migrations())
+	if errors.Is(err, migrate.ErrUnmanagedDatabase) {
+		return fmt.Errorf("%w: the database has no migration ledger; adopt it with cmd/adopt --apply first", err)
+	}
+	if err != nil {
+		return err
+	}
+	if len(pending) > 0 {
+		names := make([]string, len(pending))
+		for i, descriptor := range pending {
+			names[i] = fmt.Sprintf("%d %s", descriptor.Version, descriptor.Name)
+		}
+		return fmt.Errorf("%d migration(s) pending (%s); run cmd/migrate first", len(pending), strings.Join(names, ", "))
+	}
+	return nil
+}
+
 // Migrations explicitly collects capability-owned descriptors in global order.
 func Migrations() []migrate.Descriptor {
 	descriptors := editorial.Migrations()

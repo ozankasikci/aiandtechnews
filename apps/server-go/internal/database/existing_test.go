@@ -82,3 +82,26 @@ func TestOpenExistingKeepsJournalModeAndEnforcesForeignKeys(t *testing.T) {
 		t.Errorf("MaxOpenConnections = %d, want 1", db.Stats().MaxOpenConnections)
 	}
 }
+
+func TestOpenForServingRefusesMissingFilesAndConfiguresExistingOnes(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "absent")
+	if _, err := database.OpenForServing(context.Background(), filepath.Join(dir, "technews.db")); err == nil {
+		t.Fatal("OpenForServing() error = nil for a missing file")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("OpenForServing created %s", dir)
+	}
+
+	path := rollbackJournalDatabase(t)
+	db, err := database.OpenForServing(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for pragma, want := range map[string]string{"journal_mode": "wal", "foreign_keys": "1", "busy_timeout": "5000", "synchronous": "1"} {
+		var got string
+		if err := db.QueryRow(`PRAGMA ` + pragma).Scan(&got); err != nil || got != want {
+			t.Errorf("PRAGMA %s = %q, %v; want %q", pragma, got, err, want)
+		}
+	}
+}

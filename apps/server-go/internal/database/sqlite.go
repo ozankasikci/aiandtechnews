@@ -41,7 +41,35 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(absolute), 0o750); err != nil {
 		return nil, fmt.Errorf("open sqlite: create parent: %w", err)
 	}
+	return openConfigured(ctx, absolute)
+}
 
+// OpenForServing opens an existing database with exactly Open's settings
+// (WAL, foreign keys, busy_timeout 5s, synchronous NORMAL, one connection),
+// but never creates the file or its directory. Production cmd/api uses it,
+// so a wrong DATABASE_PATH fails instead of serving an empty new database.
+func OpenForServing(ctx context.Context, path string) (*sql.DB, error) {
+	if ctx == nil {
+		return nil, errors.New("open sqlite: nil context")
+	}
+	if strings.TrimSpace(path) == "" {
+		return nil, errors.New("open sqlite: blank path")
+	}
+	absolute, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: resolve path: %w", err)
+	}
+	info, err := os.Stat(absolute)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("open sqlite: %q is not a regular file", absolute)
+	}
+	return openConfigured(ctx, absolute)
+}
+
+func openConfigured(ctx context.Context, absolute string) (*sql.DB, error) {
 	u := &url.URL{Scheme: "file", Path: filepath.ToSlash(absolute)}
 	query := url.Values{}
 	query.Add("_pragma", "journal_mode(WAL)")

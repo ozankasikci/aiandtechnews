@@ -13,8 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/app"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/config"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/database"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/database/migrate"
 )
 
 type stubAPIApplication struct{ err error }
@@ -177,17 +179,46 @@ func TestRunConfiguredRequiresExplicitUploadsDirInProduction(t *testing.T) {
 	}
 }
 
-func TestRunConfiguredStartsInProductionWithoutAWorktree(t *testing.T) {
+// productionRoot returns a marked production root and the production
+// environment for it.
+func productionRoot(t *testing.T) (string, map[string]string) {
+	t.Helper()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, config.ProductionMarker), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	environment := map[string]string{
+	return root, map[string]string{
 		"APP_ENV":       "production",
 		"DATABASE_PATH": filepath.Join(root, "data", "technews.db"),
 		"UPLOADS_DIR":   filepath.Join(root, "uploads"),
 		"SERVER_ADDR":   "127.0.0.1:4402",
+		"JWT_SECRET":    "0123456789abcdef0123456789abcdef",
+		"TZ":            "Europe/Istanbul",
 	}
+}
+
+func migratedDatabase(t *testing.T, path string, descriptors []migrate.Descriptor) {
+	t.Helper()
+	db, err := database.Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := migrate.Run(context.Background(), db, descriptors); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func refusingCompose(t *testing.T) func(config.Config, *slog.Logger, *sql.DB) (apiApplication, error) {
+	return func(config.Config, *slog.Logger, *sql.DB) (apiApplication, error) {
+		t.Fatal("composed an application for a database that must be refused")
+		return nil, nil
+	}
+}
+
+func TestRunConfiguredStartsInProductionWithoutAWorktree(t *testing.T) {
+	_, environment := productionRoot(t)
+	migratedDatabase(t, environment["DATABASE_PATH"], app.Migrations())
 	composed := false
 	compose := func(cfg config.Config, _ *slog.Logger, _ *sql.DB) (apiApplication, error) {
 		composed = true
@@ -199,5 +230,43 @@ func TestRunConfiguredStartsInProductionWithoutAWorktree(t *testing.T) {
 	err := runConfigured(context.Background(), "", func(key string) string { return environment[key] }, database.Open, compose, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil || !composed {
 		t.Fatalf("runConfigured error = %v, composed = %t", err, composed)
+	}
+}
+
+func TestProductionNeverCreatesAMissingDatabase(t *testing.T) {
+	_, environment := productionRoot(t)
+	err := runConfigured(context.Background(), "", func(key string) string { return environment[key] }, database.Open, refusingCompose(t), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil || !strings.Contains(err.Error(), "no such file") {
+		t.Fatalf("runConfigured error = %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Dir(environment["DATABASE_PATH"])); !os.IsNotExist(statErr) {
+		t.Fatal("production created the database directory")
+	}
+}
+
+func TestProductionRefusesAnUnmanagedDatabase(t *testing.T) {
+	_, environment := productionRoot(t)
+	path := environment["DATABASE_PATH"]
+	db, err := database.Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE articles (id INTEGER PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	err = runConfigured(context.Background(), "", func(key string) string { return environment[key] }, database.Open, refusingCompose(t), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil || !strings.Contains(err.Error(), "cmd/adopt") {
+		t.Fatalf("runConfigured error = %v", err)
+	}
+}
+
+func TestProductionRefusesPendingMigrations(t *testing.T) {
+	_, environment := productionRoot(t)
+	all := app.Migrations()
+	migratedDatabase(t, environment["DATABASE_PATH"], all[:len(all)-1])
+	err := runConfigured(context.Background(), "", func(key string) string { return environment[key] }, database.Open, refusingCompose(t), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil || !strings.Contains(err.Error(), "cmd/migrate") || !strings.Contains(err.Error(), all[len(all)-1].Name) {
+		t.Fatalf("runConfigured error = %v", err)
 	}
 }

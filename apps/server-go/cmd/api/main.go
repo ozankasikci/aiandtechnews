@@ -105,11 +105,23 @@ func runConfigured(
 	if err := os.MkdirAll(cfg.UploadsDir, 0o755); err != nil {
 		return fmt.Errorf("create uploads directory: %w", err)
 	}
-	db, err := openDatabase(ctx, cfg.DatabasePath)
+	// Production never creates a database and never serves one that is not
+	// fully migrated: a wrong DATABASE_PATH, a Node database that was not
+	// adopted, or a missing cmd/migrate run all stop the process here.
+	open := openDatabase
+	if cfg.Mode == config.ModeProduction {
+		open = database.OpenForServing
+	}
+	db, err := open(ctx, cfg.DatabasePath)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
+	if cfg.Mode == config.ModeProduction {
+		if err := app.CheckSchema(ctx, db); err != nil {
+			return fmt.Errorf("refusing to serve %s: %w", cfg.DatabasePath, err)
+		}
+	}
 	application, err := compose(cfg, logger, db)
 	if err != nil {
 		return fmt.Errorf("compose application: %w", err)

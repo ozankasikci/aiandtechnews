@@ -56,6 +56,8 @@ func nodeDatabase(t *testing.T, dir string, mutate func(string) string) string {
 	return path
 }
 
+const testSecret = "0123456789abcdef0123456789abcdef"
+
 func runAdopt(t *testing.T, env map[string]string, args ...string) (int, string, string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
@@ -125,7 +127,7 @@ func TestDevelopmentRefusesAProductionMarkedDatabase(t *testing.T) {
 	}
 
 	// The same database in production mode is adoptable.
-	env := map[string]string{"APP_ENV": "production", "DATABASE_PATH": path, "UPLOADS_DIR": filepath.Join(root, "uploads")}
+	env := map[string]string{"APP_ENV": "production", "DATABASE_PATH": path, "UPLOADS_DIR": filepath.Join(root, "uploads"), "JWT_SECRET": testSecret, "TZ": "Europe/Istanbul"}
 	code, stdout, stderr := runAdopt(t, env)
 	if code != 0 {
 		t.Fatalf("production dry run exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
@@ -139,7 +141,7 @@ func TestProductionDoesNotLookForAWorktree(t *testing.T) {
 	}
 	path := nodeDatabase(t, root, nil)
 	var stdout, stderr bytes.Buffer
-	env := map[string]string{"APP_ENV": "production", "DATABASE_PATH": path, "UPLOADS_DIR": filepath.Join(root, "uploads")}
+	env := map[string]string{"APP_ENV": "production", "DATABASE_PATH": path, "UPLOADS_DIR": filepath.Join(root, "uploads"), "JWT_SECRET": testSecret, "TZ": "Europe/Istanbul"}
 	code := run(context.Background(), nil, func(key string) string { return env[key] }, func() (string, error) {
 		t.Fatal("worktree lookup in production")
 		return "", nil
