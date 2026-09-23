@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/database/migrate"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/testutil"
@@ -101,6 +102,45 @@ func TestAdminTxRollsBackWhenTheMutationFails(t *testing.T) {
 	var title string
 	if err := db.QueryRow(`SELECT title FROM articles WHERE id = 302`).Scan(&title); err != nil || title != "B" {
 		t.Fatalf("title after rollback = %q %v", title, err)
+	}
+}
+
+// TestInAdminTxReleasesConnectionOnPanic guards the unconditional
+// `defer tx.Rollback()` right after BeginTx: the store's pool holds a single
+// connection (see database.Open), so if a panicking callback ever left the
+// transaction open, every later query would block forever waiting for that
+// connection instead of failing fast.
+func TestInAdminTxReleasesConnectionOnPanic(t *testing.T) {
+	store, db := openTxStore(t)
+	ctx := context.Background()
+
+	func() {
+		defer func() {
+			if recovered := recover(); recovered == nil {
+				t.Fatal("expected inAdminTx callback panic to propagate")
+			}
+		}()
+		_ = store.inAdminTx(ctx, func(tx adminTx) error {
+			if err := tx.updateRow(ctx, "articles", "302", []assignment{{"title", "Changed"}}); err != nil {
+				t.Fatal(err)
+			}
+			panic("boom")
+		})
+	}()
+
+	queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	var one int
+	if err := db.QueryRowContext(queryCtx, `SELECT 1`).Scan(&one); err != nil {
+		t.Fatalf("connection was not released after panic: %v", err)
+	}
+	if one != 1 {
+		t.Fatalf("SELECT 1 = %d", one)
+	}
+
+	var title string
+	if err := db.QueryRow(`SELECT title FROM articles WHERE id = 302`).Scan(&title); err != nil || title != "B" {
+		t.Fatalf("title after panicking rollback = %q %v", title, err)
 	}
 }
 

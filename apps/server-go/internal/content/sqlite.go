@@ -116,11 +116,7 @@ func (s *SQLiteStore) PublishedBySlugAndIncrement(ctx context.Context, slug stri
 	if err != nil {
 		return Article{}, fmt.Errorf("begin article view transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	defer func() { _ = tx.Rollback() }()
 	article, err = queryArticle(ctx, tx, ` WHERE a.slug = ? AND a.status = 'published'`, slug)
 	if err != nil {
 		return Article{}, err

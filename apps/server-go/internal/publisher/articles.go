@@ -124,11 +124,7 @@ func (a *SQLiteArticles) Publish(ctx context.Context, article NewArticle) (id in
 	if err != nil {
 		return 0, fmt.Errorf("begin article insert: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	defer func() { _ = tx.Rollback() }()
 
 	for _, category := range categoryColors {
 		name := strings.ToUpper(category.slug[:1]) + category.slug[1:]

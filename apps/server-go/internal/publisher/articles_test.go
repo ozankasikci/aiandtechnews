@@ -181,3 +181,41 @@ func TestPublishRollsBackWhenCandidateIsNotProcessing(t *testing.T) {
 		t.Fatalf("articles = %d err=%v; the insert must roll back", count, err)
 	}
 }
+
+// TestPublishReleasesConnectionOnPanic guards the unconditional
+// `defer tx.Rollback()` right after BeginTx in Publish: the store's pool
+// holds a single connection (see database.Open), so if a panic mid-insert
+// ever left the transaction open, every later query would hang waiting for
+// that connection instead of failing fast. now panics after Publish has
+// already run several statements inside the transaction (ensuring the
+// category, finding it, ensuring the editorial author), simulating a panic
+// on the insert path.
+func TestPublishReleasesConnectionOnPanic(t *testing.T) {
+	db := openDB(t)
+	panicking := func() time.Time { panic("now exploded mid-transaction") }
+	articles := publisher.NewSQLiteArticles(db, panicking)
+
+	func() {
+		defer func() {
+			if recovered := recover(); recovered == nil {
+				t.Fatal("expected Publish to panic")
+			}
+		}()
+		_, _ = articles.Publish(context.Background(), newArticle("openai-model", "https://techcrunch.com/a", "OpenAI ships a model", "<p>Body</p>"))
+	}()
+
+	queryCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var one int
+	if err := db.QueryRowContext(queryCtx, `SELECT 1`).Scan(&one); err != nil {
+		t.Fatalf("connection was not released after panic: %v", err)
+	}
+	if one != 1 {
+		t.Fatalf("SELECT 1 = %d", one)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM articles`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("articles = %d err=%v; the panicking insert must roll back", count, err)
+	}
+}

@@ -90,11 +90,7 @@ func (s *SQLiteStore) inAdminTx(ctx context.Context, fn func(adminTx) error) (er
 	if err != nil {
 		return fmt.Errorf("begin dashboard transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	defer func() { _ = tx.Rollback() }()
 	if err = fn(sqliteAdminTx{tx: tx}); err != nil {
 		return err
 	}

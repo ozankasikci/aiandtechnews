@@ -327,11 +327,7 @@ func (s *SQLiteStore) ResetProcessing(ctx context.Context, now time.Time, maxAtt
 	if err != nil {
 		return 0, 0, fmt.Errorf("begin processing reset: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	defer func() { _ = tx.Rollback() }()
 	result, err := tx.ExecContext(ctx, `UPDATE candidates SET status = 'failed', scheduled_for = NULL, last_error = ?,
 		updated_at = ? WHERE status = 'processing' AND attempts >= ?`, interruptedReason, stamp, maxAttempts)
 	if err != nil {
@@ -359,11 +355,7 @@ func (s *SQLiteStore) SetPublishDelay(ctx context.Context, delay PublishDelay) (
 	if err != nil {
 		return fmt.Errorf("begin delay update: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	defer func() { _ = tx.Rollback() }()
 	for _, pair := range [][2]string{
 		{settingDelayMin, strconv.Itoa(delay.MinMinutes)},
 		{settingDelayMax, strconv.Itoa(delay.MaxMinutes)},

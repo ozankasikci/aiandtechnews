@@ -125,11 +125,7 @@ func (s *SQLiteStore) Upsert(ctx context.Context, updates []Update) (err error) 
 	if err != nil {
 		return fmt.Errorf("begin settings transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	defer func() { _ = tx.Rollback() }()
 	for _, update := range updates {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)
 			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, update.Key, update.Value); err != nil {
