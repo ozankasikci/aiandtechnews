@@ -92,3 +92,26 @@ func TestNewWithDatabaseValidatesDependenciesWithoutDatabaseIOOrOwnership(t *tes
 		t.Fatal("NewWithDatabaseAt() with nil clock error = nil")
 	}
 }
+
+func TestDatabaseBackedHealthChecksTheDatabase(t *testing.T) {
+	cfg := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4401", DatabasePath: filepath.Join(t.TempDir(), "dev.db"), JWTSecret: "synthetic-test-secret", UploadsDir: t.TempDir()}
+	db, _ := testutil.OpenDatabase(t)
+	application, err := NewWithDatabase(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func() *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		application.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+		return response
+	}
+	if response := get(); response.Code != http.StatusOK || response.Body.String() != `{"status":"ok"}` {
+		t.Fatalf("healthy: status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if response := get(); response.Code != http.StatusServiceUnavailable || response.Body.String() != `{"status":"error"}` {
+		t.Fatalf("closed database: status = %d, body = %q", response.Code, response.Body.String())
+	}
+}

@@ -141,7 +141,11 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	newsletterHandler := newsletter.NewHandler(newsletterService, cfg.NewsletterCronSecret, now, logger)
 	dashboardMedia := media.NewHandler(media.NewLibrary(media.NewSQLiteLibrary(db), mediaStorage, now), mediaStorage, logger)
 	handler := httpserver.NewRouter(logger, func(router chi.Router) {
-		health.MountPublic(router)
+		// Health answers 503 when the database cannot answer a query.
+		health.MountChecked(router, func(ctx context.Context) error {
+			var one int
+			return db.QueryRowContext(ctx, `SELECT 1`).Scan(&one)
+		})
 		articles.MountPublic(router)
 		categories.MountPublic(router)
 		authors.MountPublic(router)

@@ -1,6 +1,8 @@
 package health
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -37,5 +39,34 @@ func TestMountPublicIsRelativeToAPIRouter(t *testing.T) {
 		if response.Code != http.StatusNotFound {
 			t.Errorf("GET %s status = %d, want 404", path, response.Code)
 		}
+	}
+}
+
+func TestMountCheckedAnswersOKWhileTheCheckPasses(t *testing.T) {
+	router := chi.NewRouter()
+	MountChecked(router, func(context.Context) error { return nil })
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if response.Code != http.StatusOK || response.Body.String() != `{"status":"ok"}` ||
+		response.Header().Get("Content-Type") != "application/json; charset=utf-8" {
+		t.Fatalf("status = %d, body = %q, content type = %q", response.Code, response.Body.String(), response.Header().Get("Content-Type"))
+	}
+}
+
+func TestMountCheckedAnswers503WhenTheCheckFails(t *testing.T) {
+	router := chi.NewRouter()
+	var deadline bool
+	MountChecked(router, func(ctx context.Context) error {
+		_, deadline = ctx.Deadline()
+		return errors.New("database is closed")
+	})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if response.Code != http.StatusServiceUnavailable || response.Body.String() != `{"status":"error"}` ||
+		response.Header().Get("Content-Type") != "application/json; charset=utf-8" {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if !deadline {
+		t.Error("the check ran without a deadline")
 	}
 }
