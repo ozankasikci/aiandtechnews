@@ -72,9 +72,14 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	cfg.JWTSecret = lookup("JWT_SECRET")
 
 	cfg.CollectorInterval = DefaultCollectorInterval
-	switch strings.ToLower(lookup("COLLECTOR_ENABLED")) {
+	collectorEnabled := lookup("COLLECTOR_ENABLED")
+	switch strings.ToLower(collectorEnabled) {
+	case "", "0", "false", "no":
+		cfg.CollectorEnabled = false
 	case "1", "true", "yes":
 		cfg.CollectorEnabled = true
+	default:
+		return Config{}, fmt.Errorf("COLLECTOR_ENABLED: invalid value %q", collectorEnabled)
 	}
 	if value := lookup("COLLECTOR_INTERVAL"); value != "" {
 		interval, err := time.ParseDuration(value)

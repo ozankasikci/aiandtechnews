@@ -108,7 +108,7 @@ func TestFetchTextCapsBodySize(t *testing.T) {
 	}))
 	defer server.Close()
 	body, _, err := NewFetcher().FetchText(context.Background(), server.URL, "")
-	if err != nil || len(body) != maxBodyBytes {
-		t.Fatalf("len=%d err=%v", len(body), err)
+	if body != "" || err == nil || !strings.Contains(err.Error(), "body exceeds") {
+		t.Fatalf("body=%q err=%v, want a body-exceeds error", body, err)
 	}
 }

@@ -69,9 +69,12 @@ func (f *Fetcher) FetchText(ctx context.Context, rawURL, expectedSource string) 
 	if err := f.checkSource(finalURL, expectedSource); err != nil {
 		return "", "", err
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 	if err != nil {
 		return "", "", fmt.Errorf("read %s: %w", rawURL, err)
+	}
+	if len(body) > maxBodyBytes {
+		return "", "", fmt.Errorf("fetch %s: body exceeds %d bytes", rawURL, maxBodyBytes)
 	}
 	return string(body), finalURL, nil
 }

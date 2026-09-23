@@ -21,10 +21,11 @@ import (
 )
 
 type App struct {
-	address    string
-	handler    http.Handler
-	server     *httpserver.Server
-	background []func(context.Context)
+	address       string
+	handler       http.Handler
+	server        *httpserver.Server
+	background    []func(context.Context)
+	feedCollector *collector.Collector
 }
 
 // New composes the health-only application without opening or inspecting a database.
@@ -91,6 +92,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	server := httpserver.NewServer(cfg.Address, handler, logger)
 	application := &App{address: cfg.Address, handler: handler, server: server}
 	if feedCollector != nil {
+		application.feedCollector = feedCollector
 		application.background = append(application.background, func(ctx context.Context) {
 			feedCollector.Loop(ctx, cfg.CollectorInterval)
 		})
@@ -109,19 +111,28 @@ func (a *App) Address() string       { return a.address }
 func (a *App) Handler() http.Handler { return a.handler }
 
 // Run serves HTTP and runs background tasks (the collector loop) until ctx is
-// done, then waits for the tasks to stop.
+// done, then waits for the tasks to stop. It also binds the feed collector's
+// lifecycle to the tasks context, so a "Collect now" run started in the
+// background (collector.Collector.Start) is cancelled and waited for too,
+// instead of being abandoned mid-write on shutdown.
 func (a *App) Run(ctx context.Context) error {
 	tasksCtx, cancel := context.WithCancel(ctx)
+	if a.feedCollector != nil {
+		a.feedCollector.Bind(tasksCtx)
+	}
 	var wg sync.WaitGroup
 	for _, task := range a.background {
 		wg.Add(1)
-		go func() {
+		go func(task func(context.Context)) {
 			defer wg.Done()
 			task(tasksCtx)
-		}()
+		}(task)
 	}
 	err := a.server.Run(ctx)
 	cancel()
 	wg.Wait()
+	if a.feedCollector != nil {
+		a.feedCollector.Wait()
+	}
 	return err
 }

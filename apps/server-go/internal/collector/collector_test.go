@@ -177,6 +177,58 @@ func TestStartRunsInBackgroundAndRejectsOverlap(t *testing.T) {
 	}
 }
 
+func TestBindStopsBackgroundRunWhenLifecycleEndsAndWaitReturns(t *testing.T) {
+	fetcher := &fakeFetcher{bodies: map[string]string{}, block: make(chan struct{})}
+	c, _ := setup(t, fetcher)
+	lifecycle, cancelLifecycle := context.WithCancel(context.Background())
+	c.Bind(lifecycle)
+
+	if err := c.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for fetcher.calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if fetcher.calls.Load() == 0 {
+		t.Fatal("background run never called the fetcher")
+	}
+
+	cancelLifecycle()
+	// fetcher.block is never closed, so Wait() only returns if the
+	// background run observed the bound lifecycle's cancellation.
+	done := make(chan struct{})
+	go func() {
+		c.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait() did not return after the bound lifecycle was cancelled")
+	}
+}
+
+func TestAllFeedsFailingSkipsSetLastCollected(t *testing.T) {
+	fetcher := &fakeFetcher{bodies: map[string]string{}}
+	c, store := setup(t, fetcher)
+
+	report, err := c.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Feeds == 0 || report.FeedFailures != report.Feeds {
+		t.Fatalf("report = %+v, want all feeds failing", report)
+	}
+	overview, err := store.Overview(context.Background(), now.Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.LastCollectedAt != nil {
+		t.Fatalf("LastCollectedAt = %v, want nil when every feed failed", *overview.LastCollectedAt)
+	}
+}
+
 func TestLoopRunsImmediatelyThenOnInterval(t *testing.T) {
 	fetcher := &fakeFetcher{bodies: map[string]string{}}
 	c, _ := setup(t, fetcher)

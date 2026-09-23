@@ -303,3 +303,26 @@ func TestLoadCollectorSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadCollectorEnabledAcceptsKnownValuesCaseInsensitively(t *testing.T) {
+	root := t.TempDir()
+	for _, on := range []string{"1", "true", "True", "YES", "yes"} {
+		cfg, err := Load(mapLookup(map[string]string{"JWT_SECRET": "x", "COLLECTOR_ENABLED": on}), root)
+		if err != nil || !cfg.CollectorEnabled {
+			t.Fatalf("COLLECTOR_ENABLED=%q: cfg = %+v err = %v", on, cfg, err)
+		}
+	}
+	for _, off := range []string{"", "0", "false", "FALSE", "no", "No"} {
+		cfg, err := Load(mapLookup(map[string]string{"JWT_SECRET": "x", "COLLECTOR_ENABLED": off}), root)
+		if err != nil || cfg.CollectorEnabled {
+			t.Fatalf("COLLECTOR_ENABLED=%q: cfg = %+v err = %v", off, cfg, err)
+		}
+	}
+}
+
+func TestLoadRejectsUnrecognizedCollectorEnabledValue(t *testing.T) {
+	_, err := Load(mapLookup(map[string]string{"JWT_SECRET": "x", "COLLECTOR_ENABLED": "maybe"}), t.TempDir())
+	if err == nil {
+		t.Fatal("Load() error = nil, want invalid COLLECTOR_ENABLED error")
+	}
+}

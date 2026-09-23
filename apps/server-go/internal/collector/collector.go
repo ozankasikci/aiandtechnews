@@ -46,6 +46,10 @@ type Collector struct {
 	now     func() time.Time
 	logger  *slog.Logger
 	running atomic.Bool
+
+	mu        sync.Mutex
+	lifecycle context.Context
+	startWG   sync.WaitGroup
 }
 
 func New(fetcher FeedFetcher, store CandidateStore, feeds []content.ApprovedFeed, now func() time.Time, logger *slog.Logger) *Collector {
@@ -67,22 +71,52 @@ func (c *Collector) Run(ctx context.Context) (Report, error) {
 	return c.collect(ctx)
 }
 
+// Bind sets the lifecycle context that bounds background runs started by
+// Start: such a run is cancelled once ctx is done, in addition to its own
+// RunTimeout. App.Run binds the collector to its tasks context so shutdown
+// (via Wait) does not wait forever for a background run.
+func (c *Collector) Bind(ctx context.Context) {
+	c.mu.Lock()
+	c.lifecycle = ctx
+	c.mu.Unlock()
+}
+
+func (c *Collector) boundLifecycle() context.Context {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.lifecycle != nil {
+		return c.lifecycle
+	}
+	return context.Background()
+}
+
 // Start implements newsroom.Collector: it begins a run on a context detached
 // from the caller's (the HTTP request ends once 202 is written) and returns
-// immediately.
+// immediately. The run still stops when the collector's bound lifecycle ends
+// (see Bind), so process shutdown does not wait forever for it.
 func (c *Collector) Start(ctx context.Context) error {
 	if !c.running.CompareAndSwap(false, true) {
 		return newsroom.ErrCollectInProgress
 	}
+	c.startWG.Add(1)
 	go func() {
+		defer c.startWG.Done()
 		defer c.running.Store(false)
 		runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RunTimeout)
 		defer cancel()
+		stop := context.AfterFunc(c.boundLifecycle(), cancel)
+		defer stop()
 		if _, err := c.collect(runCtx); err != nil {
 			c.logger.ErrorContext(runCtx, "collection failed", "error", err)
 		}
 	}()
 	return nil
+}
+
+// Wait blocks until every run started by Start has finished. It is used by
+// App.Run during shutdown so background runs are not abandoned mid-write.
+func (c *Collector) Wait() {
+	c.startWG.Wait()
 }
 
 // Loop collects immediately and then every interval until ctx is done.
@@ -112,7 +146,9 @@ func (c *Collector) collect(ctx context.Context) (Report, error) {
 			body, _, err := c.fetcher.FetchText(ctx, feed.URL, "")
 			if err != nil {
 				failures.Add(1)
-				c.logger.WarnContext(ctx, "feed fetch failed", "source", feed.Source, "error", err)
+				if ctx.Err() == nil {
+					c.logger.WarnContext(ctx, "feed fetch failed", "source", feed.Source, "error", err)
+				}
 				return
 			}
 			items := ParseFeed(body, feed.Source)
@@ -164,12 +200,15 @@ func (c *Collector) collect(ctx context.Context) (Report, error) {
 			report.Known++
 		}
 	}
-	if err := c.store.SetLastCollected(ctx, now); err != nil {
+	if report.Feeds > 0 && report.FeedFailures == report.Feeds {
+		c.logger.ErrorContext(ctx, "all feeds failed", "feeds", report.Feeds)
+	} else if err := c.store.SetLastCollected(ctx, now); err != nil {
 		return report, err
 	}
 	c.logger.InfoContext(ctx, "collection finished",
 		"feeds", report.Feeds, "feed_failures", report.FeedFailures, "items", report.Items,
-		"rejected", report.Rejected, "duplicates", report.Duplicates, "inserted", report.Inserted, "known", report.Known)
+		"rejected", report.Rejected, "duplicates", report.Duplicates, "inserted", report.Inserted, "known", report.Known,
+		"rejections", report.Rejections)
 	return report, nil
 }
 
