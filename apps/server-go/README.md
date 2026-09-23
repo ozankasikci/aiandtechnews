@@ -88,8 +88,12 @@ each `random(min..max)` minutes after the previous queue entry (defaults 30–40
 stored in `settings`). Rejected candidates are kept so their URLs are never
 re-collected.
 
-The collector and publisher are not implemented yet: `POST /api/newsroom/collect`
-answers `503` and queued items are not processed. Design:
+The collector (`internal/collector`) fetches the approved feeds, applies the
+publishing policy and stores new items as pending candidates; it never
+publishes. It runs when `COLLECTOR_ENABLED=1` (every `COLLECTOR_INTERVAL`,
+default `30m`, and on `POST /api/newsroom/collect`); otherwise that endpoint
+answers `503`. `make dev-api` enables it. The publisher (queued → published)
+is not implemented yet. Design:
 `docs/superpowers/specs/2026-09-23-ai-tech-news-newsroom-design.md`.
 
 ### Local development with the Omni Control app
