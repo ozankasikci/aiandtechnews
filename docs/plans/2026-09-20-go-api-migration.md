@@ -240,6 +240,8 @@ A capability may omit files/layers it does not need. No `utils`, `common`, `inte
 
 ### Task 11: Implement media storage
 
+**Status (2026-09-24): Complete for the preserved migration slice via `docs/superpowers/plans/2026-09-24-go-media.md`: local-disk storage in `UPLOADS_DIR` with Node parity (user decision: not S3), migration 5 (Node's `media` table), static `/uploads/*` serving, and the Node media contracts replaying in `internal/app/media_contract_test.go`. This does not establish production or cutover readiness.**
+
 **Objective:** Port listing, upload, serving, and deletion behind a storage interface.
 
 **Files:** Create module files/tests and capability-owned migration SQL under `internal/media`; extend `internal/app` to add the media descriptor in order.
