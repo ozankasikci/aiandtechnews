@@ -23,6 +23,8 @@ const (
 var (
 	ErrMissingAPIKey = errors.New("GEMINI_API_KEY is not set")
 	ErrEmptyResponse = errors.New("gemini returned no content")
+	// ErrBlocked reports a prompt or response withheld by Gemini's safety filters.
+	ErrBlocked = errors.New("gemini blocked the request")
 )
 
 // Error is a non-2xx Gemini response.
@@ -65,10 +67,14 @@ type part struct {
 }
 
 type generateResponse struct {
+	PromptFeedback struct {
+		BlockReason string `json:"blockReason"`
+	} `json:"promptFeedback"`
 	Candidates []struct {
 		Content struct {
 			Parts []part `json:"parts"`
 		} `json:"content"`
+		FinishReason string `json:"finishReason"`
 	} `json:"candidates"`
 }
 
@@ -89,6 +95,9 @@ func (c *Client) GenerateJSON(ctx context.Context, prompt string) (string, error
 	if err := c.generate(ctx, c.textModel, payload, &response); err != nil {
 		return "", err
 	}
+	if reason := response.PromptFeedback.BlockReason; reason != "" {
+		return "", fmt.Errorf("%w: prompt %s", ErrBlocked, reason)
+	}
 	if len(response.Candidates) == 0 {
 		return "", ErrEmptyResponse
 	}
@@ -97,6 +106,9 @@ func (c *Client) GenerateJSON(ctx context.Context, prompt string) (string, error
 		text.WriteString(p.Text)
 	}
 	if strings.TrimSpace(text.String()) == "" {
+		if reason := response.Candidates[0].FinishReason; reason == "SAFETY" {
+			return "", fmt.Errorf("%w: response %s", ErrBlocked, reason)
+		}
 		return "", ErrEmptyResponse
 	}
 	return strings.TrimSpace(text.String()), nil
@@ -127,11 +139,11 @@ func (c *Client) generate(ctx context.Context, model string, payload any, into a
 		return fmt.Errorf("read gemini response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		detail := string(data)
+		detail := data
 		if len(detail) > 300 {
 			detail = detail[:300]
 		}
-		return &Error{Status: resp.StatusCode, Body: detail}
+		return &Error{Status: resp.StatusCode, Body: strings.ToValidUTF8(string(detail), "")}
 	}
 	if err := json.Unmarshal(data, into); err != nil {
 		return fmt.Errorf("decode gemini response: %w", err)

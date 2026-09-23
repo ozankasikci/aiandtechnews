@@ -6,7 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/gemini"
 )
@@ -72,5 +74,36 @@ func TestGenerateJSONRequiresKeyAndContent(t *testing.T) {
 	defer server.Close()
 	if _, err := gemini.New("k", "m", gemini.WithBaseURL(server.URL)).GenerateJSON(context.Background(), "p"); !errors.Is(err, gemini.ErrEmptyResponse) {
 		t.Fatalf("empty err = %v", err)
+	}
+}
+
+func TestGenerateJSONReportsSafetyBlocks(t *testing.T) {
+	for name, body := range map[string]string{
+		"prompt blocked":    `{"promptFeedback":{"blockReason":"SAFETY"}}`,
+		"candidate blocked": `{"candidates":[{"content":{"parts":[]},"finishReason":"SAFETY"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			_, err := gemini.New("k", "m", gemini.WithBaseURL(server.URL)).GenerateJSON(context.Background(), "p")
+			if !errors.Is(err, gemini.ErrBlocked) || !strings.Contains(err.Error(), "SAFETY") {
+				t.Fatalf("err = %v, want ErrBlocked with the reason", err)
+			}
+		})
+	}
+}
+
+func TestErrorBodySnippetIsValidUTF8(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(strings.Repeat("a", 299) + "\u00e9" + strings.Repeat("b", 50)))
+	}))
+	defer server.Close()
+	_, err := gemini.New("k", "m", gemini.WithBaseURL(server.URL)).GenerateJSON(context.Background(), "p")
+	var apiErr *gemini.Error
+	if !errors.As(err, &apiErr) || !utf8.ValidString(apiErr.Body) || apiErr.Body != strings.Repeat("a", 299) {
+		t.Fatalf("body = %q (len %d)", apiErr.Body, len(apiErr.Body))
 	}
 }
