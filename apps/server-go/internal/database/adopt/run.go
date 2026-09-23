@@ -164,7 +164,7 @@ func Run(ctx context.Context, options Options) (result Result, err error) {
 	if err := vacuumInto(ctx, source, rehearsalPath); err != nil {
 		return Result{}, fmt.Errorf("copy the database for the rehearsal: %w", err)
 	}
-	rehearsal, rehearsalErr := adoptAndCheck(ctx, rehearsalPath, options.Descriptors, reference)
+	rehearsal, rehearsalErr := adoptAndCheck(ctx, rehearsalPath, options.Descriptors, reference, counts)
 	fmt.Fprintln(out)
 	if rehearsalErr != nil {
 		fmt.Fprintf(out, "Rehearsal on a copy: FAILED: %v\nResult: NOT COMPATIBLE (nothing was changed)\n", rehearsalErr)
@@ -202,9 +202,9 @@ func Run(ctx context.Context, options Options) (result Result, err error) {
 	}
 	source = nil
 
-	adopted, err := adoptAndCheck(ctx, path, options.Descriptors, reference)
+	adopted, err := adoptAndCheck(ctx, path, options.Descriptors, reference, counts)
 	if err != nil {
-		return result, fmt.Errorf("adopt %s (restore from %s if needed): %w", path, backupPath, err)
+		return result, fmt.Errorf("adopt %s: %w (the adoption was rolled back; the backup is %s)", path, err, backupPath)
 	}
 	result.Adoption = adopted.adoption
 	result.Outcome = OutcomeAdopted
@@ -218,24 +218,107 @@ type adoption struct {
 	counts   map[string]int64
 }
 
-// adoptAndCheck adopts the database at path, runs migrate.Run, and checks
-// that the result matches the reference completely.
-func adoptAndCheck(ctx context.Context, path string, descriptors []migrate.Descriptor, reference *Reference) (result adoption, err error) {
+// allowedGrowth lists the rows adoption may add to an existing table: the
+// two newsroom.* settings of migration 3 (INSERT OR IGNORE, so 0 to 2).
+// Every other existing table must keep exactly its row count.
+var allowedGrowth = map[string]int64{"settings": 2}
+
+// compareCounts checks row counts after adoption against the counts before
+// it: no existing table may disappear or lose rows, and only allowedGrowth
+// may add rows. New tables are not checked.
+func compareCounts(before, after map[string]int64) error {
+	var problems []string
+	for _, table := range sortedKeys(before) {
+		count := before[table]
+		got, ok := after[table]
+		switch {
+		case !ok:
+			problems = append(problems, fmt.Sprintf("table %s is missing", table))
+		case got < count:
+			problems = append(problems, fmt.Sprintf("table %s lost rows: %d -> %d", table, count, got))
+		case got > count+allowedGrowth[table]:
+			problems = append(problems, fmt.Sprintf("table %s gained unexpected rows: %d -> %d", table, count, got))
+		}
+	}
+	if len(problems) > 0 {
+		return errors.New(strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+func sameCounts(want, got map[string]int64) error {
+	var problems []string
+	for _, table := range sortedKeys(want) {
+		if got[table] != want[table] {
+			problems = append(problems, fmt.Sprintf("table %s has %d rows, expected %d", table, got[table], want[table]))
+		}
+	}
+	for _, table := range sortedKeys(got) {
+		if _, ok := want[table]; !ok {
+			problems = append(problems, fmt.Sprintf("table %s is new", table))
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("the database changed since it was copied (is another process using it?): %s", strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+// adoptAndCheck adopts the database at path. Inside the adoption's write
+// transaction it first requires the schema to verify and every table's row
+// count to equal wantCounts (the counts of the verified source, which the
+// backup also has), and before COMMIT it requires the complete Go schema and
+// row counts that only grew as allowedGrowth permits. Any failure rolls the
+// adoption back. migrate.Run afterwards must be a no-op.
+func adoptAndCheck(ctx context.Context, path string, descriptors []migrate.Descriptor, reference *Reference, wantCounts map[string]int64) (result adoption, err error) {
 	db, err := database.OpenExisting(ctx, path, false)
 	if err != nil {
 		return adoption{}, err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
 
-	adopted, err := migrate.Adopt(ctx, db, descriptors, func(ctx context.Context, q migrate.Queryer) ([]int64, error) {
-		report, err := Verify(ctx, q, reference)
-		if err != nil {
-			return nil, err
-		}
-		if !report.Compatible() {
-			return nil, fmt.Errorf("schema changed since verification: %s", strings.Join(report.Mismatches, "; "))
-		}
-		return report.PresentVersions(), nil
+	var finalCounts map[string]int64
+	adopted, err := migrate.Adopt(ctx, db, descriptors, migrate.AdoptChecks{
+		Verify: func(ctx context.Context, q migrate.Queryer) ([]int64, error) {
+			counts, err := rowCounts(ctx, q)
+			if err != nil {
+				return nil, err
+			}
+			if err := sameCounts(wantCounts, counts); err != nil {
+				return nil, err
+			}
+			report, err := Verify(ctx, q, reference)
+			if err != nil {
+				return nil, err
+			}
+			if !report.Compatible() {
+				return nil, fmt.Errorf("schema changed since verification: %s", strings.Join(report.Mismatches, "; "))
+			}
+			return report.PresentVersions(), nil
+		},
+		BeforeCommit: func(ctx context.Context, q migrate.Queryer) error {
+			final, err := Verify(ctx, q, reference)
+			if err != nil {
+				return err
+			}
+			if !final.Compatible() {
+				return fmt.Errorf("schema after adoption does not match: %s", strings.Join(final.Mismatches, "; "))
+			}
+			for _, status := range final.Migrations {
+				if status.State != StatePresent {
+					return fmt.Errorf("migration %d is still %s after adoption", status.Version, status.State)
+				}
+			}
+			counts, err := rowCounts(ctx, q)
+			if err != nil {
+				return err
+			}
+			if err := compareCounts(wantCounts, counts); err != nil {
+				return fmt.Errorf("row counts after adoption: %w", err)
+			}
+			finalCounts = counts
+			return nil
+		},
 	})
 	if err != nil {
 		return adoption{}, err
@@ -243,23 +326,7 @@ func adoptAndCheck(ctx context.Context, path string, descriptors []migrate.Descr
 	if err := migrate.Run(ctx, db, descriptors); err != nil {
 		return adoption{}, fmt.Errorf("migrate.Run after adoption: %w", err)
 	}
-	final, err := Verify(ctx, db, reference)
-	if err != nil {
-		return adoption{}, err
-	}
-	if !final.Compatible() {
-		return adoption{}, fmt.Errorf("schema after adoption does not match: %s", strings.Join(final.Mismatches, "; "))
-	}
-	for _, status := range final.Migrations {
-		if status.State != StatePresent {
-			return adoption{}, fmt.Errorf("migration %d is still %s after adoption", status.Version, status.State)
-		}
-	}
-	counts, err := rowCounts(ctx, db)
-	if err != nil {
-		return adoption{}, err
-	}
-	return adoption{adoption: adopted, counts: counts}, nil
+	return adoption{adoption: adopted, counts: finalCounts}, nil
 }
 
 func vacuumInto(ctx context.Context, db *sql.DB, path string) error {

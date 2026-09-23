@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/database/migrate"
@@ -35,8 +36,8 @@ func unmanagedDatabase(t *testing.T) *sql.DB {
 	return db
 }
 
-func present(versions ...int64) func(context.Context, migrate.Queryer) ([]int64, error) {
-	return func(context.Context, migrate.Queryer) ([]int64, error) { return versions, nil }
+func present(versions ...int64) migrate.AdoptChecks {
+	return migrate.AdoptChecks{Verify: func(context.Context, migrate.Queryer) ([]int64, error) { return versions, nil }}
 }
 
 func TestAdoptRecordsPresentVersionsAndAppliesTheRestAtomically(t *testing.T) {
@@ -102,9 +103,9 @@ func TestAdoptRollsBackEverythingWhenAPendingMigrationFails(t *testing.T) {
 func TestAdoptRollsBackWhenVerificationFails(t *testing.T) {
 	db := unmanagedDatabase(t)
 	boom := errors.New("schema mismatch")
-	_, err := migrate.Adopt(context.Background(), db, adoptionDescriptors(), func(context.Context, migrate.Queryer) ([]int64, error) {
+	_, err := migrate.Adopt(context.Background(), db, adoptionDescriptors(), migrate.AdoptChecks{Verify: func(context.Context, migrate.Queryer) ([]int64, error) {
 		return nil, boom
-	})
+	}})
 	if !errors.Is(err, boom) {
 		t.Fatalf("Adopt() error = %v, want %v", err, boom)
 	}
@@ -116,7 +117,7 @@ func TestAdoptRollsBackWhenVerificationFails(t *testing.T) {
 
 func TestAdoptVerifiesInsideTheWriteTransaction(t *testing.T) {
 	db := unmanagedDatabase(t)
-	_, err := migrate.Adopt(context.Background(), db, adoptionDescriptors(), func(ctx context.Context, q migrate.Queryer) ([]int64, error) {
+	_, err := migrate.Adopt(context.Background(), db, adoptionDescriptors(), migrate.AdoptChecks{Verify: func(ctx context.Context, q migrate.Queryer) ([]int64, error) {
 		var count int
 		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM users`).Scan(&count); err != nil {
 			return nil, err
@@ -125,7 +126,7 @@ func TestAdoptVerifiesInsideTheWriteTransaction(t *testing.T) {
 			t.Errorf("verify saw %d users, want 1", count)
 		}
 		return []int64{1, 3}, nil
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +164,31 @@ func TestAdoptRejectsInvalidDescriptorsAndNilVerify(t *testing.T) {
 	if _, err := migrate.Adopt(context.Background(), db, bad, present()); !errors.Is(err, migrate.ErrInvalidDescriptors) {
 		t.Fatalf("Adopt(bad descriptors) error = %v", err)
 	}
-	if _, err := migrate.Adopt(context.Background(), db, adoptionDescriptors(), nil); err == nil {
+	if _, err := migrate.Adopt(context.Background(), db, adoptionDescriptors(), migrate.AdoptChecks{}); err == nil {
 		t.Fatal("Adopt(nil verify) error = nil")
+	}
+}
+
+func TestAdoptBeforeCommitSeesTheAdoptedSchemaAndCanRollBack(t *testing.T) {
+	db := unmanagedDatabase(t)
+	checks := present(1, 3)
+	sawTags := false
+	checks.BeforeCommit = func(ctx context.Context, q migrate.Queryer) error {
+		var count int
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE name IN ('tags', 'schema_migrations')`).Scan(&count); err != nil {
+			return err
+		}
+		sawTags = count == 2
+		return errors.New("row counts changed")
+	}
+	if _, err := migrate.Adopt(context.Background(), db, adoptionDescriptors(), checks); err == nil || !strings.Contains(err.Error(), "row counts changed") {
+		t.Fatalf("Adopt() error = %v", err)
+	}
+	if !sawTags {
+		t.Error("BeforeCommit did not see the applied migration and the ledger")
+	}
+	var objects int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name IN ('tags', 'schema_migrations')`).Scan(&objects); err != nil || objects != 0 {
+		t.Fatalf("rolled-back adoption left %d objects, %v", objects, err)
 	}
 }

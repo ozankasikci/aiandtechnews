@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -487,5 +488,54 @@ func TestFormattingOnlyDifferencesAreCompatible(t *testing.T) {
 	result, report, err := run(t, path, false)
 	if err != nil || result.Outcome != adopt.OutcomeAdoptable {
 		t.Fatalf("Outcome = %v, err = %v\n%s", result.Outcome, err, report)
+	}
+}
+
+func TestApplyBackupCapturesUncheckpointedWALFrames(t *testing.T) {
+	// A database left with committed rows only in its -wal file (as after a
+	// crash, or a copy taken while a writer had not checkpointed) must be
+	// adopted and backed up with those rows.
+	original := nodeDatabase(t, fixture{variant: "fresh"})
+	ctx := context.Background()
+	writer, err := database.Open(ctx, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`PRAGMA wal_autocheckpoint = 0`,
+		`INSERT INTO subscribers (id, email, status, created_at, updated_at) VALUES (900, 'wal@example.invalid', 'active', 'c', 'u')`,
+		`UPDATE articles SET view_count = 4242 WHERE id = 1`,
+	} {
+		if _, err := writer.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "technews.db")
+	for _, suffix := range []string{"", "-wal"} {
+		content, err := os.ReadFile(original + suffix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if suffix == "-wal" && len(content) == 0 {
+			t.Fatal("test setup: the -wal file is empty")
+		}
+		if err := os.WriteFile(path+suffix, content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	result, report, err := run(t, path, true)
+	if err != nil || result.Outcome != adopt.OutcomeAdopted {
+		t.Fatalf("Outcome = %v, err = %v\n%s", result.Outcome, err, report)
+	}
+	for _, file := range []string{path, result.BackupPath} {
+		dump := dumpTables(t, file, "subscribers", "articles")
+		if !strings.Contains(dump["subscribers"], `"wal@example.invalid"`) || !strings.Contains(dump["articles"], "view_count=4242") {
+			t.Errorf("%s lacks the rows that were only in the -wal file:\n%v", file, dump)
+		}
 	}
 }

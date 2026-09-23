@@ -15,6 +15,17 @@ var (
 	ErrNothingToAdopt = errors.New("database is empty; there is nothing to adopt (use Run)")
 )
 
+// AdoptChecks are the caller's checks, run on the adoption transaction's
+// connection. Verify is required: it returns the versions whose schema is
+// already present and fails when the schema is not compatible (or the data
+// is not what the caller expects). BeforeCommit is optional: it runs after
+// the ledger is written and the pending migrations ran, just before COMMIT;
+// an error rolls everything back.
+type AdoptChecks struct {
+	Verify       func(context.Context, Queryer) ([]int64, error)
+	BeforeCommit func(context.Context, Queryer) error
+}
+
 // AdoptResult lists what Adopt did, in version order.
 type AdoptResult struct {
 	// Recorded are the versions whose schema already existed: they were only
@@ -36,12 +47,14 @@ type AdoptResult struct {
 //     compatible;
 //  3. it creates the ledger with Run's DDL, records the present versions
 //     with their exact names and checksums, and runs every other descriptor
-//     in version order.
+//     in version order;
+//  4. it calls BeforeCommit, if set, and commits.
 //
 // Any error rolls the whole transaction back, leaving the database as it
 // was. Afterwards every descriptor is recorded, so Run finds no gap. Adopt
 // never decides compatibility itself; that is verify's job.
-func Adopt(ctx context.Context, db *sql.DB, descriptors []Descriptor, verify func(context.Context, Queryer) ([]int64, error)) (result AdoptResult, err error) {
+func Adopt(ctx context.Context, db *sql.DB, descriptors []Descriptor, checks AdoptChecks) (result AdoptResult, err error) {
+	verify := checks.Verify
 	if err := validateDescriptors(descriptors); err != nil {
 		return AdoptResult{}, err
 	}
@@ -129,6 +142,11 @@ func Adopt(ctx context.Context, db *sql.DB, descriptors []Descriptor, verify fun
 		}
 	}
 
+	if checks.BeforeCommit != nil {
+		if err := checks.BeforeCommit(ctx, conn); err != nil {
+			return AdoptResult{}, fmt.Errorf("check before commit: %w", err)
+		}
+	}
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return AdoptResult{}, fmt.Errorf("commit adoption: %w", err)
 	}
