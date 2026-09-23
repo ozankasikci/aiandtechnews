@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -19,10 +18,6 @@ import (
 )
 
 const (
-	// signupWindow and signupLimit are Node's global signup throttle: at most
-	// 30 attempts in any rolling minute, across all clients.
-	signupWindow = 60 * time.Second
-	signupLimit  = 30
 	// DigestWriteTimeout replaces the server's 30s write timeout for the
 	// digest route, which sends one email every ~550ms. Node has no timeout;
 	// the digest itself keeps running after this (or after the client
@@ -50,15 +45,14 @@ type Handler struct {
 	now        func() time.Time
 	logger     *slog.Logger
 
-	signupMu       sync.Mutex
-	signupAttempts []int64
+	signups *signupLimiter
 }
 
 // NewHandler takes the raw cron secret (NEWSLETTER_CRON_SECRET, else
 // CRON_SECRET); like Node it is trimmed per request and an empty one
 // rejects every digest request.
 func NewHandler(service newsletterService, cronSecret string, now func() time.Time, logger *slog.Logger) *Handler {
-	return &Handler{service: service, cronSecret: cronSecret, now: now, logger: logger}
+	return &Handler{service: service, cronSecret: cronSecret, now: now, logger: logger, signups: newSignupLimiter(maxSignupClients)}
 }
 
 // Mount registers the routes relative to /api. None of them requires a
@@ -96,22 +90,6 @@ type stateError struct {
 	Error string `json:"error"`
 }
 
-// allowSignup is Node's signupAttempts window: attempts older than 60s are
-// dropped, and a 31st attempt inside the window is refused (and not counted).
-func (h *Handler) allowSignup(now time.Time) bool {
-	timestamp := now.UnixMilli()
-	h.signupMu.Lock()
-	defer h.signupMu.Unlock()
-	for len(h.signupAttempts) > 0 && h.signupAttempts[0] < timestamp-signupWindow.Milliseconds() {
-		h.signupAttempts = h.signupAttempts[1:]
-	}
-	if len(h.signupAttempts) >= signupLimit {
-		return false
-	}
-	h.signupAttempts = append(h.signupAttempts, timestamp)
-	return true
-}
-
 func (h *Handler) subscribe(w http.ResponseWriter, r *http.Request) {
 	// express.json() runs before the route, so a malformed body is rejected
 	// before it counts as a signup attempt.
@@ -121,7 +99,7 @@ func (h *Handler) subscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := h.now()
-	if !h.allowSignup(now) {
+	if !h.signups.allow(clientIP(r), now) {
 		writeJSON(w, http.StatusTooManyRequests, errorBody("Too many signup attempts. Please try again shortly."))
 		return
 	}

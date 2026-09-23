@@ -150,7 +150,8 @@ func TestSubscribeRespondsLikeNode(t *testing.T) {
 	assertResponse(t, serve(t, handler, "POST", "/api/subscribe", `{"email":"a@b.c"}`, nil), 503, `{"error":"Newsletter signup is temporarily unavailable"}`)
 }
 
-func TestSignupThrottleIsNodesGlobalRollingMinute(t *testing.T) {
+// One client (httptest.NewRequest's RemoteAddr) sees Node's rolling window.
+func TestSignupThrottleIsNodesRollingMinute(t *testing.T) {
 	now := &clock{now: time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)}
 	service := &fakeService{}
 	handler := router(newHandler(service, now))
