@@ -17,7 +17,9 @@ import (
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/config"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/indexnow"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/media"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/testutil"
 )
 
@@ -107,6 +109,25 @@ func TestNewWithDatabaseSkipsStorageWhenPublisherDisabled(t *testing.T) {
 	db, _ := testutil.OpenDatabase(t)
 	if _, err := NewWithDatabase(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), db); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNewPublisherNotifierChoosesIndexNowOnlyWhenEnabled(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	cfg := publisherConfig(t)
+	cfg.IndexNowEnabled = false
+	if notifier := newPublisherNotifier(cfg, logger); notifier == nil {
+		t.Fatal("IndexNowEnabled=false: notifier = nil")
+	} else if _, ok := notifier.(publisher.NoopNotifier); !ok {
+		t.Fatalf("IndexNowEnabled=false: notifier = %T, want publisher.NoopNotifier", notifier)
+	}
+
+	cfg.IndexNowEnabled = true
+	if notifier := newPublisherNotifier(cfg, logger); notifier == nil {
+		t.Fatal("IndexNowEnabled=true: notifier = nil")
+	} else if _, ok := notifier.(*indexnow.Client); !ok {
+		t.Fatalf("IndexNowEnabled=true: notifier = %T, want *indexnow.Client", notifier)
 	}
 }
 

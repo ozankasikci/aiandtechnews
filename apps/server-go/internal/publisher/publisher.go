@@ -67,6 +67,12 @@ type Notifier interface {
 	SubmitSlugs(ctx context.Context, slugs []string) error
 }
 
+// NoopNotifier is a Notifier that submits nothing. It backs the publisher
+// when IndexNow is disabled (INDEXNOW_ENABLED is not set).
+type NoopNotifier struct{}
+
+func (NoopNotifier) SubmitSlugs(context.Context, []string) error { return nil }
+
 type Deps struct {
 	Store       Store
 	Fetcher     SourceFetcher

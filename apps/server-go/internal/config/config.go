@@ -60,15 +60,19 @@ type Config struct {
 	S3Bucket          string
 	S3Prefix          string
 	S3PublicURL       string
+
+	// IndexNowEnabled wires the IndexNow notifier into the publisher. When
+	// false (the default), published URLs are not submitted to IndexNow.
+	IndexNowEnabled bool
 }
 
 func (c Config) String() string {
 	return fmt.Sprintf("Config{Mode:%q Address:%q DatabasePath:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
 		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiVisionModel:%q "+
-		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q}",
+		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t}",
 		c.Mode, c.Address, c.DatabasePath, c.CollectorEnabled, c.CollectorInterval,
 		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiVisionModel,
-		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL)
+		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled)
 }
 
 func (c Config) GoString() string { return c.String() }
@@ -137,6 +141,12 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 		cfg.S3Prefix = value
 	}
 	cfg.S3PublicURL = lookup("S3_FEATURE_IMAGE_PUBLIC_URL")
+
+	indexNowEnabled, err := parseOnOff("INDEXNOW_ENABLED", lookup("INDEXNOW_ENABLED"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.IndexNowEnabled = indexNowEnabled
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

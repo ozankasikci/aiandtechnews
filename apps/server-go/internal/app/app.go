@@ -118,7 +118,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			Rewriter:    publisher.NewRewriter(geminiClient),
 			Illustrator: illustration.NewS3Illustrator(illustration.NewGenerator(geminiClient, logger), imageStore, illustration.NewReferenceClient(), logger),
 			Articles:    publisher.NewSQLiteArticles(db, now),
-			Notifier:    indexnow.New(),
+			Notifier:    newPublisherNotifier(cfg, logger),
 			Now:         now,
 			Logger:      logger,
 		})
@@ -127,6 +127,18 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		})
 	}
 	return application, nil
+}
+
+// newPublisherNotifier chooses the publisher's IndexNow notifier. A local dev
+// publish must never ping IndexNow for an article that only exists in a dev
+// database, so submission is opt-in via INDEXNOW_ENABLED; when it is off, a
+// no-op notifier is used instead and a single startup log line explains why.
+func newPublisherNotifier(cfg config.Config, logger *slog.Logger) publisher.Notifier {
+	if cfg.IndexNowEnabled {
+		return indexnow.New()
+	}
+	logger.Info("IndexNow disabled; published URLs will not be submitted")
+	return publisher.NoopNotifier{}
 }
 
 // Migrations explicitly collects capability-owned descriptors in global order.

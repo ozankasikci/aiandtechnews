@@ -467,6 +467,53 @@ func TestLoadPublisherEnabledWithAllFieldsSucceeds(t *testing.T) {
 	}
 }
 
+func TestLoadIndexNowDefaultsToDisabled(t *testing.T) {
+	cfg, err := Load(mapLookup(map[string]string{"JWT_SECRET": "x"}), t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.IndexNowEnabled {
+		t.Error("IndexNowEnabled defaults to true, want false")
+	}
+}
+
+func TestLoadIndexNowEnabledAcceptsKnownValuesCaseInsensitively(t *testing.T) {
+	root := t.TempDir()
+	for _, on := range []string{"1", "true", "True", "YES", "yes"} {
+		env := map[string]string{"JWT_SECRET": "x", "INDEXNOW_ENABLED": on}
+		cfg, err := Load(mapLookup(env), root)
+		if err != nil || !cfg.IndexNowEnabled {
+			t.Fatalf("INDEXNOW_ENABLED=%q: cfg = %+v err = %v", on, cfg, err)
+		}
+	}
+	for _, off := range []string{"", "0", "false", "FALSE", "no", "No"} {
+		env := map[string]string{"JWT_SECRET": "x", "INDEXNOW_ENABLED": off}
+		cfg, err := Load(mapLookup(env), root)
+		if err != nil || cfg.IndexNowEnabled {
+			t.Fatalf("INDEXNOW_ENABLED=%q: cfg = %+v err = %v", off, cfg, err)
+		}
+	}
+}
+
+func TestLoadRejectsUnrecognizedIndexNowEnabledValue(t *testing.T) {
+	_, err := Load(mapLookup(map[string]string{"JWT_SECRET": "x", "INDEXNOW_ENABLED": "maybe"}), t.TempDir())
+	if err == nil {
+		t.Fatal("Load() error = nil, want invalid INDEXNOW_ENABLED error")
+	}
+}
+
+func TestLoadPublisherEnabledWithIndexNowEnabledSucceeds(t *testing.T) {
+	env := publisherEnv()
+	env["INDEXNOW_ENABLED"] = "1"
+	cfg, err := Load(mapLookup(env), t.TempDir())
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.IndexNowEnabled {
+		t.Error("IndexNowEnabled = false, want true")
+	}
+}
+
 func TestConfigFormattingRedactsGeminiAPIKey(t *testing.T) {
 	const key = "secret-gemini-key-that-must-never-be-formatted"
 	cfg := Config{Mode: ModeDevelopment, Address: DefaultAddress, DatabasePath: "/tmp/synthetic.db", GeminiAPIKey: key}
