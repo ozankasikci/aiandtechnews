@@ -100,8 +100,27 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	dashboardIndexNow, drainIndexNow := newDashboardIndexNow(cfg, logger)
 	dashboardContent := content.NewAdminHandler(content.NewAdminService(contentStore, now), dashboardIndexNow, logger)
 	dashboardSettings := settings.NewHandler(settings.NewService(settings.NewSQLiteStore(db)), logger)
+	// The publisher and S3 media storage share one checked S3 client.
+	var objectAPI media.ObjectAPI
+	if cfg.PublisherEnabled || cfg.MediaStorage == config.MediaStorageS3 {
+		objectAPI, err = openPublisherStorage(context.Background(), cfg)
+		if err != nil {
+			if cfg.PublisherEnabled {
+				return nil, fmt.Errorf("publisher storage check failed: %w", err)
+			}
+			return nil, fmt.Errorf("media storage check failed: %w", err)
+		}
+	}
+	// UPLOADS_DIR is always served at /uploads/*: with MEDIA_STORAGE=s3 it
+	// still holds the legacy files existing articles reference.
 	uploads := media.NewUploads(cfg.UploadsDir)
-	dashboardMedia := media.NewHandler(media.NewLibrary(media.NewSQLiteLibrary(db), uploads, now), uploads, logger)
+	var s3Uploads *media.S3Uploads
+	if cfg.MediaStorage == config.MediaStorageS3 {
+		s3Uploads = media.NewS3Uploads(media.S3UploadsConfig{Bucket: cfg.S3Bucket, Prefix: cfg.MediaS3Prefix, PublicBaseURL: cfg.S3PublicURL},
+			objectAPI, newPublicHTTPClient())
+	}
+	mediaStorage := media.NewStorage(uploads, s3Uploads)
+	dashboardMedia := media.NewHandler(media.NewLibrary(media.NewSQLiteLibrary(db), mediaStorage, now), mediaStorage, logger)
 	handler := httpserver.NewRouter(logger, func(router chi.Router) {
 		health.MountPublic(router)
 		articles.MountPublic(router)
@@ -127,14 +146,10 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		})
 	}
 	if cfg.PublisherEnabled {
-		objectAPI, err := openPublisherStorage(context.Background(), cfg)
-		if err != nil {
-			return nil, fmt.Errorf("publisher storage check failed: %w", err)
-		}
 		geminiClient := gemini.New(cfg.GeminiAPIKey, cfg.GeminiTextModel,
 			gemini.WithImageModel(cfg.GeminiImageModel), gemini.WithVisionModel(cfg.GeminiVisionModel))
 		imageStore := media.NewStore(media.Config{Region: cfg.AWSRegion, Bucket: cfg.S3Bucket, Prefix: cfg.S3Prefix, PublicBaseURL: cfg.S3PublicURL},
-			objectAPI, &http.Client{}, now)
+			objectAPI, newPublicHTTPClient(), now)
 		newsPublisher := publisher.New(publisher.Deps{
 			Store:       newsroomStore,
 			Fetcher:     collector.NewFetcher(),
@@ -151,6 +166,10 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	}
 	return application, nil
 }
+
+// newPublicHTTPClient builds the client that verifies uploaded objects
+// through their public URL. It is a variable so app tests can stay offline.
+var newPublicHTTPClient = func() *http.Client { return &http.Client{} }
 
 // newPublisherNotifier chooses the publisher's IndexNow notifier. A local dev
 // publish must never ping IndexNow for an article that only exists in a dev

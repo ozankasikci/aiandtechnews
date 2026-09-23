@@ -40,6 +40,21 @@ const (
 	// DefaultS3FeatureImagePrefix is the S3 key prefix used when
 	// S3_FEATURE_IMAGE_PREFIX is not set.
 	DefaultS3FeatureImagePrefix = "features"
+
+	// DefaultMediaS3Prefix is the S3 key prefix of dashboard media uploads when
+	// MEDIA_STORAGE=s3 and MEDIA_S3_PREFIX is not set.
+	DefaultMediaS3Prefix = "uploads"
+)
+
+// MediaStorage selects where new dashboard media uploads are stored.
+type MediaStorage string
+
+const (
+	// MediaStorageLocal keeps uploads in UploadsDir, served at /uploads/*.
+	MediaStorageLocal MediaStorage = "local"
+	// MediaStorageS3 puts new uploads in the feature-image bucket under
+	// MediaS3Prefix; /uploads/* keeps serving the legacy local files.
+	MediaStorageS3 MediaStorage = "s3"
 )
 
 var ErrProductionDatabaseAlias = errors.New("production database path is forbidden outside APP_ENV=production")
@@ -55,6 +70,11 @@ type Config struct {
 	// /uploads/*. Development defaults to <worktree>/data/uploads; production
 	// has no default and cmd/api requires UPLOADS_DIR explicitly.
 	UploadsDir string
+	// MediaStorage (MEDIA_STORAGE, default local) and MediaS3Prefix
+	// (MEDIA_S3_PREFIX, default "uploads"). S3 reuses AWS_REGION,
+	// S3_FEATURE_IMAGE_BUCKET, and S3_FEATURE_IMAGE_PUBLIC_URL.
+	MediaStorage  MediaStorage
+	MediaS3Prefix string
 
 	// CollectorEnabled wires the feed collector (manual "Collect now" and the loop).
 	CollectorEnabled  bool
@@ -78,10 +98,10 @@ type Config struct {
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("Config{Mode:%q Address:%q DatabasePath:%q UploadsDir:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
+	return fmt.Sprintf("Config{Mode:%q Address:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
 		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiVisionModel:%q "+
 		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t}",
-		c.Mode, c.Address, c.DatabasePath, c.UploadsDir, c.CollectorEnabled, c.CollectorInterval,
+		c.Mode, c.Address, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
 		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiVisionModel,
 		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled)
 }
@@ -162,6 +182,19 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	}
 	cfg.S3PublicURL = lookup("S3_FEATURE_IMAGE_PUBLIC_URL")
 
+	switch value := strings.ToLower(lookup("MEDIA_STORAGE")); value {
+	case "", string(MediaStorageLocal):
+		cfg.MediaStorage = MediaStorageLocal
+	case string(MediaStorageS3):
+		cfg.MediaStorage = MediaStorageS3
+	default:
+		return Config{}, fmt.Errorf("MEDIA_STORAGE: invalid value %q (want local or s3)", lookup("MEDIA_STORAGE"))
+	}
+	cfg.MediaS3Prefix = DefaultMediaS3Prefix
+	if value := lookup("MEDIA_S3_PREFIX"); value != "" {
+		cfg.MediaS3Prefix = value
+	}
+
 	indexNowEnabled, err := parseOnOff("INDEXNOW_ENABLED", lookup("INDEXNOW_ENABLED"))
 	if err != nil {
 		return Config{}, err
@@ -197,6 +230,11 @@ func (c Config) Validate() error {
 	}
 	if c.PublisherEnabled {
 		if err := c.validatePublisher(); err != nil {
+			return err
+		}
+	}
+	if c.MediaStorage == MediaStorageS3 {
+		if err := c.validateMediaS3(); err != nil {
 			return err
 		}
 	}
@@ -272,6 +310,40 @@ func (c Config) validatePublisher() error {
 	}
 	if parsed, err := url.Parse(c.S3PublicURL); err != nil || parsed.Scheme != "https" || parsed.Host == "" {
 		return errors.New("S3_FEATURE_IMAGE_PUBLIC_URL must be an https URL with a host")
+	}
+	return nil
+}
+
+// validateMediaS3 checks the S3 media backend settings. The media prefix
+// must not overlap the feature-image prefix, so neither store's key
+// containment can reach the other's objects.
+func (c Config) validateMediaS3() error {
+	var missing []string
+	if c.AWSRegion == "" {
+		missing = append(missing, "AWS_REGION")
+	}
+	if c.S3Bucket == "" {
+		missing = append(missing, "S3_FEATURE_IMAGE_BUCKET")
+	}
+	if c.S3PublicURL == "" {
+		missing = append(missing, "S3_FEATURE_IMAGE_PUBLIC_URL")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("MEDIA_STORAGE=s3 requires %s", strings.Join(missing, ", "))
+	}
+	if parsed, err := url.Parse(c.S3PublicURL); err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return errors.New("S3_FEATURE_IMAGE_PUBLIC_URL must be an https URL with a host")
+	}
+	prefix := strings.Trim(c.MediaS3Prefix, "/")
+	if prefix == "" {
+		return errors.New("MEDIA_S3_PREFIX must not be empty")
+	}
+	if strings.Contains(prefix, "..") {
+		return errors.New(`MEDIA_S3_PREFIX must not contain ".."`)
+	}
+	features := strings.Trim(c.S3Prefix, "/")
+	if prefix == features || strings.HasPrefix(prefix, features+"/") || strings.HasPrefix(features, prefix+"/") {
+		return fmt.Errorf("MEDIA_S3_PREFIX must not overlap S3_FEATURE_IMAGE_PREFIX (%q)", features)
 	}
 	return nil
 }

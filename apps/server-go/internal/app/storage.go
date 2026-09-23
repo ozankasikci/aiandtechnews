@@ -24,8 +24,9 @@ type bucketHeader interface {
 }
 
 // openPublisherStorage loads the AWS configuration, verifies credentials and
-// bucket access, and returns the S3 client for the feature image store. It is
-// a variable so app tests can stay offline.
+// bucket access, and returns the S3 client shared by the feature image store
+// and, with MEDIA_STORAGE=s3, the media library. It is a variable so app tests
+// can stay offline.
 var openPublisherStorage = func(ctx context.Context, cfg config.Config) (media.ObjectAPI, error) {
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(cfg.AWSRegion))
 	if err != nil {

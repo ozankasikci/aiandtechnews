@@ -162,6 +162,12 @@ func (s *Store) StoreWebP(ctx context.Context, slug string, data []byte) (Stored
 }
 
 func (s *Store) verify(ctx context.Context, url, sha string, size int) error {
+	return verifyPublic(ctx, s.http, url, "image/webp", sha, size)
+}
+
+// verifyPublic fetches url without following redirects and checks that it
+// answers 200 with contentType and exactly the uploaded bytes.
+func verifyPublic(ctx context.Context, httpClient *http.Client, url, contentType, sha string, size int) error {
 	ctx, cancel := context.WithTimeout(ctx, verifyTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -169,7 +175,7 @@ func (s *Store) verify(ctx context.Context, url, sha string, size int) error {
 		return err
 	}
 	req.Header.Set("Cache-Control", "no-store")
-	client := *s.http
+	client := *httpClient
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("redirects are not allowed") }
 	resp, err := client.Do(req)
 	if err != nil {
@@ -180,8 +186,8 @@ func (s *Store) verify(ctx context.Context, url, sha string, size int) error {
 		return &PublicStatusError{Status: resp.StatusCode}
 	}
 	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if mediaType != "image/webp" {
-		return fmt.Errorf("public URL returned Content-Type %q, expected image/webp", mediaType)
+	if mediaType != contentType {
+		return fmt.Errorf("public URL returned Content-Type %q, expected %s", mediaType, contentType)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxImageBytes+1))
 	if err != nil {
