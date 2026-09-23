@@ -5,13 +5,16 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/config"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/media"
@@ -118,5 +121,19 @@ func TestNewWithDatabaseWiresPublisherWhenStorageCheckPasses(t *testing.T) {
 	}
 	if len(application.background) != 1 {
 		t.Fatalf("background tasks = %d, want the publisher loop", len(application.background))
+	}
+}
+
+// Least-privilege importer users may write objects without s3:ListBucket, which
+// HeadBucket needs; a 403 must not stop the server. A missing bucket still does.
+func TestCheckPublisherStorageToleratesForbiddenHeadBucket(t *testing.T) {
+	ctx := context.Background()
+	forbidden := &awshttp.ResponseError{ResponseError: &smithyhttp.ResponseError{Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusForbidden}}, Err: errors.New("Forbidden")}}
+	if err := checkPublisherStorage(ctx, credentialsReturning(nil), &fakeBucketHeader{err: forbidden}, "bucket"); err != nil {
+		t.Fatalf("403 should be tolerated: %v", err)
+	}
+	missing := &awshttp.ResponseError{ResponseError: &smithyhttp.ResponseError{Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusNotFound}}, Err: errors.New("NotFound")}}
+	if err := checkPublisherStorage(ctx, credentialsReturning(nil), &fakeBucketHeader{err: missing}, "bucket"); err == nil {
+		t.Fatal("404 must fail the check")
 	}
 }
