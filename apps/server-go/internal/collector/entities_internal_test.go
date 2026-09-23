@@ -37,8 +37,8 @@ func TestDecodeHTMLEntities(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := decodeHTMLEntities(tt.value); got != tt.want {
-				t.Errorf("decodeHTMLEntities(%q) = %q, want %q", tt.value, got, tt.want)
+			if got := DecodeHTMLEntities(tt.value); got != tt.want {
+				t.Errorf("DecodeHTMLEntities(%q) = %q, want %q", tt.value, got, tt.want)
 			}
 		})
 	}

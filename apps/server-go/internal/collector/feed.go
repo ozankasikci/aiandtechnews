@@ -70,7 +70,7 @@ func ParseFeed(xml, source string) []FeedItem {
 				link = match[1]
 			}
 		}
-		link = decodeHTMLEntities(link)
+		link = DecodeHTMLEntities(link)
 		if title == "" || link == "" {
 			continue
 		}
@@ -97,10 +97,10 @@ func extractXMLValue(block string, names ...string) string {
 	for _, name := range names {
 		patterns := xmlValuePatterns[name]
 		if match := patterns.cdata.FindStringSubmatch(block); match != nil && match[1] != "" {
-			return decodeHTMLEntities(match[1])
+			return DecodeHTMLEntities(match[1])
 		}
 		if match := patterns.regular.FindStringSubmatch(block); match != nil && match[1] != "" {
-			return decodeHTMLEntities(content.StripHTML(match[1]))
+			return DecodeHTMLEntities(content.StripHTML(match[1]))
 		}
 	}
 	return ""
@@ -111,7 +111,7 @@ func extractXMLValue(block string, names ...string) string {
 // descriptions often carry entity-escaped HTML (e.g. "&lt;img src=...&gt;"),
 // so the markup itself only becomes visible, and strippable, after a first pass.
 func summarize(value string) string {
-	text := decodeHTMLEntities(content.StripHTML(value))
+	text := DecodeHTMLEntities(content.StripHTML(value))
 	runes := []rune(text)
 	if len(runes) <= maxSummaryRunes {
 		return text

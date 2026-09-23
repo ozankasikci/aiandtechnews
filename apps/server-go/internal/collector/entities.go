@@ -26,9 +26,9 @@ var (
 	}
 )
 
-// decodeHTMLEntities ports decodeHtmlEntities from news-importer.ts, in the
+// DecodeHTMLEntities ports decodeHtmlEntities from news-importer.ts, in the
 // same order: CDATA, numeric entities, named entities, whitespace collapse.
-func decodeHTMLEntities(value string) string {
+func DecodeHTMLEntities(value string) string {
 	value = cdataSection.ReplaceAllString(value, "$1")
 	value = replaceNumericEntities(value, hexEntity, 16)
 	value = replaceNumericEntities(value, decimalEntity, 10)
