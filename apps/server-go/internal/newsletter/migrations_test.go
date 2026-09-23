@@ -172,3 +172,17 @@ func TestNewsletterMigrationSQLKeepsTablesNodeAlreadyCreated(t *testing.T) {
 		}
 	}
 }
+
+// A subscribers table from before Node added the status column (Node adds it
+// at startup) is not patched: migration 6's SQL fails loudly instead
+// (migrate.Run refuses unmanaged databases anyway; this is what the future
+// adoption command would run).
+func TestNewsletterMigrationFailsOnASubscribersTableWithoutStatus(t *testing.T) {
+	db, _ := testutil.OpenDatabase(t)
+	if _, err := db.Exec(`CREATE TABLE subscribers (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, created_at TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(Migrations()[0].SQL); err == nil || !strings.Contains(err.Error(), "no such column: status") {
+		t.Fatalf("migration 6 on a pre-status subscribers table = %v, want a no such column error", err)
+	}
+}
