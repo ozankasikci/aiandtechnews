@@ -48,8 +48,13 @@ Review contract changes in this order:
 | `S3_FEATURE_IMAGE_BUCKET` | none | Required when `PUBLISHER_ENABLED=1`; bucket that stores generated feature images |
 | `S3_FEATURE_IMAGE_PREFIX` | `features` | Key prefix under which feature images are stored |
 | `S3_FEATURE_IMAGE_PUBLIC_URL` | none | Required when `PUBLISHER_ENABLED=1`; public `https://` base URL feature images are served from |
+| `INDEXNOW_ENABLED` | `0` | Submits each published article's URL to IndexNow. Off by default, so a local dev publish never pings IndexNow for an article that only exists in the dev database |
 
-Configuration is represented by `internal/config.Config` and validated before runtime resources are opened. String and Go-syntax formatting redact `JWT_SECRET` and `GEMINI_API_KEY`. Health-only `app.New` does not require the secret, while database-backed composition fails before serving when it is absent. When `PUBLISHER_ENABLED=1`, `Validate` additionally requires `GEMINI_API_KEY`, `AWS_REGION`, `S3_FEATURE_IMAGE_BUCKET`, `S3_FEATURE_IMAGE_PUBLIC_URL` (as an `https://` URL) and a `PUBLISHER_INTERVAL` of at least `10s`.
+AWS credentials always come from the default AWS SDK credential chain (for example `AWS_PROFILE`), never from a file in this repo.
+
+Configuration is represented by `internal/config.Config` and validated before runtime resources are opened. String and Go-syntax formatting redact `JWT_SECRET` and `GEMINI_API_KEY`. Health-only `app.New` does not require the secret, while database-backed composition fails before serving when it is absent. When `PUBLISHER_ENABLED=1`, `Validate` additionally requires `GEMINI_API_KEY`, `AWS_REGION`, `S3_FEATURE_IMAGE_BUCKET`, `S3_FEATURE_IMAGE_PUBLIC_URL` (as an `https://` URL) and a `PUBLISHER_INTERVAL` of at least `10s`. `INDEXNOW_ENABLED` uses the same strict on/off parser as the other `*_ENABLED` flags and needs no other setting.
+
+At startup, an enabled publisher also loads AWS credentials and calls `HeadBucket` on `S3_FEATURE_IMAGE_BUCKET`, failing composition fast if credentials are missing/rejected or the bucket cannot be reached. A `403` from `HeadBucket` is tolerated: least-privilege importer IAM users that can only put/delete objects under their prefix (no `s3:ListBucket`) do not have permission to call it, and a denied write is still caught as a system fault at publish time.
 
 Authentication preserves the reviewed Node bcrypt hashes, HS256 JWT shape, seven-day lifetime, and stateless logout behavior. JWT verification requires all identity and timestamp claims, exact integer numeric claims, a single JSON document in each segment, an HS256 header, a valid signature, and `exp` strictly after the current time. Login parsing intentionally caps request bodies at 100 KiB and returns the same stable JSON error for oversized and otherwise malformed bodies. Secrets, passwords, and raw JWTs are not included in client errors or compatibility-test failure output.
 
@@ -104,15 +109,48 @@ publishes. It runs when `COLLECTOR_ENABLED=1` (every `COLLECTOR_INTERVAL`,
 default `30m`, and on `POST /api/newsroom/collect`); otherwise that endpoint
 answers `503`. `make dev-api` enables it.
 
-The publisher (`internal/publisher`) claims due candidates, rewrites them
-with Gemini, generates and verifies an original illustration
-(`internal/illustration`, backed by `internal/media`'s S3 storage), and
-publishes the resulting article. It runs when `PUBLISHER_ENABLED=1` (every
+The publisher (`internal/publisher`) runs when `PUBLISHER_ENABLED=1` (every
 `PUBLISHER_INTERVAL`, default `1m`) and requires `GEMINI_API_KEY` plus the
-`AWS_REGION`/`S3_FEATURE_IMAGE_*` settings above; AWS credentials always come
-from the default credential chain, never from a file in this repo.
-`make dev-publish` enables it with a `dev-features` S3 prefix so local runs
-never mix with production images. Design:
+`AWS_REGION`/`S3_FEATURE_IMAGE_*` settings above. Each tick claims at most one
+due candidate — respecting the configured minimum gap since the last publish —
+and only one candidate is ever in flight at a time. A claimed candidate flows
+through:
+
+1. source fetch and canonical-URL extraction (`internal/collector`,
+   `internal/publisher`'s source helpers);
+2. Gemini rewrite into two drafts (`internal/publisher/rewrite.go`);
+3. illustration: up to 3 Gemini image generations, each checked by a Gemini
+   vision compliance review (no text/logos/unsupported injury), with the
+   source's `og:image` (or the candidate's stored source image) used only as
+   an optional in-memory reference — never stored or hotlinked
+   (`internal/illustration`);
+4. WebP encoding (`internal/imaging`) and S3 upload with a public-URL
+   verification fetch (`internal/media`);
+5. article insert and marking the candidate published, in one database
+   transaction (`internal/publisher/articles.go`);
+6. an IndexNow submission for the new URL, when `INDEXNOW_ENABLED=1`.
+
+Failures are classified so retries make sense:
+
+- **permanent** (policy rejection, duplicate, unusable source, empty slug, a
+  compliance-rejected illustration after 3 attempts) marks the candidate
+  `failed`, no retry;
+- **transient** (rate limits, 5xx, network) requeues in `RetryDelay` (5
+  minutes), consuming one of `MaxAttempts` (3) attempts, then fails
+  permanently;
+- **system faults** (bad Gemini key/model, denied AWS credentials, missing S3
+  bucket) requeue after the same delay but without consuming an attempt, since
+  no candidate is at fault;
+- a **shutdown** mid-publish requeues the candidate immediately, attempt
+  intact.
+
+AWS credentials always come from the default credential chain (for example
+`AWS_PROFILE`), never from a file in this repo. `make dev-publish` enables the
+publisher with `S3_FEATURE_IMAGE_PREFIX=dev-features` by default so local runs
+never mix with production images — but the importer's IAM user can currently
+only write under `features/`, so a real local publish needs either
+`S3_FEATURE_IMAGE_PREFIX=features` or an IAM policy change granting write
+access under `dev-features/`. Design:
 `docs/superpowers/specs/2026-09-23-ai-tech-news-newsroom-design.md`.
 
 ### Local development with the Omni Control app
