@@ -30,7 +30,9 @@ type Generator struct {
 	logger *slog.Logger
 }
 
-func NewGenerator(model ImageModel, logger *slog.Logger) *Generator { return &Generator{model: model, logger: logger} }
+func NewGenerator(model ImageModel, logger *slog.Logger) *Generator {
+	return &Generator{model: model, logger: logger}
+}
 
 // Generate ports generateIllustration: at most 3 generation calls; a failed
 // referenced call retries once text-only; rejected images regenerate with a
