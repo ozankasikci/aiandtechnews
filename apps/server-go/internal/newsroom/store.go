@@ -257,6 +257,65 @@ func (s *SQLiteStore) PublishDelay(ctx context.Context) (PublishDelay, error) {
 	return delay, nil
 }
 
+// ClaimDue moves the earliest due queued candidate to processing (attempts+1)
+// and returns it. It claims nothing while another candidate is processing or
+// while the most recent publish is newer than minGap, which keeps spacing
+// after transient retries, crash recovery or downtime.
+func (s *SQLiteStore) ClaimDue(ctx context.Context, now time.Time, minGap time.Duration) (Candidate, bool, error) {
+	stamp := formatTime(now)
+	var id int64
+	err := s.db.QueryRowContext(ctx, `UPDATE candidates
+		SET status = 'processing', attempts = attempts + 1, updated_at = ?
+		WHERE id = (SELECT id FROM candidates WHERE status = 'queued' AND scheduled_for <= ?
+		            ORDER BY scheduled_for, id LIMIT 1)
+		  AND status = 'queued'
+		  AND NOT EXISTS (SELECT 1 FROM candidates WHERE status = 'processing')
+		  AND NOT EXISTS (SELECT 1 FROM candidates WHERE status = 'published' AND published_at > ?)
+		RETURNING id`, stamp, stamp, formatTime(now.Add(-minGap))).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Candidate{}, false, nil
+	}
+	if err != nil {
+		return Candidate{}, false, fmt.Errorf("claim due candidate: %w", err)
+	}
+	candidate, err := s.Get(ctx, id)
+	if err != nil {
+		return Candidate{}, false, err
+	}
+	return candidate, true, nil
+}
+
+// MarkPublished records the article created from a processing candidate.
+func (s *SQLiteStore) MarkPublished(ctx context.Context, id, articleID int64, now time.Time) error {
+	stamp := formatTime(now)
+	return s.transition(ctx, id, `UPDATE candidates SET status = 'published', article_id = ?, published_at = ?,
+		scheduled_for = NULL, last_error = NULL, updated_at = ? WHERE id = ? AND status = 'processing'`,
+		articleID, stamp, stamp, id)
+}
+
+// MarkFailed stops retrying a processing candidate and records why.
+func (s *SQLiteStore) MarkFailed(ctx context.Context, id int64, reason string, now time.Time) error {
+	return s.transition(ctx, id, `UPDATE candidates SET status = 'failed', scheduled_for = NULL, last_error = ?,
+		updated_at = ? WHERE id = ? AND status = 'processing'`, reason, formatTime(now), id)
+}
+
+// Requeue returns a processing candidate to the queue after a transient failure.
+func (s *SQLiteStore) Requeue(ctx context.Context, id int64, reason string, at, now time.Time) error {
+	return s.transition(ctx, id, `UPDATE candidates SET status = 'queued', scheduled_for = ?, last_error = ?,
+		updated_at = ? WHERE id = ? AND status = 'processing'`, formatTime(at), reason, formatTime(now), id)
+}
+
+// ResetProcessing requeues candidates left processing by a crash, due now.
+func (s *SQLiteStore) ResetProcessing(ctx context.Context, now time.Time) (int64, error) {
+	stamp := formatTime(now)
+	result, err := s.db.ExecContext(ctx, `UPDATE candidates SET status = 'queued', scheduled_for = ?, updated_at = ?
+		WHERE status = 'processing'`, stamp, stamp)
+	if err != nil {
+		return 0, fmt.Errorf("reset processing candidates: %w", err)
+	}
+	return result.RowsAffected()
+}
+
 func (s *SQLiteStore) SetPublishDelay(ctx context.Context, delay PublishDelay) (err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

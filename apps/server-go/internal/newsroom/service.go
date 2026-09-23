@@ -41,9 +41,9 @@ type Service struct {
 	// scheduling serializes queue appends so spacing is computed against a
 	// stable tail. The API runs as a single process; the store's guarded
 	// updates still prevent double transitions if that ever changes.
-	// All writes of scheduled_for for queued entries must go through Service
-	// (enqueue) so spacing holds; the future publisher's transient-retry
-	// rescheduling must reuse the same Service.
+	// The publisher's ClaimDue also enforces a minimum gap since the last
+	// publish, so retries that reschedule outside the queue tail (Requeue,
+	// ResetProcessing) cannot publish two items back to back.
 	scheduling sync.Mutex
 }
 

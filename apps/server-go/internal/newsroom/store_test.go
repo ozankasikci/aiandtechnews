@@ -2,7 +2,9 @@ package newsroom_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -413,5 +415,109 @@ func TestSetLastCollectedShowsInOverview(t *testing.T) {
 	overview, err := store.Overview(context.Background(), t0.Add(-time.Hour))
 	if err != nil || overview.LastCollectedAt == nil || *overview.LastCollectedAt != "2026-09-20T12:00:00Z" {
 		t.Fatalf("overview = %+v err=%v", overview, err)
+	}
+}
+
+// seedArticle inserts an author, category and article so article_id foreign keys resolve.
+func seedArticle(t *testing.T, db *sql.DB) int64 {
+	t.Helper()
+	mustExec(t, db, `INSERT OR IGNORE INTO authors (id, name, email, password_hash, role) VALUES (1, 'A', 'a@example.invalid', 'x', 'admin')`)
+	mustExec(t, db, `INSERT OR IGNORE INTO categories (id, name, slug) VALUES (1, 'AI', 'ai')`)
+	result, err := db.Exec(`INSERT INTO articles (title, slug, category_id, author_id, status) VALUES ('T', ?, 1, 1, 'published')`,
+		fmt.Sprintf("slug-%d", time.Now().UnixNano()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := result.LastInsertId()
+	return id
+}
+
+func queueAt(t *testing.T, store *newsroom.SQLiteStore, url string, at time.Time) int64 {
+	t.Helper()
+	id := insert(t, store, url, t0)
+	if err := store.MarkQueued(context.Background(), id, newsroom.StatusPending, at, t0); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func TestClaimDueTakesEarliestDueOneAtATimeWithMinimumGap(t *testing.T) {
+	store, db := openStore(t)
+	ctx := context.Background()
+	a := queueAt(t, store, "https://example.com/a", t0)
+	b := queueAt(t, store, "https://example.com/b", t0.Add(10*time.Minute))
+	gap := 30 * time.Minute
+
+	if _, ok, err := store.ClaimDue(ctx, t0.Add(-time.Minute), gap); err != nil || ok {
+		t.Fatalf("nothing due yet: ok=%v err=%v", ok, err)
+	}
+	claimed, ok, err := store.ClaimDue(ctx, t0.Add(20*time.Minute), gap)
+	if err != nil || !ok || claimed.ID != a || claimed.Status != newsroom.StatusProcessing || claimed.Attempts != 1 {
+		t.Fatalf("first claim = %+v ok=%v err=%v", claimed, ok, err)
+	}
+	if _, ok, _ := store.ClaimDue(ctx, t0.Add(20*time.Minute), gap); ok {
+		t.Fatal("must not claim while another candidate is processing")
+	}
+
+	if err := store.MarkPublished(ctx, a, seedArticle(t, db), t0.Add(20*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := store.ClaimDue(ctx, t0.Add(45*time.Minute), gap); ok {
+		t.Fatal("must wait the minimum gap after the last publish")
+	}
+	claimed, ok, err = store.ClaimDue(ctx, t0.Add(51*time.Minute), gap)
+	if err != nil || !ok || claimed.ID != b {
+		t.Fatalf("second claim = %+v ok=%v err=%v", claimed, ok, err)
+	}
+
+	published := mustGet(t, store, a)
+	if published.Status != newsroom.StatusPublished || published.ScheduledFor != nil || published.ArticleSlug == nil {
+		t.Fatalf("published = %+v", published)
+	}
+}
+
+func TestRequeueFailAndResetProcessing(t *testing.T) {
+	store, _ := openStore(t)
+	ctx := context.Background()
+	a := queueAt(t, store, "https://example.com/a", t0)
+
+	if _, _, err := store.ClaimDue(ctx, t0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Requeue(ctx, a, "Gemini returned 503", t0.Add(5*time.Minute), t0); err != nil {
+		t.Fatal(err)
+	}
+	requeued := mustGet(t, store, a)
+	if requeued.Status != newsroom.StatusQueued || *requeued.ScheduledFor != "2026-09-20T12:05:00Z" ||
+		requeued.LastError == nil || *requeued.LastError != "Gemini returned 503" || requeued.Attempts != 1 {
+		t.Fatalf("requeued = %+v", requeued)
+	}
+
+	claimed, ok, _ := store.ClaimDue(ctx, t0.Add(6*time.Minute), 0)
+	if !ok || claimed.Attempts != 2 {
+		t.Fatalf("second claim = %+v", claimed)
+	}
+	if err := store.MarkFailed(ctx, a, "source text too short", t0.Add(6*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	failed := mustGet(t, store, a)
+	if failed.Status != newsroom.StatusFailed || failed.ScheduledFor != nil || *failed.LastError != "source text too short" {
+		t.Fatalf("failed = %+v", failed)
+	}
+	if err := store.MarkFailed(ctx, a, "again", t0); !errors.Is(err, newsroom.ErrStaleTransition) {
+		t.Fatalf("stale fail err = %v", err)
+	}
+
+	b := queueAt(t, store, "https://example.com/b", t0)
+	if _, ok, _ := store.ClaimDue(ctx, t0, 0); !ok {
+		t.Fatal("claim b")
+	}
+	count, err := store.ResetProcessing(ctx, t0.Add(time.Hour))
+	if err != nil || count != 1 {
+		t.Fatalf("reset count=%d err=%v", count, err)
+	}
+	reset := mustGet(t, store, b)
+	if reset.Status != newsroom.StatusQueued || *reset.ScheduledFor != "2026-09-20T13:00:00Z" {
+		t.Fatalf("reset = %+v", reset)
 	}
 }
