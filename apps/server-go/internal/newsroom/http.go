@@ -54,6 +54,7 @@ func (h *Handler) Mount(router chi.Router, requireAuth func(http.Handler) http.H
 		r.Post("/candidates/{id}/unqueue", h.unqueue)
 		r.Post("/candidates/{id}/retry", h.retry)
 		r.Post("/candidates/{id}/publish-now", h.publishNow)
+		r.Post("/queue/shift", h.shiftQueue)
 		r.Post("/collect", h.collect)
 		r.Get("/settings", h.settings)
 		r.Put("/settings", h.updateSettings)
@@ -152,6 +153,35 @@ func (h *Handler) single(w http.ResponseWriter, r *http.Request, action func(con
 			Candidate Candidate `json:"candidate"`
 		}{candidate})
 	}
+}
+
+func (h *Handler) shiftQueue(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Minutes *int `json:"minutes"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) && typeErr.Field == "minutes" {
+			writeError(w, http.StatusBadRequest, ErrInvalidShift.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if body.Minutes == nil {
+		writeError(w, http.StatusBadRequest, ErrInvalidShift.Error())
+		return
+	}
+	result, err := h.service.ShiftQueue(r.Context(), *body.Minutes)
+	if errors.Is(err, ErrInvalidShift) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		h.internalError(w, r, "shift queue", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) collect(w http.ResponseWriter, r *http.Request) {

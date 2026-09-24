@@ -114,8 +114,8 @@ func TestNewsroomContractOperationsRequireAuth(t *testing.T) {
 			}
 		}
 	}
-	if operations != 10 {
-		t.Fatalf("contract operations = %d, want 10", operations)
+	if operations != 11 {
+		t.Fatalf("contract operations = %d, want 11", operations)
 	}
 }
 
@@ -125,6 +125,8 @@ func contractRequestBody(path, method string) string {
 	switch {
 	case method == http.MethodPost && (path == "/api/newsroom/candidates/publish" || path == "/api/newsroom/candidates/reject"):
 		return `{"ids":[1]}`
+	case method == http.MethodPost && path == "/api/newsroom/queue/shift":
+		return `{"minutes":30}`
 	case method == http.MethodPut && path == "/api/newsroom/settings":
 		return `{"publish_delay_min_minutes":30,"publish_delay_max_minutes":40}`
 	default:
@@ -208,6 +210,11 @@ func TestNewsroomInputValidation(t *testing.T) {
 		{http.MethodPost, "/api/newsroom/candidates/7/unqueue", "", http.StatusNotFound, `{"error":"Candidate not found"}`},
 		{http.MethodPut, "/api/newsroom/settings", `{"publish_delay_min_minutes":50,"publish_delay_max_minutes":40}`, http.StatusBadRequest, `{"error":"publish delay minutes must be between 1 and 1440, with min not above max"}`},
 		{http.MethodPut, "/api/newsroom/settings", `{"publish_delay_min_minutes":10}`, http.StatusBadRequest, `{"error":"Invalid request body"}`},
+		{http.MethodPost, "/api/newsroom/queue/shift", `{"minutes":0}`, http.StatusBadRequest, `{"error":"minutes must be a non-zero integer between -1440 and 1440"}`},
+		{http.MethodPost, "/api/newsroom/queue/shift", `{"minutes":1441}`, http.StatusBadRequest, `{"error":"minutes must be a non-zero integer between -1440 and 1440"}`},
+		{http.MethodPost, "/api/newsroom/queue/shift", `{"minutes":-1441}`, http.StatusBadRequest, `{"error":"minutes must be a non-zero integer between -1440 and 1440"}`},
+		{http.MethodPost, "/api/newsroom/queue/shift", `{}`, http.StatusBadRequest, `{"error":"minutes must be a non-zero integer between -1440 and 1440"}`},
+		{http.MethodPost, "/api/newsroom/queue/shift", `{"minutes":5,"x":1}`, http.StatusBadRequest, `{"error":"Invalid request body"}`},
 		{http.MethodPost, "/api/newsroom/collect", "", http.StatusServiceUnavailable, `{"error":"Collector is not enabled"}`},
 	}
 	for _, tc := range cases {
@@ -270,6 +277,18 @@ func TestNewsroomResponsesMatchContractSchemas(t *testing.T) {
 		t.Fatalf("publish-now response candidate is not an object: %#v", publishNow["candidate"])
 	}
 	assertKeySet(t, "publish-now candidate", publishNowCandidate, schemaRequired(t, document, "Candidate"))
+
+	shift := decodeBody[map[string]any](t, request(t, handler, http.MethodPost, "/api/newsroom/queue/shift", `{"minutes":15}`, auth).Body.String())
+	assertKeySet(t, "queue shift response", shift, schemaRequired(t, document, "QueueShift"))
+	shiftedCandidates := asObjectList(t, "shift candidates", shift["candidates"])
+	if len(shiftedCandidates) == 0 {
+		t.Fatal("expected at least one queued candidate after the shift")
+	}
+	for _, candidate := range shiftedCandidates {
+		assertKeySet(t, "shift candidate", candidate, schemaRequired(t, document, "Candidate"))
+	}
+	shiftExample := responseExample(t, document, "/api/newsroom/queue/shift", "post", "200")
+	assertKeySet(t, "queue shift example", shiftExample, schemaRequired(t, document, "QueueShift"))
 
 	reject := decodeBody[map[string]any](t, request(t, handler, http.MethodPost, "/api/newsroom/candidates/reject", `{"ids":[1]}`, auth).Body.String())
 	assertKeySet(t, "reject response", reject, []string{"rejected", "skipped"})
@@ -400,6 +419,51 @@ func TestNewsroomPublishNow(t *testing.T) {
 		if notFound.Code != http.StatusNotFound || notFound.Body.String() != `{"error":"Candidate not found"}` {
 			t.Fatalf("publish-now %s = %d %s", missing, notFound.Code, notFound.Body.String())
 		}
+	}
+}
+
+func TestNewsroomQueueShift(t *testing.T) {
+	handler, db, auth := newsroomApplication(t)
+	path := "/api/newsroom/queue/shift"
+	if response := request(t, handler, http.MethodPost, path, `{"minutes":30}`, ""); response.Code != http.StatusUnauthorized ||
+		response.Body.String() != `{"error":"Authentication required"}` {
+		t.Fatalf("unauthenticated shift = %d %s", response.Code, response.Body.String())
+	}
+
+	empty := request(t, handler, http.MethodPost, path, `{"minutes":30}`, auth)
+	if empty.Code != http.StatusOK || empty.Body.String() != `{"shifted":0,"minutes":0,"candidates":[]}` {
+		t.Fatalf("empty queue shift = %d %s", empty.Code, empty.Body.String())
+	}
+
+	seedCandidates(t, db, "https://example.com/1", "https://example.com/2", "https://example.com/3")
+	for _, statement := range []string{
+		`UPDATE candidates SET status = 'queued', scheduled_for = '2026-09-20T12:20:00Z' WHERE id = 1`,
+		`UPDATE candidates SET status = 'queued', scheduled_for = '2026-09-20T12:55:00Z' WHERE id = 2`,
+		`UPDATE candidates SET status = 'processing', scheduled_for = '2026-09-20T12:10:00Z' WHERE id = 3`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if response := request(t, handler, http.MethodPost, "/api/newsroom/candidates/2/publish-now", "", auth); response.Code != http.StatusOK {
+		t.Fatalf("publish-now = %d %s", response.Code, response.Body.String())
+	}
+
+	response := request(t, handler, http.MethodPost, path, `{"minutes":-45}`, auth)
+	expectStatus(t, "POST", path, http.StatusOK, response.Code, response.Body.String())
+	result := decodeBody[newsroom.QueueShift](t, response.Body.String())
+	if result.Shifted != 1 || result.Minutes != -20 || len(result.Candidates) != 2 {
+		t.Fatalf("shift = %+v", result)
+	}
+	// Candidate 1 is clamped to now; the publish-now candidate 2 stays due now
+	// and ties with it, so id breaks the tie.
+	if result.Candidates[0].ID != 1 || result.Candidates[0].PublishNow || *result.Candidates[0].ScheduledFor != "2026-09-20T12:00:00Z" ||
+		result.Candidates[1].ID != 2 || !result.Candidates[1].PublishNow || *result.Candidates[1].ScheduledFor != "2026-09-20T12:00:00Z" {
+		t.Fatalf("shift candidates = %+v", result.Candidates)
+	}
+	var processing string
+	if err := db.QueryRow(`SELECT scheduled_for FROM candidates WHERE id = 3`).Scan(&processing); err != nil || processing != "2026-09-20T12:10:00Z" {
+		t.Fatalf("processing candidate scheduled_for = %q err=%v", processing, err)
 	}
 }
 

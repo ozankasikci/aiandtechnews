@@ -158,6 +158,40 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/newsroom/queue/shift:
+    post:
+      operationId: newsroom.queue.shift
+      description: >-
+        Moves every queued candidate except publish-now ones by the same
+        number of minutes, keeping their relative spacing, in one
+        transaction. Positive minutes postpone; negative minutes bring the
+        queue forward, clamped so the earliest moved candidate is not
+        scheduled before now (the applied minutes are
+        max(minutes, ceil(now - earliest)), and never positive for a
+        negative request). Processing, pending, failed, and publish-now
+        candidates keep their times. When nothing can move (an empty queue,
+        or one that is already due) nothing changes and minutes is 0. The
+        response lists all queued candidates, publish-now ones included, in
+        schedule order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QueueShiftRequest' }
+            example: { minutes: 30 }
+      responses:
+        '200':
+          description: Candidates moved, minutes applied, and the queue after the shift
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueShift' }
+              example:
+                shifted: 0
+                minutes: 0
+                candidates: []
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/newsroom/collect:
     post:
       operationId: newsroom.collect
@@ -258,6 +292,27 @@ components:
       properties:
         publish_delay_min_minutes: { type: integer, minimum: 1, maximum: 1440 }
         publish_delay_max_minutes: { type: integer, minimum: 1, maximum: 1440 }
+    QueueShiftRequest:
+      type: object
+      required: [minutes]
+      additionalProperties: false
+      properties:
+        minutes:
+          type: integer
+          minimum: -1440
+          maximum: 1440
+          not: { const: 0 }
+          description: Non-zero; positive postpones, negative brings forward.
+    QueueShift:
+      type: object
+      required: [shifted, minutes, candidates]
+      properties:
+        shifted: { type: integer, minimum: 0, description: Number of candidates moved. }
+        minutes: { type: integer, description: Minutes actually applied after clamping; 0 when nothing moved. }
+        candidates:
+          type: array
+          description: All queued candidates in schedule order.
+          items: { $ref: '#/components/schemas/Candidate' }
     Overview:
       type: object
       required: [pending, queued, processing, failed, published_today, next_publish_at, last_collected_at]

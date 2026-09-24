@@ -192,6 +192,15 @@ the next tick. Other queued candidates keep their times. A trigger clears the
 flag whenever the candidate leaves queued/processing (published, failed,
 unqueued, or rejected); a transient-failure requeue keeps it.
 
+`POST /api/newsroom/queue/shift` with `{"minutes": n}` (non-zero, within
+±1440) moves every queued candidate except publish-now ones by `n` minutes in
+one transaction, keeping their spacing. Positive `n` postpones; negative `n`
+brings the queue forward, clamped so the earliest moved candidate is not
+scheduled before now. It answers
+`{"shifted": count, "minutes": applied, "candidates": [queued, in schedule order]}`;
+`minutes` is `0` when nothing could move. Processing candidates keep their
+times.
+
 The collector (`internal/collector`) fetches the approved feeds, applies the
 publishing policy and stores new items as pending candidates; it never
 publishes. It runs when `COLLECTOR_ENABLED=1` (every `COLLECTOR_INTERVAL`,

@@ -26,6 +26,7 @@ type candidateStore interface {
 	MarkPending(context.Context, int64, time.Time) error
 	MarkRejected(context.Context, int64, time.Time) error
 	LatestScheduled(context.Context) (*time.Time, error)
+	ShiftQueue(context.Context, int, time.Time) (QueueShift, error)
 	Overview(context.Context, time.Time) (Overview, error)
 	PublishDelay(context.Context) (PublishDelay, error)
 	SetPublishDelay(context.Context, PublishDelay) error
@@ -149,6 +150,31 @@ func (s *Service) PublishNow(ctx context.Context, id int64) (Candidate, error) {
 	default:
 	}
 	return s.store.Get(ctx, id)
+}
+
+// ShiftQueue moves every queued candidate except publish-now ones by minutes
+// (positive postpones, negative brings forward), keeping their spacing. A
+// negative shift is clamped so the earliest moved candidate is not scheduled
+// before now. minutes must be non-zero and within ±MaxShiftMinutes.
+func (s *Service) ShiftQueue(ctx context.Context, minutes int) (QueueShift, error) {
+	if minutes == 0 || minutes < -MaxShiftMinutes || minutes > MaxShiftMinutes {
+		return QueueShift{}, ErrInvalidShift
+	}
+	s.scheduling.Lock()
+	defer s.scheduling.Unlock()
+
+	result, err := s.store.ShiftQueue(ctx, minutes, s.now())
+	if err != nil {
+		return QueueShift{}, err
+	}
+	if result.Minutes < 0 {
+		// Candidates brought forward may be due now.
+		select {
+		case s.wake <- struct{}{}:
+		default:
+		}
+	}
+	return result, nil
 }
 
 // Unqueue returns a queued candidate to review. Other queue entries keep their times.

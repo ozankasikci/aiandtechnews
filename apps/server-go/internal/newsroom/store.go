@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -212,6 +213,122 @@ func (s *SQLiteStore) MarkPending(ctx context.Context, id int64, now time.Time) 
 func (s *SQLiteStore) MarkRejected(ctx context.Context, id int64, now time.Time) error {
 	return s.transition(ctx, id, `UPDATE candidates SET status = 'rejected', scheduled_for = NULL, updated_at = ?
 		WHERE id = ? AND status IN ('pending', 'failed')`, formatTime(now), id)
+}
+
+// ShiftQueue moves every queued candidate that is not flagged "publish now"
+// by the same number of minutes, keeping their relative spacing, in one
+// transaction. A positive shift postpones. A negative shift brings the queue
+// forward but is clamped so the earliest shifted candidate is not scheduled
+// before now; when nothing can move (empty queue, or the earliest candidate
+// is already due) the result applies 0 minutes and changes nothing. Updates
+// are guarded by status = 'queued', so a candidate the publisher claims
+// concurrently is left alone. The result lists all queued candidates,
+// including flagged ones, in schedule order.
+func (s *SQLiteStore) ShiftQueue(ctx context.Context, minutes int, now time.Time) (QueueShift, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return QueueShift{}, fmt.Errorf("begin queue shift: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := tx.QueryContext(ctx, `SELECT c.id, c.scheduled_for FROM candidates c
+		WHERE c.status = 'queued'
+		  AND NOT EXISTS (SELECT 1 FROM candidate_publish_now p WHERE p.candidate_id = c.id)
+		ORDER BY c.scheduled_for, c.id`)
+	if err != nil {
+		return QueueShift{}, fmt.Errorf("read queue for shift: %w", err)
+	}
+	type entry struct {
+		id    int64
+		stamp string
+		at    time.Time
+	}
+	entries := make([]entry, 0)
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.id, &e.stamp); err != nil {
+			_ = rows.Close()
+			return QueueShift{}, fmt.Errorf("scan queue entry: %w", err)
+		}
+		if e.at, err = parseTime(e.stamp); err != nil {
+			_ = rows.Close()
+			return QueueShift{}, fmt.Errorf("parse scheduled_for %q of candidate %d: %w", e.stamp, e.id, err)
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Close(); err != nil {
+		return QueueShift{}, fmt.Errorf("read queue for shift: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return QueueShift{}, fmt.Errorf("read queue for shift: %w", err)
+	}
+
+	applied := 0
+	if len(entries) > 0 {
+		applied = clampShift(minutes, entries[0].at, now)
+	}
+	var shifted int64
+	if applied != 0 {
+		stamp := formatTime(now)
+		delta := time.Duration(applied) * time.Minute
+		for _, e := range entries {
+			result, err := tx.ExecContext(ctx, `UPDATE candidates SET scheduled_for = ?, updated_at = ?
+				WHERE id = ? AND status = 'queued' AND scheduled_for = ?`,
+				formatTime(e.at.Add(delta)), stamp, e.id, e.stamp)
+			if err != nil {
+				return QueueShift{}, fmt.Errorf("shift candidate %d: %w", e.id, err)
+			}
+			affected, err := result.RowsAffected()
+			if err != nil {
+				return QueueShift{}, fmt.Errorf("shift candidate %d: %w", e.id, err)
+			}
+			shifted += affected
+		}
+	}
+	if shifted == 0 {
+		applied = 0
+	}
+
+	candidates, err := queuedCandidates(ctx, tx)
+	if err != nil {
+		return QueueShift{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return QueueShift{}, fmt.Errorf("commit queue shift: %w", err)
+	}
+	return QueueShift{Shifted: shifted, Minutes: applied, Candidates: candidates}, nil
+}
+
+// clampShift returns the minutes to apply: a positive request as is, and a
+// negative one no further forward than would put earliest before now (and
+// never positive, so an already overdue queue is left where it is).
+func clampShift(minutes int, earliest, now time.Time) int {
+	if minutes >= 0 {
+		return minutes
+	}
+	limit := int(math.Ceil(now.Sub(earliest).Minutes()))
+	return min(max(minutes, limit), 0)
+}
+
+// queuedCandidates lists every queued candidate in schedule order.
+func queuedCandidates(ctx context.Context, tx *sql.Tx) ([]Candidate, error) {
+	rows, err := tx.QueryContext(ctx, candidateSelect+` WHERE c.status = 'queued' ORDER BY c.scheduled_for, c.id`)
+	if err != nil {
+		return nil, fmt.Errorf("list queued candidates: %w", err)
+	}
+	defer rows.Close()
+	candidates := make([]Candidate, 0)
+	for rows.Next() {
+		candidate, err := scanCandidate(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan queued candidate: %w", err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate queued candidates: %w", err)
+	}
+	return candidates, nil
 }
 
 // LatestScheduled returns the tail of the queue, or nil when nothing is queued or processing.

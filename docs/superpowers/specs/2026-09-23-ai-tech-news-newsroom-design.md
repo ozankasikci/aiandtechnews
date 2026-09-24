@@ -83,6 +83,13 @@ rejected                              failed ──retry──▶ queued
 - For each: `scheduled_for = max(now, latest scheduled_for among queued/processing) + random(min..max)` minutes, where `random` is a uniform integer-minute draw, inclusive.
 - `retry` appends a failed item to the end of the queue with the same rule and resets `attempts` to 0.
 - `unqueue` returns an item to `pending` and clears `scheduled_for`. Remaining items keep their times (no re-compaction).
+- `queue/shift` moves every `queued` item except publish-now ones by the same
+  number of minutes (non-zero, −1440..1440), keeping their relative spacing,
+  in one transaction under the scheduling mutex, guarded by
+  `status = 'queued'`. Positive postpones. Negative brings forward, clamped so
+  the earliest moved item is not before now:
+  `applied = min(0, max(minutes, ceil(now − earliest)))`; when `applied` is 0
+  nothing changes. `processing` and publish-now items keep their times.
 - Settings live in the existing `settings` key/value table:
   `newsroom.publish_delay_min_minutes` = `30`, `newsroom.publish_delay_max_minutes` = `40`.
   Validation: min and max are between 1 and 1440, and min is not above max.
@@ -181,6 +188,7 @@ the pagination envelope's `totalPages` (matching existing Go endpoints).
 | POST | `/candidates/{id}/unqueue` | — | `{candidate: Candidate}`; `409` if not `queued` |
 | POST | `/candidates/{id}/retry` | — | `{candidate: Candidate}`; `409` if not `failed` |
 | POST | `/candidates/{id}/publish-now` | — | `{candidate: Candidate}` queued due now with `publish_now: true` (claimed first, ignoring the minimum gap, never while another is processing); `409` "Candidate cannot be published now" unless `pending`, `queued` or `failed` |
+| POST | `/queue/shift` | `{minutes:int}` (non-zero, −1440..1440) | `{shifted:int, minutes:int, candidates:[Candidate]}`: `minutes` is the applied shift after clamping (0 if nothing moved), `candidates` all queued items in schedule order; `400` on invalid minutes |
 | POST | `/collect` | — | `202 {started:true}`; `409` if a run is in progress |
 | GET | `/settings` | — | `{publish_delay_min_minutes, publish_delay_max_minutes}` |
 | PUT | `/settings` | same shape | same shape; `400` on invalid range |

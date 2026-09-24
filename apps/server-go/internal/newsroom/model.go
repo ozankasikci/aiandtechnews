@@ -32,7 +32,11 @@ var (
 	ErrNotFound        = errors.New("candidate not found")
 	ErrStaleTransition = errors.New("candidate status changed")
 	ErrInvalidDelay    = errors.New("publish delay minutes must be between 1 and 1440, with min not above max")
+	ErrInvalidShift    = errors.New("minutes must be a non-zero integer between -1440 and 1440")
 )
+
+// MaxShiftMinutes bounds one queue shift in either direction.
+const MaxShiftMinutes = 1440
 
 // Candidate is the API shape of a potential article.
 type Candidate struct {
@@ -93,6 +97,15 @@ func (d PublishDelay) Validate() error {
 		return ErrInvalidDelay
 	}
 	return nil
+}
+
+// QueueShift is the result of moving the whole queue: how many candidates
+// moved, the minutes actually applied (after clamping), and every queued
+// candidate in schedule order.
+type QueueShift struct {
+	Shifted    int64       `json:"shifted"`
+	Minutes    int         `json:"minutes"`
+	Candidates []Candidate `json:"candidates"`
 }
 
 // Skipped reports an id a batch operation did not apply, with a reason for the client.
