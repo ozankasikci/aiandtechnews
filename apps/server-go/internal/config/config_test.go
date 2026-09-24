@@ -559,3 +559,25 @@ func TestLoadGeminiImageSize(t *testing.T) {
 		t.Error("GEMINI_IMAGE_SIZE=1k: want an error")
 	}
 }
+
+func TestLoadFeaturedImageSource(t *testing.T) {
+	for _, tt := range []struct{ value, want string }{{"", "generate"}, {"generate", "generate"}, {"source", "source"}} {
+		cfg, err := Load(func(key string) string {
+			if key == "FEATURED_IMAGE_SOURCE" {
+				return tt.value
+			}
+			return ""
+		}, t.TempDir())
+		if err != nil || cfg.FeaturedImageSource != tt.want {
+			t.Errorf("FEATURED_IMAGE_SOURCE=%q: got %q err=%v", tt.value, cfg.FeaturedImageSource, err)
+		}
+	}
+	if _, err := Load(func(key string) string {
+		if key == "FEATURED_IMAGE_SOURCE" {
+			return "hotlink"
+		}
+		return ""
+	}, t.TempDir()); err == nil {
+		t.Error("FEATURED_IMAGE_SOURCE=hotlink: want an error")
+	}
+}

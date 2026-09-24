@@ -177,11 +177,16 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			gemini.WithVisionModel(cfg.GeminiVisionModel))
 		imageStore := media.NewStore(media.Config{Region: cfg.AWSRegion, Bucket: cfg.S3Bucket, Prefix: cfg.S3Prefix, PublicBaseURL: cfg.S3PublicURL},
 			objectAPI, newPublicHTTPClient(), now)
+		var illustrator publisher.Illustrator = illustration.NewS3Illustrator(
+			illustration.NewGenerator(geminiClient, logger), imageStore, illustration.NewReferenceClient(), logger)
+		if cfg.FeaturedImageSource == "source" {
+			illustrator = illustration.NewSourceImageIllustrator(imageStore, illustration.NewReferenceClient(), logger)
+		}
 		newsPublisher := publisher.New(publisher.Deps{
 			Store:       newsroomStore,
 			Fetcher:     collector.NewFetcher(),
 			Rewriter:    publisher.NewRewriter(geminiClient),
-			Illustrator: illustration.NewS3Illustrator(illustration.NewGenerator(geminiClient, logger), imageStore, illustration.NewReferenceClient(), logger),
+			Illustrator: illustrator,
 			Articles:    publisher.NewSQLiteArticles(db, now),
 			Notifier:    newPublisherNotifier(cfg, logger),
 			Now:         now,

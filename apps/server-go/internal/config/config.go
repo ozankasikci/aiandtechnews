@@ -120,11 +120,14 @@ type Config struct {
 	GeminiTextModel   string
 	GeminiImageModel  string
 	GeminiImageSize   string // GEMINI_IMAGE_SIZE: 1K, 2K or 4K (default 2K; lite image models only support 1K)
-	GeminiVisionModel string
-	AWSRegion         string
-	S3Bucket          string
-	S3Prefix          string
-	S3PublicURL       string
+	// FeaturedImageSource is FEATURED_IMAGE_SOURCE: "generate" (Gemini illustration, default)
+	// or "source" (copy the source article's own image).
+	FeaturedImageSource string
+	GeminiVisionModel   string
+	AWSRegion           string
+	S3Bucket            string
+	S3Prefix            string
+	S3PublicURL         string
 
 	// IndexNowEnabled wires the IndexNow notifier into the publisher. When
 	// false (the default), published URLs are not submitted to IndexNow.
@@ -145,11 +148,11 @@ type Config struct {
 
 func (c Config) String() string {
 	return fmt.Sprintf("Config{Mode:%q Address:%q TimeZone:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
-		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q GeminiVisionModel:%q "+
+		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q GeminiVisionModel:%q "+
 		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t "+
 		"NewsletterSiteURL:%q NewsletterTokenSecret:[REDACTED] NewsletterCronSecret:[REDACTED] ResendAPIKey:[REDACTED] NewsletterFrom:%q NewsletterReplyTo:%q}",
 		c.Mode, c.Address, c.TimeZone, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
-		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.GeminiVisionModel,
+		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.GeminiVisionModel,
 		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled,
 		c.NewsletterSiteURL, c.NewsletterFrom, c.NewsletterReplyTo)
 }
@@ -224,6 +227,14 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	cfg.GeminiAPIKey = lookup("GEMINI_API_KEY")
 	cfg.GeminiTextModel = lookup("GEMINI_TEXT_MODEL")
 	cfg.GeminiImageModel = lookup("GEMINI_IMAGE_MODEL")
+	switch source := lookup("FEATURED_IMAGE_SOURCE"); source {
+	case "", "generate":
+		cfg.FeaturedImageSource = "generate"
+	case "source":
+		cfg.FeaturedImageSource = source
+	default:
+		return Config{}, fmt.Errorf("FEATURED_IMAGE_SOURCE must be generate or source, got %q", source)
+	}
 	switch size := lookup("GEMINI_IMAGE_SIZE"); size {
 	case "":
 		cfg.GeminiImageSize = "2K"
