@@ -119,7 +119,7 @@ NODE=/Users/ozan/Projects/technews   # the Node checkout that serves production
 ## 2. Mac mini: prerequisites (no downtime)
 
 ```sh
-ROOT=/Volumes/Samsung990PRO/AIAndTechNewsWorkspace   # production root on the external SSD
+ROOT=/Volumes/Samsung990PRO/AIAndTechNews   # production root on the external SSD
 REPO="$ROOT/repo"                                      # repository checkout used for building
 . "$ROOT/env.sh"                                       # toolchains and caches on the drive
 ```
@@ -174,7 +174,7 @@ and keeps `GOPATH`, `GOCACHE`, `GOMODCACHE`, corepack and the pnpm store under
 ## 3. Mac mini: data root and environment (no downtime)
 
 ```sh
-ROOT=/Volumes/Samsung990PRO/AIAndTechNewsWorkspace
+ROOT=/Volumes/Samsung990PRO/AIAndTechNews
 REPO="$ROOT/repo"
 ```
 
@@ -271,20 +271,34 @@ Copy that `technews.db` and `$NODE/apps/server/uploads/` to the Mac mini, then
 `rm -rf "$REHEARSAL"` on the MacBook. On the Mac mini:
 
 ```sh
-ROOT=/Volumes/Samsung990PRO/AIAndTechNewsWorkspace
+ROOT=/Volumes/Samsung990PRO/AIAndTechNews
 REPO="$ROOT/repo"
 umask 077
 R=$(mktemp -d)                                  # a throwaway production root
 mkdir -p "$R/data" "$R/uploads" && touch "$R/.technews-production"
 # move the copied technews.db to "$R/data/technews.db" and the uploads into "$R/uploads/"
-run() { (set -a; . "$ROOT/technews.env"; DATABASE_PATH="$R/data/technews.db"; UPLOADS_DIR="$R/uploads"; set +a; "$@"); }
+run() { (set -a; . "$ROOT/technews.env"; DATABASE_PATH="$R/data/technews.db"; UPLOADS_DIR="$R/uploads"; JWT_SECRET=$(openssl rand -hex 32); set +a; "$@"); }
 run "$ROOT/bin/adopt"            # read-only report, then a full rehearsal on a scratch copy
 ```
 
+`run()` sources `technews.env`, so the tools run with `APP_ENV=production`
+and refuse to start when `JWT_SECRET` is empty or weak (see the safety nets
+above), even though adoption itself never uses it. The rehearsal therefore
+overrides it inside `run()` with a throwaway `JWT_SECRET=$(openssl rand -hex
+32)`, so it works before the real secret is in `technews.env` and never
+handles that secret. This override is for the rehearsal only: in section 5
+the commands use `technews.env`'s real `JWT_SECRET` unchanged.
+
 Expected: migrations 1, 2, 5, 6 **present**; 3 and 4 **pending** (the newsroom
 `candidates` table; 3 is "partially present" because Node already has
-`settings`); possibly the known Node variant `subscribers.created_at` /
-`updated_at` (Node's `ALTER TABLE`); tolerated extras, if any; `Rehearsal on a
+`settings`); possibly the known Node variants listed under "Known Node
+variants accepted": `subscribers.created_at` / `updated_at` as plain `TEXT`
+(Node's `ALTER TABLE`), or, for the production database, the legacy
+original `subscribers` table, whose `email` is declared `TEXT UNIQUE NOT
+NULL` (the same constraints in the original order) and whose `created_at`
+is `DATETIME DEFAULT CURRENT_TIMESTAMP` and nullable (Go writes
+`created_at` on every insert and never reads it), with `updated_at` as plain
+`TEXT`; tolerated extras, if any; `Rehearsal on a
 copy: passed`; `settings: N -> N+2 rows`; `Result: COMPATIBLE`. Anything else
 stops the cutover: the report names each mismatch. Fix the cause (usually by
 starting the current Node server once, so its `initializeDatabase` upgrades
@@ -351,7 +365,7 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ); echo "$STAMP"   # note it: step 5.5 and the ro
 **On the Mac mini**
 
 ```sh
-ROOT=/Volumes/Samsung990PRO/AIAndTechNewsWorkspace
+ROOT=/Volumes/Samsung990PRO/AIAndTechNews
 STAMP=<the value noted on the MacBook>
 ```
 

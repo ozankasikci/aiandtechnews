@@ -19,6 +19,14 @@ import (
 //go:embed testdata/node-schema.json
 var nodeSchemaJSON []byte
 
+// legacyOriginalSubscribersSQL is the production database's subscribers
+// table, exactly as its sqlite_schema row reads: the original Node table
+// (id, email, created_at DATETIME) with every later column added by Node's
+// ALTER TABLE upgrade (apps/server/src/db.ts:116-125).
+//
+//go:embed testdata/legacy-original-subscribers.sql
+var legacyOriginalSubscribersSQL string
+
 type nodeObject struct {
 	Type    string `json:"type"`
 	Name    string `json:"name"`
@@ -48,11 +56,13 @@ func recordedNodeSchema(t *testing.T, variant string) []nodeObject {
 }
 
 // fixture describes a Node-shaped database: a recorded variant, optional
-// replacements applied to the recorded SQL of named objects, and extra
-// statements run after the schema and seed data exist.
+// whole-statement overrides and replacements applied to the recorded SQL of
+// named objects, and extra statements run after the schema and seed data
+// exist.
 type fixture struct {
 	variant  string
-	replace  map[string][2]string // object name -> {old, new}
+	override map[string]string    // object name -> statement used instead of the recorded one
+	replace  map[string][2]string // object name -> {old, new}, applied after override
 	extra    []string
 	noSeed   bool
 	fkOffSQL []string // statements run with foreign keys off (orphans)
@@ -70,6 +80,9 @@ func nodeDatabase(t *testing.T, f fixture) string {
 	}
 	for _, object := range recordedNodeSchema(t, f.variant) {
 		statement := object.SQL
+		if sql, ok := f.override[object.Name]; ok {
+			statement = sql
+		}
 		if change, ok := f.replace[object.Name]; ok {
 			if !strings.Contains(statement, change[0]) {
 				t.Fatalf("fixture replacement %q not found in %s", change[0], object.Name)
@@ -121,6 +134,24 @@ func seedNodeData(t *testing.T, db *sql.DB) {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
+	}
+}
+
+// legacyOriginalFixture is the legacy (ALTER TABLE-evolved) Node schema
+// with the production subscribers table, and subscribers rows shaped like
+// production's: created_at in both Node formats ('YYYY-MM-DD HH:MM:SS' from
+// CURRENT_TIMESTAMP, ISO from Node's later INSERTs), never NULL.
+func legacyOriginalFixture() fixture {
+	return fixture{
+		variant:  "legacy",
+		override: map[string]string{"subscribers": legacyOriginalSubscribersSQL},
+		extra: []string{
+			// Node's original signup inserted only the email.
+			`INSERT INTO subscribers (id, email) VALUES (503, 'default@example.invalid')`,
+			`UPDATE subscribers SET updated_at = created_at WHERE id = 503`,
+			`INSERT INTO subscribers (id, email, status, source_placement, confirmation_sent_at, created_at, updated_at)
+				VALUES (504, 'pending@example.invalid', 'pending', 'footer', '2026-09-18T00:00:00.000Z', '2026-09-18T00:00:00.000Z', '2026-09-18T00:00:00.000Z')`,
+		},
 	}
 }
 

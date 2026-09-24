@@ -110,17 +110,25 @@ func (f *fakeResend) snapshot() []resendRequest {
 
 func newsletterApplication(t *testing.T, mutate func(*config.Config)) (http.Handler, *sql.DB, *fakeResend) {
 	t.Helper()
-	resend := &fakeResend{}
-	server := httptest.NewServer(resend)
-	t.Cleanup(server.Close)
-	app.StubNewsletterDeliveryForTest(t, server.URL+"/emails", server.Client(), func(context.Context) error { return nil })
-
 	db, _ := testutil.OpenDatabase(t)
 	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {
 		t.Fatal(err)
 	}
 	seedContractArticles(t, db)
 	seedContractNewsletter(t, db)
+	handler, resend := newsletterApplicationOn(t, db, mutate)
+	return handler, db, resend
+}
+
+// newsletterApplicationOn composes the application with the contract's
+// newsletter settings over db, with delivery going to a fake Resend.
+func newsletterApplicationOn(t *testing.T, db *sql.DB, mutate func(*config.Config)) (http.Handler, *fakeResend) {
+	t.Helper()
+	resend := &fakeResend{}
+	server := httptest.NewServer(resend)
+	t.Cleanup(server.Close)
+	app.StubNewsletterDeliveryForTest(t, server.URL+"/emails", server.Client(), func(context.Context) error { return nil })
+
 	fixed := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
 	cfg := config.Config{Mode: config.ModeDevelopment, Address: "127.0.0.1:4402", DatabasePath: filepath.Join(t.TempDir(), "unused.db"),
 		JWTSecret: authTestSecret, UploadsDir: t.TempDir(),
@@ -134,7 +142,7 @@ func newsletterApplication(t *testing.T, mutate func(*config.Config)) (http.Hand
 	if err != nil {
 		t.Fatal(err)
 	}
-	return application.Handler(), db, resend
+	return application.Handler(), resend
 }
 
 // resolveNewsletterBindings mints the fixture's newsletter tokens with the Go

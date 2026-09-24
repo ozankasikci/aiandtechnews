@@ -94,23 +94,84 @@ func (r Report) String() string {
 }
 
 // knownVariant is a column definition an older Node database may have
-// instead of the Go migration's, and that Go handles identically.
+// instead of the Go migration's, and that Go handles identically. Both the
+// PRAGMA view (column) and the full normalized definition text must match
+// exactly; anything else about the column stays a mismatch.
 type knownVariant struct {
 	column     Column
 	definition string // normalized column definition text
-	reason     string
+	// declared, when set, replaces the PRAGMA description in the report:
+	// for a variant that differs only in text PRAGMA does not show.
+	declared string
+	reason   string
 }
 
-// knownVariants are Node's ALTER TABLE upgrades that add a column with a
-// weaker definition than Node's own CREATE TABLE (apps/server/src/db.ts):
-// SQLite cannot ALTER TABLE ADD COLUMN with a non-constant default, so Node
-// adds created_at and updated_at as plain nullable TEXT. Go never relies on
-// those defaults: internal/newsletter writes both columns on every INSERT.
-var knownVariants = map[string]map[string]knownVariant{
+// knownVariants are subscribers column definitions older Node databases
+// have instead of Node's current CREATE TABLE (apps/server/src/db.ts:72-83).
+//
+// The ALTER TABLE variants: SQLite cannot ALTER TABLE ADD COLUMN with a
+// non-constant default, so db.ts:116-125 adds created_at and updated_at as
+// plain nullable TEXT.
+//
+// The original table: the first subscribers table, created before db.ts
+// declared the current one, was
+//
+//	CREATE TABLE subscribers (id INTEGER PRIMARY KEY AUTOINCREMENT,
+//	  email TEXT UNIQUE NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
+//
+// with every later column added by the same ALTER TABLE upgrade. Its email
+// declares the same two constraints in the other order (the UNIQUE index
+// itself is still compared separately), and its created_at is a nullable
+// DATETIME, which has NUMERIC affinity: a timestamp string is not a number,
+// so SQLite stores Go's ISO strings as TEXT unchanged.
+//
+// Go never relies on the created_at or updated_at declarations and never
+// reads subscribers.created_at: internal/newsletter writes both columns on
+// every INSERT and updated_at on every UPDATE, and selects only id, email,
+// and status. So a NULL created_at, which the original table allows, is
+// never scanned. Code that starts reading subscribers.created_at must CAST
+// it to TEXT and handle NULL: modernc.org/sqlite returns a DATETIME
+// column's time-like text as time.Time, which scans back reformatted.
+var knownVariants = map[string]map[string][]knownVariant{
 	"subscribers": {
-		"created_at": {Column{Name: "created_at", Type: "TEXT"}, "created_at text", "added by Node's ALTER TABLE; Go always writes it"},
-		"updated_at": {Column{Name: "updated_at", Type: "TEXT"}, "updated_at text", "added by Node's ALTER TABLE; Go always writes it"},
+		"email": {
+			{
+				column:     Column{Name: "email", Type: "TEXT", NotNull: true},
+				definition: "email text unique not null",
+				declared:   "TEXT UNIQUE NOT NULL",
+				reason:     "the original Node table's constraint order; the same NOT NULL and UNIQUE constraints",
+			},
+		},
+		"created_at": {
+			{
+				column:     Column{Name: "created_at", Type: "TEXT"},
+				definition: "created_at text",
+				reason:     "added by Node's ALTER TABLE; Go always writes it",
+			},
+			{
+				column:     Column{Name: "created_at", Type: "DATETIME", Default: "current_timestamp"},
+				definition: "created_at datetime default current_timestamp",
+				reason: "the original Node table's column, before db.ts declared TEXT NOT NULL; " +
+					"Go writes it on every INSERT and never reads it, and DATETIME's NUMERIC affinity stores Go's ISO timestamps as TEXT unchanged",
+			},
+		},
+		"updated_at": {
+			{
+				column:     Column{Name: "updated_at", Type: "TEXT"},
+				definition: "updated_at text",
+				reason:     "added by Node's ALTER TABLE; Go always writes it",
+			},
+		},
 	},
+}
+
+func matchKnownVariant(table, column string, got Column, gotDef string) (knownVariant, bool) {
+	for _, variant := range knownVariants[strings.ToLower(table)][column] {
+		if variant.column.equal(got) && gotDef == variant.definition {
+			return variant, true
+		}
+	}
+	return knownVariant{}, false
 }
 
 // Verify compares the database behind q with the reference. It reads only.
@@ -264,9 +325,15 @@ func (r *Report) compareTable(want, got *Table) {
 		if wantColumn.equal(gotColumn) && wantDef == gotDef {
 			continue
 		}
-		if variant, ok := knownVariants[strings.ToLower(name)][key]; ok && variant.column.equal(gotColumn) && gotDef == variant.definition {
+		if variant, ok := matchKnownVariant(name, key, gotColumn, gotDef); ok {
+			have, want := describeOrPlain(gotColumn), wantColumn.describe()
+			if variant.declared != "" {
+				// The difference is in text PRAGMA does not show; name the
+				// declarations (the definition minus the column name).
+				have, want = variant.declared, strings.ToUpper(strings.TrimSpace(strings.TrimPrefix(wantDef, key)))
+			}
 			r.Variants = append(r.Variants, fmt.Sprintf("%s.%s is %s (%s); the Go migration declares %s",
-				name, wantColumn.Name, describeOrPlain(gotColumn), variant.reason, wantColumn.describe()))
+				name, wantColumn.Name, have, variant.reason, want))
 			continue
 		}
 		// The full definition text catches what the PRAGMAs do not show

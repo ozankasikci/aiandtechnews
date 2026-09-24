@@ -1,0 +1,1 @@
+CREATE TABLE subscribers (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, status TEXT NOT NULL DEFAULT 'pending', source_placement TEXT, confirmation_sent_at TEXT, confirmed_at TEXT, unsubscribed_at TEXT, updated_at TEXT)

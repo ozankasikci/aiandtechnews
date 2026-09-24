@@ -159,6 +159,150 @@ func TestLegacyAlterEvolvedDatabaseIsAdoptable(t *testing.T) {
 	assertManagedLikeAFreshGoDatabase(t, path)
 }
 
+func TestLegacyOriginalSubscribersTableIsAdoptable(t *testing.T) {
+	// The production subscribers table: email declared TEXT UNIQUE NOT NULL,
+	// created_at DATETIME DEFAULT CURRENT_TIMESTAMP (nullable) in third
+	// place, the rest added by Node's ALTER TABLE.
+	path := nodeDatabase(t, legacyOriginalFixture())
+	before := dumpTables(t, path, nodeTables...)
+	hash := fileHash(t, path)
+
+	result, report, err := run(t, path, false)
+	t.Log("\n" + report)
+	if err != nil || result.Outcome != adopt.OutcomeAdoptable {
+		t.Fatalf("dry run: Outcome = %v, err = %v\n%s", result.Outcome, err, report)
+	}
+	if fileHash(t, path) != hash {
+		t.Fatal("dry run changed the database file")
+	}
+	for _, want := range []string{
+		"Known Node variants accepted:",
+		"subscribers.email is TEXT UNIQUE NOT NULL (the original Node table's constraint order; the same NOT NULL and UNIQUE constraints); the Go migration declares TEXT NOT NULL UNIQUE",
+		"subscribers.created_at is DATETIME DEFAULT current_timestamp (the original Node table's column, before db.ts declared TEXT NOT NULL; Go writes it on every INSERT and never reads it, and DATETIME's NUMERIC affinity stores Go's ISO timestamps as TEXT unchanged); the Go migration declares TEXT NOT NULL DEFAULT datetime('now')",
+		"subscribers.updated_at is TEXT (added by Node's ALTER TABLE; Go always writes it)",
+		"6 newsletter: present",
+		"Result: COMPATIBLE",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report is missing %q:\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "Mismatches") {
+		t.Errorf("report lists mismatches:\n%s", report)
+	}
+
+	result, report, err = run(t, path, true)
+	if err != nil || result.Outcome != adopt.OutcomeAdopted {
+		t.Fatalf("apply: Outcome = %v, err = %v\n%s", result.Outcome, err, report)
+	}
+	after := dumpTables(t, path, nodeTables...)
+	for _, table := range nodeTables {
+		if table != "settings" && before[table] != after[table] {
+			t.Errorf("table %s changed:\nbefore:\n%s\nafter:\n%s", table, before[table], after[table])
+		}
+	}
+	// Adoption records migration 6 without running it: the table keeps its
+	// original definition.
+	db, err := database.OpenExisting(context.Background(), path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tableSQL string
+	if err := db.QueryRow(`SELECT sql FROM sqlite_schema WHERE name = 'subscribers'`).Scan(&tableSQL); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if tableSQL != strings.TrimSpace(legacyOriginalSubscribersSQL) {
+		t.Errorf("subscribers definition changed to %q", tableSQL)
+	}
+	assertManagedLikeAFreshGoDatabase(t, path)
+}
+
+func TestLegacyOriginalSubscribersVariantsAreNarrow(t *testing.T) {
+	// Only the exact original definitions are accepted; any other change to
+	// those columns, or the same reordering elsewhere, is still a mismatch.
+	original := legacyOriginalFixture()
+	for name, tc := range map[string]struct {
+		column [2]string
+		table  string
+		want   []string
+	}{
+		"created_at with another default": {
+			column: [2]string{"created_at DATETIME DEFAULT CURRENT_TIMESTAMP", "created_at DATETIME DEFAULT (datetime('now'))"},
+			want:   []string{"table subscribers: column created_at definition differs: have \"created_at datetime default(datetime('now'))\""},
+		},
+		"created_at with a literal default": {
+			column: [2]string{"created_at DATETIME DEFAULT CURRENT_TIMESTAMP", "created_at DATETIME DEFAULT '1970-01-01 00:00:00'"},
+			want:   []string{"table subscribers: column created_at: default '1970-01-01 00:00:00', want datetime('now')"},
+		},
+		"created_at without a default": {
+			column: [2]string{"created_at DATETIME DEFAULT CURRENT_TIMESTAMP", "created_at DATETIME"},
+			want:   []string{"table subscribers: column created_at definition differs", "column created_at: default none"},
+		},
+		"created_at with another type": {
+			column: [2]string{"created_at DATETIME DEFAULT CURRENT_TIMESTAMP", "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"},
+			want:   []string{"table subscribers: column created_at: type TIMESTAMP, want TEXT"},
+		},
+		"created_at with an integer type": {
+			column: [2]string{"created_at DATETIME DEFAULT CURRENT_TIMESTAMP", "created_at INTEGER DEFAULT CURRENT_TIMESTAMP"},
+			want:   []string{"table subscribers: column created_at: type INTEGER, want TEXT"},
+		},
+		"created_at with a collation": {
+			column: [2]string{"created_at DATETIME DEFAULT CURRENT_TIMESTAMP", "created_at DATETIME DEFAULT CURRENT_TIMESTAMP COLLATE NOCASE"},
+			want:   []string{"table subscribers: column created_at definition differs"},
+		},
+		"email without UNIQUE": {
+			column: [2]string{"email TEXT UNIQUE NOT NULL", "email TEXT NOT NULL"},
+			want:   []string{"table subscribers: column email definition differs", "table subscribers: missing UNIQUE constraint (email)"},
+		},
+		"email without NOT NULL": {
+			column: [2]string{"email TEXT UNIQUE NOT NULL", "email TEXT UNIQUE"},
+			want:   []string{"table subscribers: column email: nullable, want NOT NULL"},
+		},
+		"email unique on conflict replace": {
+			column: [2]string{"email TEXT UNIQUE NOT NULL", "email TEXT UNIQUE ON CONFLICT REPLACE NOT NULL"},
+			want:   []string{"table subscribers: column email definition differs"},
+		},
+		"email collate nocase": {
+			column: [2]string{"email TEXT UNIQUE NOT NULL", "email TEXT UNIQUE NOT NULL COLLATE NOCASE"},
+			want:   []string{"table subscribers: column email definition differs"},
+		},
+		"reordering on another table": {
+			table:  "authors",
+			column: [2]string{"email TEXT NOT NULL UNIQUE", "email TEXT UNIQUE NOT NULL"},
+			want:   []string{"table authors: column email definition differs: have \"email text unique not null\", want \"email text not null unique\""},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := original
+			table := tc.table
+			if table == "" {
+				table = "subscribers"
+			}
+			f.replace = map[string][2]string{table: tc.column}
+			if table == "subscribers" {
+				f.noSeed, f.extra = true, nil // some variants reject the seed rows
+			}
+			path := nodeDatabase(t, f)
+			result, report, err := run(t, path, true)
+			if err != nil {
+				t.Fatalf("Run() error = %v\n%s", err, report)
+			}
+			if result.Outcome != adopt.OutcomeIncompatible {
+				t.Fatalf("Outcome = %v, want incompatible\n%s", result.Outcome, report)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(report, want) {
+					t.Errorf("report is missing %q:\n%s", want, report)
+				}
+			}
+			if hasLedger(t, path) || len(backups(t, path)) != 0 {
+				t.Fatal("incompatible database was changed")
+			}
+		})
+	}
+}
+
 func TestMissingColumnFailsWithAPreciseReportAndNoChanges(t *testing.T) {
 	path := nodeDatabase(t, fixture{
 		variant: "fresh",
