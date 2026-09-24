@@ -1,0 +1,7 @@
+{
+  "name": "gouache",
+  "version": 1,
+  "summary": "Warm, charming gouache painting. Suits everyday, human, product, business and policy stories.",
+  "prompt": "gouache painting: opaque matte paint, visible brush strokes, simplified shapes, warm vivid palette, charming mid-century children's-book-meets-editorial feel.",
+  "anchors": ["anchor-1568.jpg", "anchor-17.jpg", "anchor-3523.jpg"]
+}

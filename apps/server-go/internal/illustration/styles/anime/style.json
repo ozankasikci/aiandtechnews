@@ -1,0 +1,7 @@
+{
+  "name": "anime",
+  "version": 1,
+  "summary": "Cinematic hand-painted anime background art. Suits big-picture, futuristic, scientific, landscape and awe-inspiring stories.",
+  "prompt": "hand-painted anime background art: lush painterly brushwork, soft atmospheric light, rich saturated colors, cinematic sky, detailed but calm, like a frame from a hand-painted animated film.",
+  "anchors": ["anchor-1568.jpg", "anchor-17.jpg", "anchor-3523.jpg"]
+}
