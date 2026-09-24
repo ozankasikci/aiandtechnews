@@ -53,6 +53,7 @@ func TestDryRunReportsAFreshNodeDatabaseAdoptableWithoutChangingIt(t *testing.T)
 		"4 newsroom published index: pending",
 		"5 media library: present",
 		"6 newsletter: present",
+		"7 newsroom publish now: pending",
 		"Rehearsal on a copy: passed",
 		"settings: 2 -> 4 rows",
 		"Result: COMPATIBLE",
@@ -77,7 +78,7 @@ func TestApplyAdoptsAFreshNodeDatabaseWithoutChangingItsData(t *testing.T) {
 	if got, want := result.Adoption.Recorded, []int64{1, 2, 5, 6}; !equalVersions(got, want) {
 		t.Errorf("Recorded = %v, want %v", got, want)
 	}
-	if got, want := result.Adoption.Applied, []int64{3, 4}; !equalVersions(got, want) {
+	if got, want := result.Adoption.Applied, []int64{3, 4, 7}; !equalVersions(got, want) {
 		t.Errorf("Applied = %v, want %v", got, want)
 	}
 

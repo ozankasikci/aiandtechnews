@@ -22,6 +22,7 @@ type candidateStore interface {
 	Get(context.Context, int64) (Candidate, error)
 	List(context.Context, []Status, int, int) (Page, error)
 	MarkQueued(context.Context, int64, Status, time.Time, time.Time) error
+	MarkPublishNow(context.Context, int64, Status, time.Time) error
 	MarkPending(context.Context, int64, time.Time) error
 	MarkRejected(context.Context, int64, time.Time) error
 	LatestScheduled(context.Context) (*time.Time, error)
@@ -45,6 +46,8 @@ type Service struct {
 	// publish, so retries that reschedule outside the queue tail (Requeue,
 	// ResetProcessing) cannot publish two items back to back.
 	scheduling sync.Mutex
+	// wake carries at most one pending "look now" signal to the publisher.
+	wake chan struct{}
 }
 
 func NewService(store candidateStore, now func() time.Time, randMinutes func(min, max int) int) (*Service, error) {
@@ -55,8 +58,12 @@ func NewService(store candidateStore, now func() time.Time, randMinutes func(min
 	if err != nil {
 		return nil, fmt.Errorf("load editorial time zone: %w", err)
 	}
-	return &Service{store: store, now: now, randMinutes: randMinutes, editorialTZ: location}, nil
+	return &Service{store: store, now: now, randMinutes: randMinutes, editorialTZ: location, wake: make(chan struct{}, 1)}, nil
 }
+
+// Wakeups is signalled when a candidate becomes due immediately, so the
+// publisher can claim it without waiting for its next tick.
+func (s *Service) Wakeups() <-chan struct{} { return s.wake }
 
 func (s *Service) List(ctx context.Context, statuses []Status, page, limit int) (Page, error) {
 	return s.store.List(ctx, statuses, page, limit)
@@ -115,6 +122,33 @@ func (s *Service) Retry(ctx context.Context, id int64) (Candidate, error) {
 		return Candidate{}, err
 	}
 	return s.enqueue(ctx, id, StatusFailed, &tail, delay)
+}
+
+// PublishNow queues a pending, queued, or failed candidate due immediately
+// with priority: the publisher claims it ahead of the other queue entries
+// and without the minimum gap since the last publish, though never while
+// another candidate is processing. Other queue entries keep their times.
+func (s *Service) PublishNow(ctx context.Context, id int64) (Candidate, error) {
+	s.scheduling.Lock()
+	defer s.scheduling.Unlock()
+
+	candidate, err := s.store.Get(ctx, id)
+	if err != nil {
+		return Candidate{}, err
+	}
+	switch candidate.Status {
+	case StatusPending, StatusQueued, StatusFailed:
+	default:
+		return Candidate{}, ErrStaleTransition
+	}
+	if err := s.store.MarkPublishNow(ctx, id, candidate.Status, s.now()); err != nil {
+		return Candidate{}, err
+	}
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+	return s.store.Get(ctx, id)
 }
 
 // Unqueue returns a queued candidate to review. Other queue entries keep their times.

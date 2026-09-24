@@ -53,6 +53,7 @@ func (h *Handler) Mount(router chi.Router, requireAuth func(http.Handler) http.H
 		r.Post("/candidates/reject", h.reject)
 		r.Post("/candidates/{id}/unqueue", h.unqueue)
 		r.Post("/candidates/{id}/retry", h.retry)
+		r.Post("/candidates/{id}/publish-now", h.publishNow)
 		r.Post("/collect", h.collect)
 		r.Get("/settings", h.settings)
 		r.Put("/settings", h.updateSettings)
@@ -126,6 +127,10 @@ func (h *Handler) unqueue(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) retry(w http.ResponseWriter, r *http.Request) {
 	h.single(w, r, h.service.Retry, "Candidate is not failed")
+}
+
+func (h *Handler) publishNow(w http.ResponseWriter, r *http.Request) {
+	h.single(w, r, h.service.PublishNow, "Candidate cannot be published now")
 }
 
 func (h *Handler) single(w http.ResponseWriter, r *http.Request, action func(context.Context, int64) (Candidate, error), staleMessage string) {

@@ -114,8 +114,8 @@ func TestNewsroomContractOperationsRequireAuth(t *testing.T) {
 			}
 		}
 	}
-	if operations != 9 {
-		t.Fatalf("contract operations = %d, want 9", operations)
+	if operations != 10 {
+		t.Fatalf("contract operations = %d, want 10", operations)
 	}
 }
 
@@ -263,6 +263,14 @@ func TestNewsroomResponsesMatchContractSchemas(t *testing.T) {
 	}
 	assertKeySet(t, "unqueue candidate", unqueuedCandidate, schemaRequired(t, document, "Candidate"))
 
+	publishNow := decodeBody[map[string]any](t, request(t, handler, http.MethodPost, "/api/newsroom/candidates/2/publish-now", "", auth).Body.String())
+	assertKeySet(t, "publish-now response", publishNow, []string{"candidate"})
+	publishNowCandidate, ok := publishNow["candidate"].(map[string]any)
+	if !ok {
+		t.Fatalf("publish-now response candidate is not an object: %#v", publishNow["candidate"])
+	}
+	assertKeySet(t, "publish-now candidate", publishNowCandidate, schemaRequired(t, document, "Candidate"))
+
 	reject := decodeBody[map[string]any](t, request(t, handler, http.MethodPost, "/api/newsroom/candidates/reject", `{"ids":[1]}`, auth).Body.String())
 	assertKeySet(t, "reject response", reject, []string{"rejected", "skipped"})
 
@@ -356,6 +364,42 @@ func assertKeySet(t *testing.T, label string, body map[string]any, want []string
 	sort.Strings(wantSorted)
 	if !reflect.DeepEqual(got, wantSorted) {
 		t.Errorf("%s keys = %v, want %v", label, got, wantSorted)
+	}
+}
+
+func TestNewsroomPublishNow(t *testing.T) {
+	handler, db, auth := newsroomApplication(t)
+	seedCandidates(t, db, "https://example.com/1", "https://example.com/2")
+
+	path := "/api/newsroom/candidates/1/publish-now"
+	if response := request(t, handler, http.MethodPost, path, "", ""); response.Code != http.StatusUnauthorized ||
+		response.Body.String() != `{"error":"Authentication required"}` {
+		t.Fatalf("unauthenticated publish-now = %d %s", response.Code, response.Body.String())
+	}
+
+	response := request(t, handler, http.MethodPost, path, "", auth)
+	expectStatus(t, "POST", path, http.StatusOK, response.Code, response.Body.String())
+	candidate := decodeBody[struct{ Candidate newsroom.Candidate }](t, response.Body.String()).Candidate
+	if candidate.ID != 1 || candidate.Status != newsroom.StatusQueued || !candidate.PublishNow ||
+		candidate.ScheduledFor == nil || *candidate.ScheduledFor != newsroomNow.Format(time.RFC3339) {
+		t.Fatalf("publish-now candidate = %+v", candidate)
+	}
+	if !strings.Contains(response.Body.String(), `"publish_now":true`) {
+		t.Fatalf("publish-now body = %s", response.Body.String())
+	}
+
+	if _, err := db.Exec(`UPDATE candidates SET status = 'rejected', scheduled_for = NULL WHERE id = 2`); err != nil {
+		t.Fatal(err)
+	}
+	conflict := request(t, handler, http.MethodPost, "/api/newsroom/candidates/2/publish-now", "", auth)
+	if conflict.Code != http.StatusConflict || conflict.Body.String() != `{"error":"Candidate cannot be published now"}` {
+		t.Fatalf("publish-now rejected = %d %s", conflict.Code, conflict.Body.String())
+	}
+	for _, missing := range []string{"99", "abc", "0"} {
+		notFound := request(t, handler, http.MethodPost, "/api/newsroom/candidates/"+missing+"/publish-now", "", auth)
+		if notFound.Code != http.StatusNotFound || notFound.Body.String() != `{"error":"Candidate not found"}` {
+			t.Fatalf("publish-now %s = %d %s", missing, notFound.Code, notFound.Body.String())
+		}
 	}
 }
 

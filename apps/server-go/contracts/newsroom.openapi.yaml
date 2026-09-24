@@ -69,6 +69,7 @@ paths:
                     attempts: 0
                     last_error: null
                     article_slug: null
+                    publish_now: false
                 total: 1
                 page: 1
                 totalPages: 1
@@ -132,6 +133,24 @@ paths:
   /api/newsroom/candidates/{id}/retry:
     post:
       operationId: newsroom.candidates.retry
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '200': { $ref: '#/components/responses/SingleCandidate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/newsroom/candidates/{id}/publish-now:
+    post:
+      operationId: newsroom.candidates.publishNow
+      description: >-
+        Queues a pending, queued, or failed candidate due now with priority:
+        the publisher claims it ahead of the other queued candidates and
+        without the minimum gap since the last publish, but never while
+        another candidate is processing. A failed candidate starts over with
+        no attempts and no last error. Other queued candidates keep their
+        times. Any other status answers 409 "Candidate cannot be published
+        now".
       parameters: [{ $ref: '#/components/parameters/ID' }]
       responses:
         '200': { $ref: '#/components/responses/SingleCandidate' }
@@ -261,7 +280,7 @@ components:
     Candidate:
       type: object
       required: [id, title, feed_summary, source_name, source_url, source_image_url, feed_published_at,
-                 discovered_at, status, scheduled_for, attempts, last_error, article_slug]
+                 discovered_at, status, scheduled_for, attempts, last_error, article_slug, publish_now]
       properties:
         id: { type: integer }
         title: { type: string }
@@ -276,3 +295,6 @@ components:
         attempts: { type: integer }
         last_error: { type: [string, 'null'] }
         article_slug: { type: [string, 'null'] }
+        publish_now:
+          type: boolean
+          description: True while a publish-now request is pending (the candidate is queued or processing with priority).

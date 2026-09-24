@@ -82,6 +82,9 @@ type Deps struct {
 	Notifier    Notifier
 	Now         func() time.Time
 	Logger      *slog.Logger
+	// Wake, when set, makes Loop try a publish right away instead of waiting
+	// for the next tick (the newsroom signals it on "publish now").
+	Wake <-chan struct{}
 }
 
 // Publisher moves due candidates to published articles, one per call. It is
@@ -132,6 +135,7 @@ func (p *Publisher) Loop(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-p.Wake:
 		}
 	}
 }

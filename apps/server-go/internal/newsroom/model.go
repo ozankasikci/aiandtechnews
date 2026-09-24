@@ -49,6 +49,10 @@ type Candidate struct {
 	Attempts        int64   `json:"attempts"`
 	LastError       *string `json:"last_error"`
 	ArticleSlug     *string `json:"article_slug"`
+	// PublishNow is set while an editor's "publish now" request is pending:
+	// the publisher claims the candidate ahead of the queue and without the
+	// minimum gap since the last publish.
+	PublishNow bool `json:"publish_now"`
 }
 
 // NewCandidate is what the collector stores for a policy-passing feed item.

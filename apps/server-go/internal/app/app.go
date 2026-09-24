@@ -1,12 +1,14 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -184,6 +186,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			Notifier:    newPublisherNotifier(cfg, logger),
 			Now:         now,
 			Logger:      logger,
+			Wake:        newsroomService.Wakeups(),
 		})
 		application.background = append(application.background, func(ctx context.Context) {
 			newsPublisher.Loop(ctx, cfg.PublisherInterval)
@@ -244,13 +247,17 @@ func CheckSchema(ctx context.Context, q migrate.Queryer) error {
 	return nil
 }
 
-// Migrations explicitly collects capability-owned descriptors in global order.
+// Migrations explicitly collects capability-owned descriptors and returns
+// them in global version order. A capability may own versions that are not
+// contiguous (newsroom owns 3, 4 and 7), so the result is sorted by version.
 func Migrations() []migrate.Descriptor {
 	descriptors := editorial.Migrations()
 	descriptors = append(descriptors, content.Migrations()...)
 	descriptors = append(descriptors, newsroom.Migrations()...)
 	descriptors = append(descriptors, media.Migrations()...)
-	return append(descriptors, newsletter.Migrations()...)
+	descriptors = append(descriptors, newsletter.Migrations()...)
+	slices.SortStableFunc(descriptors, func(a, b migrate.Descriptor) int { return cmp.Compare(a.Version, b.Version) })
+	return descriptors
 }
 
 func (a *App) Address() string       { return a.address }

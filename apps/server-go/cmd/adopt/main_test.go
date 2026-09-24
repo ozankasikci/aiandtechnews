@@ -79,7 +79,7 @@ func TestDryRunThenApplyThenNoOp(t *testing.T) {
 	}
 
 	code, stdout, stderr = runAdopt(t, env, "--apply")
-	if code != 0 || !strings.Contains(stdout, "Adopted: recorded 1, 2, 5, 6; ran 3, 4") {
+	if code != 0 || !strings.Contains(stdout, "Adopted: recorded 1, 2, 5, 6; ran 3, 4, 7;") {
 		t.Fatalf("apply exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 	backups, _ := filepath.Glob(path + ".pre-adopt-*.db")

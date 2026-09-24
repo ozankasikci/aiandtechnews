@@ -26,7 +26,8 @@ func NewSQLiteStore(db *sql.DB) *SQLiteStore { return &SQLiteStore{db: db} }
 
 const candidateSelect = `SELECT c.id, c.title, c.feed_summary, c.source_name, c.source_url,
 	c.source_image_url, c.feed_published_at, c.discovered_at, c.status, c.scheduled_for,
-	c.attempts, c.last_error, a.slug
+	c.attempts, c.last_error, a.slug,
+	EXISTS (SELECT 1 FROM candidate_publish_now p WHERE p.candidate_id = c.id)
 	FROM candidates c LEFT JOIN articles a ON a.id = c.article_id`
 
 // listOrder groups the queue view (processing, queued, failed) ahead of the
@@ -44,7 +45,7 @@ func scanCandidate(row rowScanner) (Candidate, error) {
 	var c Candidate
 	err := row.Scan(&c.ID, &c.Title, &c.FeedSummary, &c.SourceName, &c.SourceURL,
 		&c.SourceImageURL, &c.FeedPublishedAt, &c.DiscoveredAt, &c.Status, &c.ScheduledFor,
-		&c.Attempts, &c.LastError, &c.ArticleSlug)
+		&c.Attempts, &c.LastError, &c.ArticleSlug, &c.PublishNow)
 	return c, err
 }
 
@@ -161,6 +162,45 @@ func (s *SQLiteStore) MarkQueued(ctx context.Context, id int64, from Status, sch
 		formatTime(scheduledFor), formatTime(now), id, string(from))
 }
 
+// MarkPublishNow queues a pending, queued, or failed candidate due at now and
+// flags it so ClaimDue takes it first, ignoring the minimum gap. Like
+// MarkQueued, a pending or failed candidate starts with no attempts and no
+// last error; an already queued one keeps them. Other queue entries keep
+// their times.
+func (s *SQLiteStore) MarkPublishNow(ctx context.Context, id int64, from Status, now time.Time) (err error) {
+	if from != StatusPending && from != StatusQueued && from != StatusFailed {
+		return fmt.Errorf("mark publish now from %q: %w", from, ErrStaleTransition)
+	}
+	stamp := formatTime(now)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin publish now %d: %w", id, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `UPDATE candidates SET status = 'queued', scheduled_for = ?,
+		attempts = CASE WHEN status = 'queued' THEN attempts ELSE 0 END,
+		last_error = CASE WHEN status = 'queued' THEN last_error ELSE NULL END,
+		updated_at = ? WHERE id = ? AND status = ?`, stamp, stamp, id, string(from))
+	if err != nil {
+		return fmt.Errorf("publish now %d: %w", id, err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("publish now %d: %w", id, err)
+	}
+	if affected == 0 {
+		return ErrStaleTransition
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO candidate_publish_now (candidate_id, requested_at) VALUES (?, ?)
+		ON CONFLICT(candidate_id) DO UPDATE SET requested_at = excluded.requested_at`, id, stamp); err != nil {
+		return fmt.Errorf("flag publish now %d: %w", id, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit publish now %d: %w", id, err)
+	}
+	return nil
+}
+
 // MarkPending returns a queued candidate to review.
 func (s *SQLiteStore) MarkPending(ctx context.Context, id int64, now time.Time) error {
 	return s.transition(ctx, id, `UPDATE candidates SET status = 'pending', scheduled_for = NULL, updated_at = ?
@@ -257,20 +297,25 @@ func (s *SQLiteStore) PublishDelay(ctx context.Context) (PublishDelay, error) {
 	return delay, nil
 }
 
-// ClaimDue moves the earliest due queued candidate to processing (attempts+1)
-// and returns it. It claims nothing while another candidate is processing or
-// while the most recent publish is newer than minGap, which keeps spacing
-// after transient retries, crash recovery or downtime.
+// ClaimDue moves the next due queued candidate to processing (attempts+1)
+// and returns it. A due candidate flagged "publish now" comes first and
+// ignores minGap; otherwise the earliest due candidate is taken, but only
+// when the most recent publish is older than minGap, which keeps spacing
+// after transient retries, crash recovery or downtime. Nothing is claimed
+// while another candidate is processing.
 func (s *SQLiteStore) ClaimDue(ctx context.Context, now time.Time, minGap time.Duration) (Candidate, bool, error) {
 	stamp := formatTime(now)
 	var id int64
 	err := s.db.QueryRowContext(ctx, `UPDATE candidates
 		SET status = 'processing', attempts = attempts + 1, updated_at = ?
-		WHERE id = (SELECT id FROM candidates WHERE status = 'queued' AND scheduled_for <= ?
-		            ORDER BY scheduled_for, id LIMIT 1)
+		WHERE id = (SELECT c.id FROM candidates c
+		            LEFT JOIN candidate_publish_now p ON p.candidate_id = c.id
+		            WHERE c.status = 'queued' AND c.scheduled_for <= ?
+		              AND (p.candidate_id IS NOT NULL OR NOT EXISTS
+		                   (SELECT 1 FROM candidates WHERE status = 'published' AND published_at > ?))
+		            ORDER BY p.candidate_id IS NULL, c.scheduled_for, c.id LIMIT 1)
 		  AND status = 'queued'
 		  AND NOT EXISTS (SELECT 1 FROM candidates WHERE status = 'processing')
-		  AND NOT EXISTS (SELECT 1 FROM candidates WHERE status = 'published' AND published_at > ?)
 		RETURNING id`, stamp, stamp, formatTime(now.Add(-minGap))).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Candidate{}, false, nil

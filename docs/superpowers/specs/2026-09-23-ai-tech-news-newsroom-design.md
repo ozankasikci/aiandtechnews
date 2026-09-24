@@ -180,6 +180,7 @@ the pagination envelope's `totalPages` (matching existing Go endpoints).
 | POST | `/candidates/reject` | `{ids:[int]}` | `{rejected:[int], skipped:[{id, reason}]}` |
 | POST | `/candidates/{id}/unqueue` | — | `{candidate: Candidate}`; `409` if not `queued` |
 | POST | `/candidates/{id}/retry` | — | `{candidate: Candidate}`; `409` if not `failed` |
+| POST | `/candidates/{id}/publish-now` | — | `{candidate: Candidate}` queued due now with `publish_now: true` (claimed first, ignoring the minimum gap, never while another is processing); `409` "Candidate cannot be published now" unless `pending`, `queued` or `failed` |
 | POST | `/collect` | — | `202 {started:true}`; `409` if a run is in progress |
 | GET | `/settings` | — | `{publish_delay_min_minutes, publish_delay_max_minutes}` |
 | PUT | `/settings` | same shape | same shape; `400` on invalid range |
@@ -206,7 +207,8 @@ midnight in `Europe/Istanbul` (matching the existing scheduler's timezone).
   "scheduled_for": "2026-09-23T15:40:00Z",
   "attempts": 0,
   "last_error": null,
-  "article_slug": null
+  "article_slug": null,
+  "publish_now": false
 }
 ```
 
