@@ -537,3 +537,25 @@ func publisherEnv() map[string]string {
 		"S3_FEATURE_IMAGE_PUBLIC_URL": "https://images.example.invalid",
 	}
 }
+
+func TestLoadGeminiImageSize(t *testing.T) {
+	for _, tt := range []struct{ value, want string }{{"", "2K"}, {"1K", "1K"}, {"4K", "4K"}} {
+		cfg, err := Load(func(key string) string {
+			if key == "GEMINI_IMAGE_SIZE" {
+				return tt.value
+			}
+			return ""
+		}, t.TempDir())
+		if err != nil || cfg.GeminiImageSize != tt.want {
+			t.Errorf("GEMINI_IMAGE_SIZE=%q: size=%q err=%v, want %q", tt.value, cfg.GeminiImageSize, err, tt.want)
+		}
+	}
+	if _, err := Load(func(key string) string {
+		if key == "GEMINI_IMAGE_SIZE" {
+			return "1k"
+		}
+		return ""
+	}, t.TempDir()); err == nil {
+		t.Error("GEMINI_IMAGE_SIZE=1k: want an error")
+	}
+}

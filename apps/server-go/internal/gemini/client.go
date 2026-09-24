@@ -19,6 +19,7 @@ const (
 	DefaultTextModel   = "gemini-3.5-flash-lite"
 	DefaultImageModel  = "gemini-3.1-flash-image-preview"
 	DefaultVisionModel = "gemini-3.5-flash"
+	DefaultImageSize   = "2K"
 	textTimeout        = 90 * time.Second
 	imageTimeout       = 120 * time.Second
 	reviewTimeout      = 60 * time.Second
@@ -49,6 +50,7 @@ type Client struct {
 	apiKey      string
 	textModel   string
 	imageModel  string
+	imageSize   string
 	visionModel string
 	baseURL     string
 	http        *http.Client
@@ -71,6 +73,15 @@ func WithImageModel(model string) Option {
 	}
 }
 
+// WithImageSize overrides the imageSize GenerateImage requests (1K, 2K, 4K).
+func WithImageSize(size string) Option {
+	return func(c *Client) {
+		if size != "" {
+			c.imageSize = size
+		}
+	}
+}
+
 // WithVisionModel overrides the model used by ReviewImage.
 func WithVisionModel(model string) Option {
 	return func(c *Client) {
@@ -88,6 +99,7 @@ func New(apiKey, textModel string, options ...Option) *Client {
 		apiKey:      apiKey,
 		textModel:   textModel,
 		imageModel:  DefaultImageModel,
+		imageSize:   DefaultImageSize,
 		visionModel: DefaultVisionModel,
 		baseURL:     DefaultBaseURL,
 		http:        &http.Client{},
@@ -186,7 +198,7 @@ func (c *Client) GenerateJSON(ctx context.Context, prompt string) (string, error
 	return strings.TrimSpace(text.String()), nil
 }
 
-// GenerateImage ports requestIllustration: 16:9, 2K, text+image modalities,
+// GenerateImage ports requestIllustration: 16:9, c.imageSize (default 2K), text+image modalities,
 // optional inline reference. Returns the first inline image's bytes.
 func (c *Client) GenerateImage(ctx context.Context, prompt string, reference *InlineImage) ([]byte, error) {
 	parts := []inlinePart{{Text: prompt}}
@@ -197,7 +209,7 @@ func (c *Client) GenerateImage(ctx context.Context, prompt string, reference *In
 		"contents": []map[string]any{{"role": "user", "parts": parts}},
 		"generationConfig": map[string]any{
 			"responseModalities": []string{"TEXT", "IMAGE"},
-			"imageConfig":        map[string]any{"aspectRatio": "16:9", "imageSize": "2K"},
+			"imageConfig":        map[string]any{"aspectRatio": "16:9", "imageSize": c.imageSize},
 		},
 	}
 	ctx, cancel := context.WithTimeout(ctx, imageTimeout)

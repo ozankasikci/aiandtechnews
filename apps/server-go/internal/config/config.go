@@ -119,6 +119,7 @@ type Config struct {
 	GeminiAPIKey      string
 	GeminiTextModel   string
 	GeminiImageModel  string
+	GeminiImageSize   string // GEMINI_IMAGE_SIZE: 1K, 2K or 4K (default 2K; lite image models only support 1K)
 	GeminiVisionModel string
 	AWSRegion         string
 	S3Bucket          string
@@ -144,11 +145,11 @@ type Config struct {
 
 func (c Config) String() string {
 	return fmt.Sprintf("Config{Mode:%q Address:%q TimeZone:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
-		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiVisionModel:%q "+
+		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q GeminiVisionModel:%q "+
 		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t "+
 		"NewsletterSiteURL:%q NewsletterTokenSecret:[REDACTED] NewsletterCronSecret:[REDACTED] ResendAPIKey:[REDACTED] NewsletterFrom:%q NewsletterReplyTo:%q}",
 		c.Mode, c.Address, c.TimeZone, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
-		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiVisionModel,
+		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.GeminiVisionModel,
 		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled,
 		c.NewsletterSiteURL, c.NewsletterFrom, c.NewsletterReplyTo)
 }
@@ -223,6 +224,14 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	cfg.GeminiAPIKey = lookup("GEMINI_API_KEY")
 	cfg.GeminiTextModel = lookup("GEMINI_TEXT_MODEL")
 	cfg.GeminiImageModel = lookup("GEMINI_IMAGE_MODEL")
+	switch size := lookup("GEMINI_IMAGE_SIZE"); size {
+	case "":
+		cfg.GeminiImageSize = "2K"
+	case "1K", "2K", "4K":
+		cfg.GeminiImageSize = size
+	default:
+		return Config{}, fmt.Errorf("GEMINI_IMAGE_SIZE must be 1K, 2K, or 4K, got %q", size)
+	}
 	cfg.GeminiVisionModel = lookup("GEMINI_VISION_MODEL")
 	cfg.AWSRegion = lookup("AWS_REGION")
 	cfg.S3Bucket = lookup("S3_FEATURE_IMAGE_BUCKET")

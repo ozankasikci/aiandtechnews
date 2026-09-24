@@ -197,3 +197,21 @@ func TestGenerateImageWithoutImageIsNotBlocked(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNoImage only", err)
 	}
 }
+
+func TestGenerateImageRequestsConfiguredSize(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		imageConfig := body["generationConfig"].(map[string]any)["imageConfig"].(map[string]any)
+		if imageConfig["imageSize"] != "1K" {
+			t.Errorf("imageSize = %v, want 1K", imageConfig["imageSize"])
+		}
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"inline_data":{"mime_type":"image/png","data":"` +
+			base64.StdEncoding.EncodeToString([]byte("PNGDATA")) + `"}}]}}]}`))
+	}))
+	defer server.Close()
+	client := gemini.New("k", "", gemini.WithBaseURL(server.URL), gemini.WithImageSize("1K"))
+	if _, err := client.GenerateImage(context.Background(), "draw", nil); err != nil {
+		t.Fatal(err)
+	}
+}

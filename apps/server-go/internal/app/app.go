@@ -171,7 +171,8 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	}
 	if cfg.PublisherEnabled {
 		geminiClient := gemini.New(cfg.GeminiAPIKey, cfg.GeminiTextModel,
-			gemini.WithImageModel(cfg.GeminiImageModel), gemini.WithVisionModel(cfg.GeminiVisionModel))
+			gemini.WithImageModel(cfg.GeminiImageModel), gemini.WithImageSize(cfg.GeminiImageSize),
+			gemini.WithVisionModel(cfg.GeminiVisionModel))
 		imageStore := media.NewStore(media.Config{Region: cfg.AWSRegion, Bucket: cfg.S3Bucket, Prefix: cfg.S3Prefix, PublicBaseURL: cfg.S3PublicURL},
 			objectAPI, newPublicHTTPClient(), now)
 		newsPublisher := publisher.New(publisher.Deps{
