@@ -85,6 +85,11 @@ type Overview struct {
 	PublishedToday  int64   `json:"published_today"`
 	NextPublishAt   *string `json:"next_publish_at"`
 	LastCollectedAt *string `json:"last_collected_at"`
+	// SpacingUntil is when the publisher may claim again after the latest
+	// publish (latest published_at + the minimum delay); null once past.
+	SpacingUntil *string `json:"spacing_until"`
+
+	lastPublishedAt *string
 }
 
 type PublishDelay struct {

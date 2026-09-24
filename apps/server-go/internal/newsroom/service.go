@@ -73,7 +73,24 @@ func (s *Service) List(ctx context.Context, statuses []Status, page, limit int) 
 func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	local := s.now().In(s.editorialTZ)
 	midnight := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, s.editorialTZ)
-	return s.store.Overview(ctx, midnight)
+	overview, err := s.store.Overview(ctx, midnight)
+	if err != nil || overview.lastPublishedAt == nil {
+		return overview, err
+	}
+	last, err := parseTime(*overview.lastPublishedAt)
+	if err != nil {
+		return Overview{}, fmt.Errorf("parse last publish %q: %w", *overview.lastPublishedAt, err)
+	}
+	delay, err := s.store.PublishDelay(ctx)
+	if err != nil {
+		return Overview{}, err
+	}
+	// Mirrors ClaimDue's minimum gap after the latest publish.
+	if until := last.Add(time.Duration(delay.MinMinutes) * time.Minute); until.After(s.now()) {
+		stamp := formatTime(until)
+		overview.SpacingUntil = &stamp
+	}
+	return overview, nil
 }
 
 // Publish queues pending candidates in request order, each scheduled a random

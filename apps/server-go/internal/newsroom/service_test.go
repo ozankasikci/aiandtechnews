@@ -274,3 +274,28 @@ func TestSetPublishDelayValidatesRange(t *testing.T) {
 		t.Fatalf("saved = %+v err=%v", saved, err)
 	}
 }
+
+func TestOverviewReportsSpacingAfterTheLatestPublish(t *testing.T) {
+	store, db := openStore(t)
+	service := newService(t, store, t0, sequence(30))
+	if _, err := service.SetPublishDelay(context.Background(), newsroom.PublishDelay{MinMinutes: 30, MaxMinutes: 40}); err != nil {
+		t.Fatal(err)
+	}
+	overview, err := service.Overview(context.Background())
+	if err != nil || overview.SpacingUntil != nil {
+		t.Fatalf("no publishes: spacing = %v err=%v", overview.SpacingUntil, err)
+	}
+
+	recent := insert(t, store, "https://example.com/recent", t0)
+	setStatus(t, db, recent, "published", t0.Add(-10*time.Minute))
+	overview, err = service.Overview(context.Background())
+	if err != nil || overview.SpacingUntil == nil || *overview.SpacingUntil != "2026-09-20T12:20:00Z" {
+		t.Fatalf("recent publish: spacing = %v err=%v", overview.SpacingUntil, err)
+	}
+
+	setStatus(t, db, recent, "published", t0.Add(-45*time.Minute))
+	overview, err = service.Overview(context.Background())
+	if err != nil || overview.SpacingUntil != nil {
+		t.Fatalf("old publish: spacing = %v err=%v", overview.SpacingUntil, err)
+	}
+}

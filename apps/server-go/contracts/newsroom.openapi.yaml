@@ -32,6 +32,7 @@ paths:
                 published_today: 3
                 next_publish_at: '2026-09-23T15:40:00Z'
                 last_collected_at: '2026-09-23T15:00:00Z'
+                spacing_until: null
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/newsroom/candidates:
@@ -315,7 +316,7 @@ components:
           items: { $ref: '#/components/schemas/Candidate' }
     Overview:
       type: object
-      required: [pending, queued, processing, failed, published_today, next_publish_at, last_collected_at]
+      required: [pending, queued, processing, failed, published_today, next_publish_at, last_collected_at, spacing_until]
       properties:
         pending: { type: integer }
         queued: { type: integer }
@@ -324,6 +325,10 @@ components:
         published_today: { type: integer }
         next_publish_at: { type: [string, 'null'], format: date-time }
         last_collected_at: { type: [string, 'null'], format: date-time }
+        spacing_until:
+          type: [string, 'null']
+          format: date-time
+          description: When the publisher may start the next item after the latest publish; null once that gap has passed.
     CandidatePage:
       type: object
       required: [candidates, total, page, totalPages]

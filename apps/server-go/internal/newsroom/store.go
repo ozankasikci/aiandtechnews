@@ -357,10 +357,11 @@ func (s *SQLiteStore) Overview(ctx context.Context, publishedSince time.Time) (O
 		COALESCE(SUM(status = 'processing'), 0),
 		COALESCE(SUM(status = 'failed'), 0),
 		COALESCE(SUM(status = 'published' AND published_at >= ?), 0),
-		MIN(CASE WHEN status = 'queued' THEN scheduled_for END)
+		MIN(CASE WHEN status = 'queued' THEN scheduled_for END),
+		MAX(CASE WHEN status = 'published' THEN published_at END)
 		FROM candidates`, formatTime(publishedSince)).Scan(
 		&overview.Pending, &overview.Queued, &overview.Processing, &overview.Failed,
-		&overview.PublishedToday, &overview.NextPublishAt)
+		&overview.PublishedToday, &overview.NextPublishAt, &overview.lastPublishedAt)
 	if err != nil {
 		return Overview{}, fmt.Errorf("count candidates by status: %w", err)
 	}
