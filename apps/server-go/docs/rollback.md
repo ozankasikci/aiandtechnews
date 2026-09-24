@@ -1,146 +1,124 @@
 # Rollback: Go on the Mac mini → Node on the MacBook
 
-Use this when the Go API on the Mac mini misbehaves in a way that cannot be
-fixed forward quickly (wrong responses on the website, failing digests,
-dashboard writes failing). It returns `https://technews.subtunnel.dev` to the
-Node API on the MacBook, which [cutover](cutover.md) left stopped and intact:
-`$NODE/apps/server/data/technews.db` and `uploads/` as they were at the
-freeze, plus `data/technews-final-<STAMP>.db`.
+Use this when the Go API misbehaves in a way that cannot be fixed forward
+quickly (wrong responses on the website, failing digests, dashboard writes
+failing). It hands `https://technews.subtunnel.dev` back to the Node API on the
+old MacBook. The website needs no change: it reads that hostname either way.
 
-The website needs no change in either direction: `API_URL` stays
-`https://technews.subtunnel.dev`.
+The MacBook's Node database was never modified by the [cutover](cutover.md),
+but it has nothing written on the mini since 2026-09-24.
 
 ## Decide first: which database does Node get back?
 
-Everything written through Go after the cutover lives only in the Mac mini's
-database and uploads directory:
+Written only on the mini since the cutover:
 
 | Written on Go | Where |
 | --- | --- |
 | Newsletter signups, reactivations, unsubscribes | `subscribers` |
 | Digest runs | `newsletter_editions`, `newsletter_deliveries` |
-| Dashboard article creates, edits, deletes; category and settings changes | `articles`, `categories`, `settings` |
-| Dashboard media uploads | `media` rows + files in `$ROOT/uploads` |
+| Dashboard article, category, settings changes | `articles`, `categories`, `settings` |
+| Dashboard media uploads | `media` rows + files in `~/aiandtechnews/data/uploads` |
 | Article view counts | `articles.view_count` |
-| Articles published by the Go publisher (if enabled) | `articles` (images are in S3) |
-| Newsroom queue | `candidates` (Go only; Node ignores it) |
+| Collector (and publisher, if enabled) | `candidates` (Go only; Node ignores it), `articles` |
 
 **A. Carry the Go database back (preferred; loses nothing).** The adopted
-database is still a valid Node database: adoption only added the
-`schema_migrations` and `candidates` tables, their indexes, and two
-`newsroom.*` rows in `settings`, which Node ignores (its `initializeDatabase`
-uses `CREATE TABLE IF NOT EXISTS` and only adds missing columns). Use this
-unless the Go database itself is suspected to be damaged.
+database is still a valid Node database: adoption only added
+`schema_migrations`, `candidates`, their indexes, and two `newsroom.*` rows in
+`settings`, which Node ignores.
 
-**B. Return to the freeze-time database.** Node restarts on the untouched
-MacBook database; every Go-era write in the table above is lost unless you
-copy it back by hand (see the end). Use this only when the Mac mini database
-is not trustworthy.
+**B. Keep the MacBook's database as it is.** Every write in the table above is
+lost unless copied back by hand (see Notes). Use it only when the mini's
+database is not trustworthy.
 
 ## Steps
 
 **On the Mac mini**
 
 ```sh
-ROOT="$HOME/technews"
-STAMP=$(date -u +%Y%m%dT%H%M%SZ); echo "$STAMP"   # note it for the MacBook steps
+RT=~/aiandtechnews
+STAMP=$(date -u +%Y%m%dT%H%M%SZ); echo "$STAMP"
 ```
 
-1. Stop the Go API and keep it stopped:
-   `sudo launchctl bootout system/news.aiandtech.api`;
-   `lsof -nP -iTCP:4001 -sTCP:LISTEN` prints nothing. The collector and
-   publisher, if enabled, stop with it. Stop the dashboard job too if the
-   dashboard goes back to the MacBook:
-   `sudo launchctl bootout system/news.aiandtech.dashboard`.
-2. Stop the Mac mini's tunnel job(s) (`sudo launchctl bootout system/<label>`)
-   so the `technews` subdomain (and `technewsweb`, if it was moved) is free.
-3. For option A only: take a consistent copy and fingerprint it.
+1. Free the subdomain and stop Go (the collector and publisher stop with it):
 
    ```sh
-   sqlite3 "$ROOT/data/technews.db" ".backup '$ROOT/data/technews-rollback-$STAMP.db'"
-   sqlite3 "$ROOT/data/technews-rollback-$STAMP.db" 'PRAGMA integrity_check'   # ok
-   shasum -a 256 "$ROOT/data/technews-rollback-$STAMP.db"
+   launchctl bootout gui/$(id -u)/news.aiandtech.tunnel
+   launchctl bootout gui/$(id -u)/news.aiandtech.api
+   lsof -nP -iTCP:4001 -sTCP:LISTEN                  # prints nothing
    ```
 
-   Copy it and the new uploads to the MacBook, into a temporary name and
-   without deleting anything there (`Projects/technews/...` on the MacBook
-   side is relative to the MacBook user's home, that is `$NODE`):
+   `bootout` lasts until the next login, when agents in
+   `~/Library/LaunchAgents/` load again (auto-login after a reboot); to keep
+   them off, move the two plists out of that directory.
+2. Option A only: a consistent copy, checked and fingerprinted, sent to the
+   MacBook under a temporary name, plus the uploads (nothing on the MacBook is
+   deleted):
 
    ```sh
-   rsync -a "$ROOT/data/technews-rollback-$STAMP.db" "<macbook>:Projects/technews/apps/server/data/incoming-rollback-$STAMP.db"
-   rsync -a "$ROOT/uploads/" "<macbook>:Projects/technews/apps/server/uploads/"
+   sqlite3 "$RT/data/technews.db" ".backup '$RT/data/technews-rollback-$STAMP.db'"
+   sqlite3 "$RT/data/technews-rollback-$STAMP.db" 'PRAGMA integrity_check'   # ok
+   shasum -a 256 "$RT/data/technews-rollback-$STAMP.db"
+   rsync -a "$RT/data/technews-rollback-$STAMP.db" "<macbook>:Projects/technews/apps/server/data/incoming-rollback-$STAMP.db"
+   rsync -a "$RT/data/uploads/" "<macbook>:Projects/technews/apps/server/uploads/"
    ```
 
 **On the MacBook**
 
 ```sh
 NODE=/Users/ozan/Projects/technews
-STAMP=<the value noted on the Mac mini>
+STAMP=<the value from the mini>
 ```
 
-4. Make sure Node is not running: `lsof -nP -iTCP:4001 -sTCP:LISTEN` prints
-   nothing.
-5. For option A: check the copy, keep the freeze-time database aside, then put
-   the Go database in place, never overwriting:
+3. Node is not running: `lsof -nP -iTCP:4001 -sTCP:LISTEN` prints nothing.
+4. Option A: check the copy, move the old database aside, put the Go one in
+   place, never overwriting:
 
    ```sh
    cd "$NODE/apps/server/data"
-   shasum -a 256 "incoming-rollback-$STAMP.db"                       # equals the Mac mini's
+   shasum -a 256 "incoming-rollback-$STAMP.db"          # equals the mini's
    mv -n technews.db "technews-before-rollback-$STAMP.db"
-   ls technews.db 2>/dev/null && echo "STOP: technews.db still in place"
    for f in technews.db-wal technews.db-shm; do [ -e "$f" ] && mv -n "$f" "technews-before-rollback-$STAMP.db${f#technews.db}"; done
+   ls technews.db 2>/dev/null && echo "STOP: technews.db still in place"
    mv -n "incoming-rollback-$STAMP.db" technews.db
-   ls "incoming-rollback-$STAMP.db" 2>/dev/null && echo "STOP: not moved"
    ```
 
-   (The freeze-time database was checkpointed when Node stopped, so no
-   `-wal`/`-shm` files are expected; if any exist, they move aside with it.)
-   For option B: change nothing; `technews.db` is the freeze-time database.
-6. Start the Node API the way it was supervised before the cutover (cutover
-   step 1.1), then `curl -fsS http://127.0.0.1:4001/api/health`.
-7. Start the MacBook's `technews` tunnel client again (and `technewsweb`, if it
-   was moved); check `curl -fsS https://technews.subtunnel.dev/api/health`.
-8. Restart the `news:daily` scheduler, only after step 1 (the Go publisher is
-   stopped).
-9. Restart the dashboard on the MacBook if it went back there. Verify as in
-   cutover steps 5.11-5.14: homepage, article pages, sitemap, newsletter
-   archive, `npm run smoke:production`, the GitHub smoke workflow, a dashboard
-   sign-in (sessions stay valid because both servers use the same
-   `JWT_SECRET`, unless it was rotated at cutover).
+   Option B: change nothing.
+5. Start the Node API the way it ran before, then
+   `curl -fsS http://127.0.0.1:4001/api/health`.
+6. Start the MacBook's `technews` subtunnel client; check
+   `curl -fsS https://technews.subtunnel.dev/api/health`.
+7. Restart the `news:daily` scheduler only now (the Go collector/publisher is
+   stopped, so nothing publishes twice).
+8. Verify: `https://www.aiandtech.news` shows current articles within 1-2
+   minutes, article pages, `/sitemap.xml`, the newsletter archive,
+   `npm run smoke:production`, and a dashboard sign-in (sessions stay valid if
+   both used the same `JWT_SECRET`).
 
 ## Notes
 
 - **Newsletter digest.** If Go already sent today's digest and Node runs one
   for the same edition within 24 hours, both use the same Resend idempotency
-  keys and byte-identical payloads, so Resend does not send it again. With
-  option B, Node has no record of Go's deliveries; avoid triggering a manual
-  digest for an edition Go already sent.
-- **Unsubscribe and confirm links** keep working in both directions as long as
-  both used the same `NEWSLETTER_TOKEN_SECRET`.
-- **Option B, carrying data back by hand.** With both files at hand
-  (`go.db` = the Mac mini copy, `node.db` = the MacBook database, Node stopped),
-  the Go-era rows can be listed with `sqlite3`, using the UTC cutover time
-  `T`. Timestamps are stored as text, so write `T` in the format the column
-  holds (look first: `SELECT updated_at FROM go.subscribers ORDER BY id DESC
-  LIMIT 3`; SQLite's `datetime('now')` format is `2026-09-30 10:00:00`, ISO
-  values look like `2026-09-30T10:00:00.000Z`):
+  keys and payloads, so Resend does not send it again. With option B, Node has
+  no record of Go's deliveries; do not trigger a manual digest for an edition
+  Go already sent.
+- **Unsubscribe and confirm links** keep working as long as both used the same
+  `NEWSLETTER_TOKEN_SECRET`.
+- **Option B, carrying data back by hand.** With `go.db` (a mini copy) and
+  `node.db` (the MacBook database, Node stopped), list Go-era rows by the UTC
+  cutover time `T`, written in the format the column holds (check first, for
+  example `SELECT updated_at FROM go.subscribers ORDER BY id DESC LIMIT 3`):
 
   ```sql
   ATTACH 'go.db' AS go;
-  -- subscribers created or changed on Go
   SELECT * FROM go.subscribers WHERE updated_at >= 'T' OR created_at >= 'T';
-  -- articles created or edited on Go
   SELECT id, slug, status, updated_at FROM go.articles WHERE updated_at >= 'T' OR created_at >= 'T';
-  -- media uploaded on Go
   SELECT * FROM go.media WHERE uploaded_at >= 'T';
-  -- deleted on Go: in node.db but not in go.db
-  SELECT id, slug FROM main.articles WHERE id NOT IN (SELECT id FROM go.articles);
+  SELECT id, slug FROM main.articles WHERE id NOT IN (SELECT id FROM go.articles);  -- deleted on Go
   ```
 
-  Re-apply them through the Node dashboard, or with `INSERT OR REPLACE`
-  statements reviewed row by row. Never delete either file; keep both until
-  the data is reconciled.
-- **Going forward again later.** The carried-back database is still adopted.
-  After Node has run on it, `bin/adopt` reports `already managed`; run the
-  rehearsal from cutover step 4 on a fresh copy before the next cutover (Node
-  does not change the schema, but the rehearsal proves it).
+  Re-apply them through the Node dashboard or reviewed `INSERT OR REPLACE`
+  statements. Never delete either file until the data is reconciled.
+- **Going forward again.** Bootstrap the mini's API agent, stop the MacBook's
+  client, bootstrap the tunnel agent. If Node wrote to a carried-back database,
+  copy it back and run `bin/adopt` (read-only) first: it should report
+  `already managed`.

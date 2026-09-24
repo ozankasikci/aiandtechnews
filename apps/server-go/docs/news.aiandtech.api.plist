@@ -1,63 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  launchd job for the Go API on the Mac mini (template).
+  LaunchAgent for the Go API on the Mac mini (template; see docs/cutover.md).
 
-  Replace __USER__ with the macOS account that owns the data (not root),
-  __HOME__ with its home directory (the AWS SDK reads ~/.aws/credentials from
-  it), and __ROOT__ with the absolute production data root, the directory
-  that holds .technews-production, technews.env, bin/, data/, uploads/, and
-  logs/.
+  Replace __RUNTIME__ with the absolute runtime directory on the internal disk
+  (/Users/ozankasikci/aiandtechnews). It holds .technews-production,
+  technews.env (600), bin/, data/, and logs/. launchd jobs cannot read the
+  external build drive, so nothing here may point at /Volumes.
 
-  Keep the filled-in file in $ROOT until cutover step 5: a LaunchDaemon starts
-  as soon as it is bootstrapped (and at every boot once it is in
-  /Library/LaunchDaemons). Install it as a LaunchDaemon, so it runs at boot
-  without a login session, only in that step:
+    cp news.aiandtech.api.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/news.aiandtech.api.plist
+    launchctl kickstart -k gui/$(id -u)/news.aiandtech.api   # restart
+    launchctl bootout gui/$(id -u)/news.aiandtech.api        # stop
 
-    sudo cp news.aiandtech.api.plist /Library/LaunchDaemons/
-    sudo chown root:wheel /Library/LaunchDaemons/news.aiandtech.api.plist
-    sudo chmod 644 /Library/LaunchDaemons/news.aiandtech.api.plist
-    sudo launchctl bootstrap system /Library/LaunchDaemons/news.aiandtech.api.plist
-
-  Restart after an env change:  sudo launchctl kickstart -k system/news.aiandtech.api
-  Stop (and keep stopped):      sudo launchctl bootout system/news.aiandtech.api
-
-  Secrets stay in technews.env (chmod 600), not in this file.
+  Secrets stay in technews.env, not in this file.
 -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>news.aiandtech.api</string>
 
-  <key>UserName</key>
-  <string>__USER__</string>
-
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>HOME</key>
-    <string>__HOME__</string>
-  </dict>
-
   <key>ProgramArguments</key>
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>set -a; . "__ROOT__/technews.env"; set +a; exec "__ROOT__/bin/api"</string>
+    <string>set -a; . "__RUNTIME__/technews.env"; set +a; exec "__RUNTIME__/bin/api"</string>
   </array>
 
   <key>WorkingDirectory</key>
-  <string>__ROOT__</string>
+  <string>__RUNTIME__</string>
+  <!-- Restart whenever the process exits, while the env file exists. -->
   <key>KeepAlive</key>
-  <!-- The data lives on an external drive: run only while it is mounted,
-       and restart whenever the process exits. -->
   <dict>
     <key>PathState</key>
     <dict>
-      <key>__ROOT__/technews.env</key>
+      <key>__RUNTIME__/technews.env</key>
       <true/>
     </dict>
   </dict>
-  <!-- Wait at least 10s between restarts (for example while the env is wrong). -->
   <key>ThrottleInterval</key>
   <integer>10</integer>
   <!-- SIGTERM starts a graceful shutdown (HTTP drain, then up to 15s for
@@ -66,9 +46,9 @@
   <integer>60</integer>
 
   <key>StandardOutPath</key>
-  <string>__ROOT__/logs/api.log</string>
+  <string>__RUNTIME__/logs/api.log</string>
   <key>StandardErrorPath</key>
-  <string>__ROOT__/logs/api.err.log</string>
+  <string>__RUNTIME__/logs/api.err.log</string>
 
   <key>SoftResourceLimits</key>
   <dict>

@@ -1,63 +1,49 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  launchd job for the dashboard (apps/dashboard, Next.js) on the Mac mini
-  (template). It serves on 127.0.0.1:3001 and proxies /api to the Go API on
-  127.0.0.1:4001 (apps/dashboard/next.config.ts).
+  LaunchAgent for the dashboard (apps/dashboard, Next standalone build) on the
+  Mac mini (template; see docs/cutover.md). It listens on 127.0.0.1:3001 only
+  and proxies /api to the Go API on 127.0.0.1:4001. Open it through
+  `ssh -L 3001:127.0.0.1:3001 ozankasikci@kasikcis-mac-mini.local`.
 
-  Replace __USER__ with the account that owns the checkout, __HOME__ with its
-  home directory, __REPO__ with the absolute path of the repository checkout
-  (after `pnpm install --frozen-lockfile` and
-  `pnpm --filter @technews/dashboard build`), and __LOGS__ with a log
-  directory. Check that __NODE_BIN__ (the directory holding `node`, for
-  example /opt/homebrew/bin) matches `dirname "$(command -v node)"`.
+  Replace __RUNTIME__ with the absolute runtime directory
+  (/Users/ozankasikci/aiandtechnews). It holds node/ (the Node runtime) and
+  dashboard/ (a copy of apps/dashboard/.next/standalone, with .next/static
+  copied into dashboard/apps/dashboard/.next/static).
 
-  Install and start only in cutover step 5 (see docs/cutover.md):
-
-    sudo cp news.aiandtech.dashboard.plist /Library/LaunchDaemons/
-    sudo chown root:wheel /Library/LaunchDaemons/news.aiandtech.dashboard.plist
-    sudo chmod 644 /Library/LaunchDaemons/news.aiandtech.dashboard.plist
-    sudo launchctl bootstrap system /Library/LaunchDaemons/news.aiandtech.dashboard.plist
-
-  Restart after a rebuild: sudo launchctl kickstart -k system/news.aiandtech.dashboard
+    cp news.aiandtech.dashboard.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/news.aiandtech.dashboard.plist
+    launchctl kickstart -k gui/$(id -u)/news.aiandtech.dashboard   # after a new build
 -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>news.aiandtech.dashboard</string>
 
-  <key>UserName</key>
-  <string>__USER__</string>
-
   <key>EnvironmentVariables</key>
   <dict>
-    <key>HOME</key>
-    <string>__HOME__</string>
-    <key>PATH</key>
-    <string>__NODE_BIN__:/usr/bin:/bin</string>
+    <key>HOSTNAME</key>
+    <string>127.0.0.1</string>
+    <key>PORT</key>
+    <string>3001</string>
     <key>NODE_ENV</key>
     <string>production</string>
   </dict>
 
   <key>ProgramArguments</key>
   <array>
-    <string>__REPO__/apps/dashboard/node_modules/.bin/next</string>
-    <string>start</string>
-    <string>-H</string>
-    <string>127.0.0.1</string>
-    <string>-p</string>
-    <string>3001</string>
+    <string>__RUNTIME__/node/bin/node</string>
+    <string>__RUNTIME__/dashboard/apps/dashboard/server.js</string>
   </array>
 
   <key>WorkingDirectory</key>
-  <string>__REPO__/apps/dashboard</string>
+  <string>__RUNTIME__/dashboard/apps/dashboard</string>
+  <!-- Restart whenever the process exits, while the build is in place. -->
   <key>KeepAlive</key>
-  <!-- The data lives on an external drive: run only while it is mounted,
-       and restart whenever the process exits. -->
   <dict>
     <key>PathState</key>
     <dict>
-      <key>__REPO__/apps/dashboard/.next/BUILD_ID</key>
+      <key>__RUNTIME__/dashboard/apps/dashboard/server.js</key>
       <true/>
     </dict>
   </dict>
@@ -65,8 +51,8 @@
   <integer>10</integer>
 
   <key>StandardOutPath</key>
-  <string>__LOGS__/dashboard.log</string>
+  <string>__RUNTIME__/logs/dashboard.log</string>
   <key>StandardErrorPath</key>
-  <string>__LOGS__/dashboard.err.log</string>
+  <string>__RUNTIME__/logs/dashboard.err.log</string>
 </dict>
 </plist>

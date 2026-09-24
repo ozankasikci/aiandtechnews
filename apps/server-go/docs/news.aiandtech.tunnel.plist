@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent for the subtunnel client that publishes the Go API as
+  https://technews.subtunnel.dev (template; see docs/cutover.md).
+
+  Replace __RUNTIME__ with the absolute runtime directory
+  (/Users/ozankasikci/aiandtechnews). __RUNTIME__/subtunnel.toml (600) holds
+  the server, the token, and [tunnels.technews] local_port = 4001,
+  subdomain = "technews".
+
+  Only one client can hold the subdomain: stop the old one first. Stopping
+  this job and starting the MacBook's client is the rollback.
+
+    cp news.aiandtech.tunnel.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/news.aiandtech.tunnel.plist
+    launchctl bootout gui/$(id -u)/news.aiandtech.tunnel
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>news.aiandtech.tunnel</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__RUNTIME__/bin/subtunnel</string>
+    <string>run</string>
+    <string>--config</string>
+    <string>__RUNTIME__/subtunnel.toml</string>
+    <string>technews</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__RUNTIME__</string>
+  <!-- Reconnect whenever the client exits, while its config exists. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>PathState</key>
+    <dict>
+      <key>__RUNTIME__/subtunnel.toml</key>
+      <true/>
+    </dict>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>__RUNTIME__/logs/tunnel.log</string>
+  <key>StandardErrorPath</key>
+  <string>__RUNTIME__/logs/tunnel.err.log</string>
+</dict>
+</plist>
