@@ -581,3 +581,72 @@ func TestLoadFeaturedImageSource(t *testing.T) {
 		t.Error("FEATURED_IMAGE_SOURCE=hotlink: want an error")
 	}
 }
+
+func TestLoadFeaturedImageChain(t *testing.T) {
+	cases := []struct {
+		env           map[string]string
+		wantChain     []string
+		wantAnalyzers []string
+	}{
+		{map[string]string{}, []string{"gemini"}, []string{"gemini"}},
+		{map[string]string{"FEATURED_IMAGE_SOURCE": "source"}, []string{"source"}, nil},
+		{map[string]string{"FEATURED_IMAGE_SOURCE": "generate"}, []string{"gemini"}, []string{"gemini"}},
+		{map[string]string{"FEATURED_IMAGE_CHAIN": "codex,gemini,source"}, []string{"codex", "gemini", "source"}, []string{"codex", "gemini"}},
+		{map[string]string{"FEATURED_IMAGE_CHAIN": " Gemini , codex ", "FEATURED_IMAGE_SOURCE": "source"}, []string{"gemini", "codex"}, []string{"gemini", "codex"}},
+		{map[string]string{"FEATURED_IMAGE_CHAIN": "codex,source", "FEATURED_IMAGE_ANALYZER": "gemini"}, []string{"codex", "source"}, []string{"gemini"}},
+	}
+	for _, tc := range cases {
+		cfg, err := Load(mapLookup(tc.env), t.TempDir())
+		if err != nil {
+			t.Fatalf("%v: %v", tc.env, err)
+		}
+		if fmt.Sprint(cfg.FeaturedImageChain) != fmt.Sprint(tc.wantChain) || fmt.Sprint(cfg.FeaturedImageAnalyzers) != fmt.Sprint(tc.wantAnalyzers) {
+			t.Errorf("%v: chain %v analyzers %v, want %v %v", tc.env, cfg.FeaturedImageChain, cfg.FeaturedImageAnalyzers, tc.wantChain, tc.wantAnalyzers)
+		}
+	}
+	for _, bad := range []map[string]string{
+		{"FEATURED_IMAGE_CHAIN": "codex,dalle"},
+		{"FEATURED_IMAGE_CHAIN": "codex,codex"},
+		{"FEATURED_IMAGE_CHAIN": " , "},
+		{"FEATURED_IMAGE_ANALYZER": "source"},
+		{"CODEX_TIMEOUT": "5s"},
+		{"CODEX_TIMEOUT": "soon"},
+	} {
+		if _, err := Load(mapLookup(bad), t.TempDir()); err == nil {
+			t.Errorf("%v: want an error", bad)
+		}
+	}
+}
+
+func TestLoadCodexSettings(t *testing.T) {
+	cfg, err := Load(mapLookup(map[string]string{"CODEX_BIN": "/opt/codex", "CODEX_NODE_DIR": "/opt/node/bin", "CUTOUT_BIN": "/opt/cutout", "CODEX_TIMEOUT": "3m"}), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CodexBin != "/opt/codex" || cfg.CodexNodeDir != "/opt/node/bin" || cfg.CutoutBin != "/opt/cutout" || cfg.CodexTimeout != 3*time.Minute {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+	if cfg, _ := Load(mapLookup(map[string]string{}), t.TempDir()); cfg.CodexTimeout != DefaultCodexTimeout {
+		t.Fatalf("default CodexTimeout = %s", cfg.CodexTimeout)
+	}
+}
+
+func TestPublisherWithCodexRequiresCodexBin(t *testing.T) {
+	env := publisherEnv()
+	env["FEATURED_IMAGE_CHAIN"] = "codex,gemini"
+	if _, err := Load(mapLookup(env), t.TempDir()); err == nil || !strings.Contains(err.Error(), "CODEX_BIN") {
+		t.Fatalf("err = %v, want CODEX_BIN required", err)
+	}
+	env["CODEX_BIN"] = "relative/codex"
+	if _, err := Load(mapLookup(env), t.TempDir()); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("err = %v, want absolute path error", err)
+	}
+	env["CODEX_BIN"] = "/Users/x/aiandtechnews/tools/codex/node_modules/.bin/codex"
+	if _, err := Load(mapLookup(env), t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	env["CUTOUT_BIN"] = "cutout"
+	if _, err := Load(mapLookup(env), t.TempDir()); err == nil {
+		t.Fatal("relative CUTOUT_BIN: want an error")
+	}
+}

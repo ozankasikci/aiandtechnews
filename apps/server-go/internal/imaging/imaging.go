@@ -38,6 +38,10 @@ const (
 	MaxPixels    = 40_000_000
 )
 
+// Decode decodes a JPEG, PNG, GIF or WebP after checking the declared size
+// against the decompression-bomb limits.
+func Decode(data []byte) (image.Image, error) { return decode(data) }
+
 func decode(data []byte) (image.Image, error) {
 	config, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {

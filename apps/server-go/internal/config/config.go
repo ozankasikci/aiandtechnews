@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -121,13 +122,30 @@ type Config struct {
 	GeminiImageModel  string
 	GeminiImageSize   string // GEMINI_IMAGE_SIZE: 1K, 2K or 4K (default 2K; lite image models only support 1K)
 	// FeaturedImageSource is FEATURED_IMAGE_SOURCE: "generate" (Gemini illustration, default)
-	// or "source" (copy the source article's own image).
+	// or "source" (copy the source article's own image). It is the legacy
+	// spelling of FeaturedImageChain: generate means [gemini], source means [source].
 	FeaturedImageSource string
-	GeminiVisionModel   string
-	AWSRegion           string
-	S3Bucket            string
-	S3Prefix            string
-	S3PublicURL         string
+	// FeaturedImageChain is FEATURED_IMAGE_CHAIN, the providers tried in
+	// order: codex, gemini and source, e.g. "codex,gemini,source".
+	FeaturedImageChain []string
+	// FeaturedImageAnalyzers is FEATURED_IMAGE_ANALYZER: the analyzers
+	// (codex, gemini) tried in order. It defaults to the chain's codex and
+	// gemini entries in chain order.
+	FeaturedImageAnalyzers []string
+	// CodexBin (CODEX_BIN) is the Codex CLI; CodexNodeDir (CODEX_NODE_DIR) is
+	// the directory of the node binary it needs on PATH; CodexTimeout
+	// (CODEX_TIMEOUT, default 4m) bounds one run.
+	CodexBin     string
+	CodexNodeDir string
+	CodexTimeout time.Duration
+	// CutoutBin (CUTOUT_BIN) is tools/cutout; empty disables the
+	// public-figure collage.
+	CutoutBin         string
+	GeminiVisionModel string
+	AWSRegion         string
+	S3Bucket          string
+	S3Prefix          string
+	S3PublicURL       string
 
 	// IndexNowEnabled wires the IndexNow notifier into the publisher. When
 	// false (the default), published URLs are not submitted to IndexNow.
@@ -148,11 +166,11 @@ type Config struct {
 
 func (c Config) String() string {
 	return fmt.Sprintf("Config{Mode:%q Address:%q TimeZone:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
-		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q GeminiVisionModel:%q "+
+		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q FeaturedImageChain:%q FeaturedImageAnalyzers:%q CodexBin:%q CodexNodeDir:%q CodexTimeout:%s CutoutBin:%q GeminiVisionModel:%q "+
 		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t "+
 		"NewsletterSiteURL:%q NewsletterTokenSecret:[REDACTED] NewsletterCronSecret:[REDACTED] ResendAPIKey:[REDACTED] NewsletterFrom:%q NewsletterReplyTo:%q}",
 		c.Mode, c.Address, c.TimeZone, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
-		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.GeminiVisionModel,
+		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.FeaturedImageChain, c.FeaturedImageAnalyzers, c.CodexBin, c.CodexNodeDir, c.CodexTimeout, c.CutoutBin, c.GeminiVisionModel,
 		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled,
 		c.NewsletterSiteURL, c.NewsletterFrom, c.NewsletterReplyTo)
 }
@@ -230,10 +248,35 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	switch source := lookup("FEATURED_IMAGE_SOURCE"); source {
 	case "", "generate":
 		cfg.FeaturedImageSource = "generate"
+		cfg.FeaturedImageChain = []string{ImageProviderGemini}
 	case "source":
 		cfg.FeaturedImageSource = source
+		cfg.FeaturedImageChain = []string{ImageProviderSource}
 	default:
 		return Config{}, fmt.Errorf("FEATURED_IMAGE_SOURCE must be generate or source, got %q", source)
+	}
+	if value := lookup("FEATURED_IMAGE_CHAIN"); value != "" {
+		chain, err := ParseImageChain(value)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.FeaturedImageChain = chain
+	}
+	analyzers, err := ParseImageAnalyzers(lookup("FEATURED_IMAGE_ANALYZER"), cfg.FeaturedImageChain)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.FeaturedImageAnalyzers = analyzers
+	cfg.CodexBin = lookup("CODEX_BIN")
+	cfg.CodexNodeDir = lookup("CODEX_NODE_DIR")
+	cfg.CutoutBin = lookup("CUTOUT_BIN")
+	cfg.CodexTimeout = DefaultCodexTimeout
+	if value := lookup("CODEX_TIMEOUT"); value != "" {
+		timeout, err := time.ParseDuration(value)
+		if err != nil || timeout < 30*time.Second {
+			return Config{}, fmt.Errorf("CODEX_TIMEOUT must be a duration of at least 30s, got %q", value)
+		}
+		cfg.CodexTimeout = timeout
 	}
 	switch size := lookup("GEMINI_IMAGE_SIZE"); size {
 	case "":
@@ -536,8 +579,18 @@ func (c Config) validatePublisher() error {
 	if c.S3PublicURL == "" {
 		missing = append(missing, "S3_FEATURE_IMAGE_PUBLIC_URL")
 	}
+	if slices.Contains(c.FeaturedImageChain, ImageProviderCodex) || slices.Contains(c.FeaturedImageAnalyzers, ImageProviderCodex) {
+		if c.CodexBin == "" {
+			missing = append(missing, "CODEX_BIN")
+		}
+	}
 	if len(missing) > 0 {
 		return fmt.Errorf("PUBLISHER_ENABLED requires %s", strings.Join(missing, ", "))
+	}
+	for name, path := range map[string]string{"CODEX_BIN": c.CodexBin, "CODEX_NODE_DIR": c.CodexNodeDir, "CUTOUT_BIN": c.CutoutBin} {
+		if path != "" && !filepath.IsAbs(path) {
+			return fmt.Errorf("%s must be an absolute path", name)
+		}
 	}
 	prefix := strings.Trim(c.S3Prefix, "/")
 	if prefix == "" {
@@ -659,4 +712,60 @@ func canonicalPath(path string) (string, error) {
 	}
 	parts := append([]string{resolved}, suffix...)
 	return filepath.Clean(filepath.Join(parts...)), nil
+}
+
+// Featured-image provider names (FEATURED_IMAGE_CHAIN, FEATURED_IMAGE_ANALYZER).
+const (
+	ImageProviderCodex  = "codex"
+	ImageProviderGemini = "gemini"
+	ImageProviderSource = "source"
+)
+
+// DefaultCodexTimeout bounds one codex exec run when CODEX_TIMEOUT is unset.
+const DefaultCodexTimeout = 4 * time.Minute
+
+// ParseImageChain parses FEATURED_IMAGE_CHAIN: a comma-separated, non-empty
+// list of codex, gemini and source without repeats.
+func ParseImageChain(value string) ([]string, error) {
+	chain, err := parseProviderList("FEATURED_IMAGE_CHAIN", value, []string{ImageProviderCodex, ImageProviderGemini, ImageProviderSource})
+	if err != nil {
+		return nil, err
+	}
+	if len(chain) == 0 {
+		return nil, errors.New("FEATURED_IMAGE_CHAIN must name at least one of codex, gemini, source")
+	}
+	return chain, nil
+}
+
+// ParseImageAnalyzers parses FEATURED_IMAGE_ANALYZER (codex, gemini). Empty
+// means the chain's codex and gemini entries, in chain order.
+func ParseImageAnalyzers(value string, chain []string) ([]string, error) {
+	if strings.TrimSpace(value) == "" {
+		var analyzers []string
+		for _, provider := range chain {
+			if provider == ImageProviderCodex || provider == ImageProviderGemini {
+				analyzers = append(analyzers, provider)
+			}
+		}
+		return analyzers, nil
+	}
+	return parseProviderList("FEATURED_IMAGE_ANALYZER", value, []string{ImageProviderCodex, ImageProviderGemini})
+}
+
+func parseProviderList(name, value string, allowed []string) ([]string, error) {
+	var list []string
+	for _, item := range strings.Split(value, ",") {
+		item = strings.ToLower(strings.TrimSpace(item))
+		if item == "" {
+			continue
+		}
+		if !slices.Contains(allowed, item) {
+			return nil, fmt.Errorf("%s: unknown provider %q (want %s)", name, item, strings.Join(allowed, ", "))
+		}
+		if slices.Contains(list, item) {
+			return nil, fmt.Errorf("%s: %q is listed twice", name, item)
+		}
+		list = append(list, item)
+	}
+	return list, nil
 }

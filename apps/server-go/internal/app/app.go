@@ -177,11 +177,19 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			gemini.WithVisionModel(cfg.GeminiVisionModel))
 		imageStore := media.NewStore(media.Config{Region: cfg.AWSRegion, Bucket: cfg.S3Bucket, Prefix: cfg.S3Prefix, PublicBaseURL: cfg.S3PublicURL},
 			objectAPI, newPublicHTTPClient(), now)
-		var illustrator publisher.Illustrator = illustration.NewS3Illustrator(
-			illustration.NewGenerator(geminiClient, logger), imageStore, illustration.NewReferenceClient(), logger)
-		if cfg.FeaturedImageSource == "source" {
-			illustrator = illustration.NewSourceImageIllustrator(imageStore, illustration.NewReferenceClient(), logger)
-		}
+		illustrator := illustration.NewPipeline(illustration.BuildPipelineDeps(illustration.PipelineConfig{
+			Chain:        cfg.FeaturedImageChain,
+			Analyzers:    cfg.FeaturedImageAnalyzers,
+			CodexBin:     cfg.CodexBin,
+			CodexNodeDir: cfg.CodexNodeDir,
+			CodexTimeout: cfg.CodexTimeout,
+			CutoutBin:    cfg.CutoutBin,
+			Gemini:       geminiClient,
+			Store:        imageStore,
+			HTTP:         illustration.NewReferenceClient(),
+			Logger:       logger,
+		}))
+		logger.Info("featured image pipeline", "chain", cfg.FeaturedImageChain, "analyzers", cfg.FeaturedImageAnalyzers, "collage", cfg.CutoutBin != "")
 		newsPublisher := publisher.New(publisher.Deps{
 			Store:       newsroomStore,
 			Fetcher:     collector.NewFetcher(),
