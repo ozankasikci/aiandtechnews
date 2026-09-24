@@ -57,6 +57,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 	chainFlag := flags.String("chain", getenv("FEATURED_IMAGE_CHAIN"), "providers in order, e.g. codex,gemini,source")
 	analyzerFlag := flags.String("analyzer", getenv("FEATURED_IMAGE_ANALYZER"), "analyzers in order (default: from the chain)")
 	outDir := flags.String("out", "", "output folder (default ./imagegen-try-<candidate or time>)")
+	analyzeOnly := flags.Bool("analyze-only", false, "only run the analyzers and print the brief")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -108,9 +109,14 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 		// No Store: Produce never uploads.
 	}))
 
-	result, produceErr := pipeline.Produce(ctx, publisher.IllustrationRequest{
-		Slug: "imagegen-try-" + label, Title: *title, Excerpt: *excerpt, ReferenceImageURL: *imageURL,
-	})
+	request := publisher.IllustrationRequest{Slug: "imagegen-try-" + label, Title: *title, Excerpt: *excerpt, ReferenceImageURL: *imageURL}
+	if *analyzeOnly {
+		report, err := pipeline.AnalyzeOnly(ctx, request)
+		encoded, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(encoded))
+		return err
+	}
+	result, produceErr := pipeline.Produce(ctx, request)
 	out := output{Candidate: *candidate, Title: *title, ImageURL: *imageURL, Chain: chain, Analyzers: analyzers, Report: result.Report}
 	if produceErr != nil {
 		out.Error = produceErr.Error()

@@ -87,14 +87,14 @@ func TestParseBriefNormalizesStyleCase(t *testing.T) {
 
 func TestAnalyzePromptOffersEveryStyleAndForbidsBrands(t *testing.T) {
 	catalog := styles.MustLoad()
-	prompt := illustration.BuildAnalyzePrompt("Headline X", "Summary Y", catalog, true)
+	prompt := illustration.BuildAnalyzePrompt("Headline X", "Summary Y", "https://cdn.test/ceo-jane-doe.png", catalog, true)
 	for _, want := range []string{"Headline: Headline X", "Summary: Summary Y", `"gouache"`, `"anime"`, "public_figure", "visible_in_source",
-		"logos, brand names", "flags, national emblems or coats of arms", "visual metaphor", "Never set it for private individuals", "attached image"} {
+		"logos, brand names", "flags, national emblems or coats of arms", "visual metaphor", "Never set it for private individuals", "attached image", "ceo-jane-doe.png", "do not need to recognize the face"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("analyze prompt lacks %q", want)
 		}
 	}
-	if noImage := illustration.BuildAnalyzePrompt("H", "S", catalog, false); !strings.Contains(noImage, "No source image is available") {
+	if noImage := illustration.BuildAnalyzePrompt("H", "S", "", catalog, false); !strings.Contains(noImage, "No source image is available") {
 		t.Error("text-only prompt should say there is no image")
 	}
 }

@@ -109,8 +109,9 @@ func (b Brief) Text() string {
 // source image.
 func (b Brief) WantsCollage() bool { return b.PublicFigure != nil && b.PublicFigure.VisibleInSource }
 
-// BuildAnalyzePrompt asks a vision model for a Brief.
-func BuildAnalyzePrompt(title, excerpt string, catalog styles.Catalog, hasImage bool) string {
+// BuildAnalyzePrompt asks a vision model for a Brief. imageURL is the source
+// image's address: its file name often names the person pictured.
+func BuildAnalyzePrompt(title, excerpt, imageURL string, catalog styles.Catalog, hasImage bool) string {
 	var styleLines strings.Builder
 	for _, style := range catalog.All() {
 		fmt.Fprintf(&styleLines, "- %q: %s Look: %s\n", style.Name, style.Summary, style.Prompt)
@@ -118,6 +119,9 @@ func BuildAnalyzePrompt(title, excerpt string, catalog styles.Catalog, hasImage 
 	imageLine := "No source image is available; work from the headline and summary."
 	if hasImage {
 		imageLine = "The attached image is the news source's own image. Use it to understand the story, but do not describe it for copying: the new illustration must be original."
+		if imageURL != "" {
+			imageLine += fmt.Sprintf("\nSource image address (its file name may say who is pictured): %s", imageURL)
+		}
 	}
 	return fmt.Sprintf(`You are the art director of an AI and technology news site. Write the brief for an ORIGINAL featured illustration of this story.
 
@@ -133,7 +137,7 @@ Return only a JSON object with exactly these keys:
 - "mood": a few words, the emotional tone.
 - "style": exactly one of %s. Pick the style that fits this story best:
 %s- "style_reason": one short sentence on why that style fits.
-- "public_figure": null, or {"name": "...", "visible_in_source": true|false}. Set it ONLY for a clearly identifiable, newsworthy public figure (such as a CEO, founder, researcher of note or politician) who is named in the headline or summary. "visible_in_source" is true only when that person is clearly visible in the attached image. Never set it for private individuals, anonymous people or crowds.
+- "public_figure": null, or {"name": "...", "visible_in_source": true|false}. This field is separate from the illustration and is used to credit a real press photo. Set it when the headline or summary names a newsworthy public figure (such as a CEO, founder, prominent researcher or politician) who is part of the story, even if only quoted; use the most central one. Never set it for private individuals, anonymous people or crowds. "visible_in_source" is true when the attached image is a photo whose main subject is one clearly visible real person and the context (headline, summary, image file name) indicates that person is the named figure; you do not need to recognize the face. Otherwise false.
 
 Rules for scene, foreground, background and mood:
 - Never ask for logos, brand names, product names, company names, readable text, letters, numbers, signs, screens with text, flags, national emblems or coats of arms.

@@ -131,8 +131,25 @@ func (p *Pipeline) Produce(ctx context.Context, request publisher.IllustrationRe
 		logger.WarnContext(ctx, "featured image pipeline failed", "errors", run.report.Errors)
 		return Result{Report: *run.report}, err
 	}
-	logger.InfoContext(ctx, "featured image ready", "provider", run.report.Provider, "attempts", len(run.report.Attempts))
+	generations := 0
+	for _, attempt := range run.report.Attempts {
+		if attempt.Provider == run.report.Provider {
+			generations++
+		}
+	}
+	logger.InfoContext(ctx, "featured image ready", "provider", run.report.Provider, "generations", generations)
 	return Result{Image: image, Report: *run.report}, nil
+}
+
+// AnalyzeOnly fetches the source image and runs the analyzers, without
+// generating anything. It is for tuning briefs (cmd/imagegen-try -analyze-only).
+func (p *Pipeline) AnalyzeOnly(ctx context.Context, request publisher.IllustrationRequest) (Report, error) {
+	run := &pipelineRun{p: p, request: request, report: &Report{}}
+	run.fetchSource(ctx)
+	if run.analyze(ctx) == nil {
+		return *run.report, classifyChainFailure(run.errs)
+	}
+	return *run.report, nil
 }
 
 type pipelineRun struct {
@@ -151,17 +168,7 @@ func (r *pipelineRun) fail(provider string, attempt int, started time.Time, err 
 
 func (r *pipelineRun) produce(ctx context.Context) ([]byte, error) {
 	deps := r.p.deps
-	source, err := FetchReference(ctx, deps.HTTP, r.request.ReferenceImageURL)
-	if err != nil {
-		deps.Logger.InfoContext(ctx, "source image unusable", "url", r.request.ReferenceImageURL, "reason", err)
-	}
-	if source != nil {
-		if _, err := imaging.Decode(source); err == nil {
-			r.source = source
-		} else {
-			deps.Logger.InfoContext(ctx, "source image could not be decoded", "url", r.request.ReferenceImageURL, "error", err)
-		}
-	}
+	r.fetchSource(ctx)
 
 	var brief *Brief
 	for _, step := range deps.Chain {
@@ -204,10 +211,26 @@ func (r *pipelineRun) produce(ctx context.Context) ([]byte, error) {
 	return nil, classifyChainFailure(r.errs)
 }
 
+func (r *pipelineRun) fetchSource(ctx context.Context) {
+	deps := r.p.deps
+	source, err := FetchReference(ctx, deps.HTTP, r.request.ReferenceImageURL)
+	if err != nil {
+		deps.Logger.InfoContext(ctx, "source image unusable", "url", r.request.ReferenceImageURL, "reason", err)
+	}
+	if source != nil {
+		if _, err := imaging.Decode(source); err == nil {
+			r.source = source
+		} else {
+			deps.Logger.InfoContext(ctx, "source image could not be decoded", "url", r.request.ReferenceImageURL, "error", err)
+		}
+	}
+}
+
 func (r *pipelineRun) analyze(ctx context.Context) *Brief {
 	deps := r.p.deps
 	input := AnalyzeInput{Title: r.request.Title, Excerpt: r.request.Excerpt}
 	if r.source != nil {
+		input.ImageURL = r.request.ReferenceImageURL
 		if normalized, err := imaging.FitJPEG(r.source, analyzeMaxEdge, analyzeQuality); err == nil {
 			input.Source = normalized
 		}

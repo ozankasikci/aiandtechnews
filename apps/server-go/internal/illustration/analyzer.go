@@ -16,9 +16,10 @@ const analyzeTimeout = 2 * time.Minute
 // AnalyzeInput is what an analyzer sees: the headline, excerpt and the
 // source image as a normalized JPEG (nil when there is none).
 type AnalyzeInput struct {
-	Title   string
-	Excerpt string
-	Source  []byte
+	Title    string
+	Excerpt  string
+	ImageURL string
+	Source   []byte
 }
 
 // Analyzer turns a story and its source image into a Brief.
@@ -49,7 +50,7 @@ func (a *GeminiAnalyzer) Name() string { return ProviderGemini }
 func (a *GeminiAnalyzer) Analyze(ctx context.Context, input AnalyzeInput) (Brief, error) {
 	ctx, cancel := context.WithTimeout(ctx, analyzeTimeout)
 	defer cancel()
-	prompt := BuildAnalyzePrompt(input.Title, input.Excerpt, a.catalog, input.Source != nil)
+	prompt := BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, a.catalog, input.Source != nil)
 	var raw string
 	var err error
 	if input.Source != nil {
@@ -96,7 +97,7 @@ func (a *CodexAnalyzer) Analyze(ctx context.Context, input AnalyzeInput) (Brief,
 		Dir:     dir,
 		Sandbox: "read-only",
 		Extra:   []string{"--output-schema", schemaPath, "-o", answerPath},
-		Prompt:  BuildAnalyzePrompt(input.Title, input.Excerpt, a.catalog, input.Source != nil) + "\n\nDo not run any commands. Answer with the JSON object only.",
+		Prompt:  BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, a.catalog, input.Source != nil) + "\n\nDo not run any commands. Answer with the JSON object only.",
 	}
 	if input.Source != nil {
 		sourcePath := filepath.Join(dir, "source.jpg")
