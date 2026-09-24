@@ -194,7 +194,7 @@ Build in the workspace (`pnpm install --frozen-lockfile`,
 `pnpm --filter @technews/dashboard build`, standalone output), then copy
 `apps/dashboard/.next/standalone/` to `$RT/dashboard/` and
 `apps/dashboard/.next/static/` to `$RT/dashboard/apps/dashboard/.next/static/`.
-`$RT/node` is a copy of `$WS/tools/node`. Restart with
+`$RT/node/bin/node` is a copy of the `$WS/tools/node/bin/node` binary (the standalone server needs nothing else from Node). Restart with
 `launchctl kickstart -k gui/$(id -u)/news.aiandtech.dashboard`.
 
 Open it from a dev machine:
