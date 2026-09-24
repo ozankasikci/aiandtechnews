@@ -144,9 +144,12 @@ func (p *Pipeline) Produce(ctx context.Context, request publisher.IllustrationRe
 // AnalyzeOnly fetches the source image and runs the analyzers, without
 // generating anything. It is for tuning briefs (cmd/imagegen-try -analyze-only).
 func (p *Pipeline) AnalyzeOnly(ctx context.Context, request publisher.IllustrationRequest) (Report, error) {
+	started := p.deps.Now()
 	run := &pipelineRun{p: p, request: request, report: &Report{}}
 	run.fetchSource(ctx)
-	if run.analyze(ctx) == nil {
+	brief := run.analyze(ctx)
+	run.report.Seconds = p.deps.Now().Sub(started).Seconds()
+	if brief == nil {
 		return *run.report, classifyChainFailure(run.errs)
 	}
 	return *run.report, nil

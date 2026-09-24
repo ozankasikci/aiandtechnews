@@ -24,7 +24,7 @@ const (
 	cutoutBottomCrop  = 0.11 // the cut-out's bottom 11% is dropped (captions, watermarks)
 	personHeightShare = 0.90 // the person is 90% of the canvas height
 	personCentreX     = 0.24 // centred at 24% of the width
-	personMaxWidth    = 0.46 // never wider than the empty left side
+	personMaxWidth    = 0.60 // a very wide subject (a group) is shrunk so the scene stays visible
 	outlineAtHeight   = 14.0 // sticker outline in px at a 941px-high canvas
 	outlineRefHeight  = 941.0
 	shadowOpacity     = 0.35
@@ -135,7 +135,7 @@ func PrepareCutout(data []byte) (*image.NRGBA, error) {
 }
 
 // Composite places the person on the background: 90% of the canvas height,
-// bottom-anchored, centred at 24% of the width, with a white sticker outline
+// bottom-anchored, centred at 24% of the width (at most 60% wide), with a white sticker outline
 // and a soft shadow. The person's pixels are only resampled, never redrawn.
 func Composite(background image.Image, person *image.NRGBA) *image.RGBA {
 	bounds := background.Bounds()
@@ -150,8 +150,8 @@ func Composite(background image.Image, person *image.NRGBA) *image.RGBA {
 	}
 	tw, th := max(1, int(math.Round(pw*scale))), max(1, int(math.Round(ph*scale)))
 	radius := outlineAtHeight * float64(height) / outlineRefHeight
+	// A broad subject may run off the left edge, like a cropped press photo.
 	x0 := int(math.Round(personCentreX*float64(width) - float64(tw)/2))
-	x0 = max(x0, int(math.Ceil(radius)))
 	y0 := height - th
 	placed := image.Rect(x0, y0, x0+tw, y0+th)
 

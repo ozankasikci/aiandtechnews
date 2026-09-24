@@ -122,9 +122,25 @@ func TestCompositeLimitsWidePeople(t *testing.T) {
 		wide.Pix[i] = 255
 	}
 	out := illustration.Composite(background, wide)
-	// Never wider than 46% of the canvas, so the right side stays clear.
-	if got := out.RGBAAt(int(0.24*1600)+int(0.46*1600)/2+20, 899); got.A != 0 && (got.R|got.G|got.B) != 0 {
+	// Never wider than 60% of the canvas, so the right side stays clear.
+	if got := out.RGBAAt(int(0.24*1600)+int(0.60*1600)/2+20, 899); got.A != 0 && (got.R|got.G|got.B) != 0 {
 		t.Fatalf("pixel right of a wide person = %v", got)
+	}
+}
+
+func TestCompositeLetsBroadShouldersRunOffTheLeftEdge(t *testing.T) {
+	background := image.NewRGBA(image.Rect(0, 0, 1600, 900))
+	broad := image.NewNRGBA(image.Rect(0, 0, 550, 500))
+	for i := 0; i < len(broad.Pix); i += 4 {
+		broad.Pix[i], broad.Pix[i+3] = 255, 255
+	}
+	out := illustration.Composite(background, broad)
+	// 90% of 900 = 810 tall, 891 wide, centred at 384: it starts off-canvas.
+	if got := out.RGBAAt(0, 899); got.R != 255 {
+		t.Fatalf("left edge pixel = %v, want the person", got)
+	}
+	if got := out.RGBAAt(384, 900-805); got.R != 255 || got.G != 0 {
+		t.Fatalf("top of the person = %v", got)
 	}
 }
 
