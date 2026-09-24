@@ -110,15 +110,54 @@ tail -f ~/aiandtechnews/logs/api.log                              # live request
 - **JWT secret:** `JWT_SECRET` was newly generated at cutover, so editors
   signed in again.
 - **Illustrations:** `FEATURED_IMAGE_SOURCE=source` copies the source article's
-  image to S3. Set it to `generate` for Gemini illustrations
-  (`GEMINI_IMAGE_MODEL=gemini-3.1-flash-lite-image`, `GEMINI_IMAGE_SIZE=1K`;
-  the lite model rejects 2K). Generated images often failed the "no text"
-  compliance check.
+  image to S3. The featured-image pipeline is switched on with
+  `FEATURED_IMAGE_CHAIN` (see below). `GEMINI_IMAGE_MODEL=gemini-3.1-flash-lite-image`,
+  `GEMINI_IMAGE_SIZE=1K` (the lite model rejects 2K).
 - **AWS:** profile `aiandtech` in the mini's `~/.aws/credentials`, region
   `eu-west-1`, bucket `aiandtech-feature-images-106111531869`, prefix
   `features`. The IAM user can only write under `features/`.
 - **Newsletter:** a Vercel cron triggers the digest (`/api/newsletter/digest`,
   05:00 UTC) using `NEWSLETTER_CRON_SECRET`.
+
+## Featured-image pipeline (Codex, Gemini, collage)
+
+For each article, an analyzer (Codex or Gemini vision) looks at the source
+image and headline and writes a brief: scene, foreground, background, mood,
+one of the house styles (`internal/illustration/styles`: gouache or anime) and
+any public figure named in the story. The providers in `FEATURED_IMAGE_CHAIN`
+are then tried in order until one image passes the Gemini compliance review.
+When the analyzer sees a named public figure in the source photo, the person is
+cut out of it (`CUTOUT_BIN`) and pasted onto a generated background with a
+white sticker outline. Logs say which analyzer, style, provider and whether
+the collage was used (`featured image ready`).
+
+| Setting | Value on the mini |
+|---|---|
+| `FEATURED_IMAGE_CHAIN` | e.g. `codex,gemini,source` (not set yet: production still uses `FEATURED_IMAGE_SOURCE=source`) |
+| `FEATURED_IMAGE_ANALYZER` | empty: the chain's codex and gemini entries |
+| `CODEX_BIN` | `/Users/ozankasikci/aiandtechnews/tools/codex/node_modules/.bin/codex` |
+| `CODEX_NODE_DIR` | `/Users/ozankasikci/aiandtechnews/node/bin` |
+| `CUTOUT_BIN` | `/Users/ozankasikci/aiandtechnews/bin/cutout` |
+
+- **Everything runs from the internal disk.** The Codex npm install was copied
+  from the SSD (`tools/codex`) to `~/aiandtechnews/tools/codex`. To upgrade:
+  `npm install @openai/codex@latest` in the SSD copy, then
+  `rsync -a --delete /Volumes/Samsung990PRO/AIAndTechNews/tools/codex/ ~/aiandtechnews/tools/codex/`.
+- **Codex login.** Codex uses the ChatGPT plan login in `~/.codex/auth.json`
+  (never an API key; the API strips `OPENAI_API_KEY` from its environment).
+  When the log says **"Codex needs re-login"**, run on the mini:
+  `PATH=~/aiandtechnews/node/bin:$PATH ~/aiandtechnews/tools/codex/node_modules/.bin/codex login --device-auth`
+  and follow the device-code prompt. `codex login status` checks it. Until
+  then the chain falls through to the next provider.
+- **Cut-out tool:** build it with
+  `swiftc -O -o ~/aiandtechnews/bin/cutout apps/server-go/tools/cutout/cutout.swift`.
+- **Timing:** a Codex image takes about 60-150s (limit `CODEX_TIMEOUT`, 4m),
+  at most 2 per article before falling through; analysis about 10-30s.
+- **Dry run** (no database, no upload):
+  `$W/bin/imagegen-try -candidate 136 -title "..." -excerpt "..." -image-url "..." -chain codex,gemini,source -out /tmp/try-136`
+  with `technews.env`, `CODEX_BIN`, `CODEX_NODE_DIR` and `CUTOUT_BIN` in the
+  environment. It writes `final.png`, `final.webp` and `report.json`.
+  `imagegen-test/pipeline-try.sh <id> -title ... -image-url ...` wraps this.
 
 ## Handy scripts (in `~/aiandtechnews`)
 
