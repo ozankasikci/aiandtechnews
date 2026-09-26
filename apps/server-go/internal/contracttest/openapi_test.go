@@ -51,6 +51,7 @@ type openAPIPath struct {
 
 type openAPIOperation struct {
 	OperationID string                     `yaml:"operationId"`
+	GoOnly      bool                       `yaml:"x-go-only"`
 	Parameters  []openAPIParameter         `yaml:"parameters"`
 	Security    []map[string][]string      `yaml:"security"`
 	RequestBody *openAPIRequestBody        `yaml:"requestBody"`
@@ -75,6 +76,7 @@ type openAPIResponse struct {
 
 type manifestOperation struct {
 	ID          string
+	GoOnly      bool
 	Method      string
 	Path        string
 	Parameters  []openAPIParameter
@@ -136,6 +138,9 @@ func TestOpenAPIRejectsMalformedAndSemanticDrift(t *testing.T) {
 		{"JSON body media type drift", []byte(strings.Replace(string(valid), "      operationId: newsletter.subscribe\n      requestBody:\n        required: true\n        content:\n          application/json:", "      operationId: newsletter.subscribe\n      requestBody:\n        required: true\n        content:\n          text/plain:", 1)), "request content types"},
 		{"missing required body marker", []byte(strings.Replace(string(valid), "      operationId: newsletter.subscribe\n      requestBody:\n        required: true", "      operationId: newsletter.subscribe\n      requestBody:", 1)), "request body must be required"},
 		{"optional body made required", []byte(strings.Replace(string(valid), "      operationId: newsletter.unsubscribePost\n      requestBody:\n        content:", "      operationId: newsletter.unsubscribePost\n      requestBody:\n        required: true\n        content:", 1)), "request body must remain optional"},
+		{"Go-only marker dropped", []byte(strings.Replace(string(valid), "      operationId: quiz.today\n      x-go-only: true\n", "      operationId: quiz.today\n", 1)), "operation counts are OpenAPI=33"},
+		{"unlisted Go-only operation", []byte(strings.Replace(string(valid), "operationId: dashboard.quiz.pull\n", "operationId: dashboard.quiz.other\n", 1)), "Go-only operation dashboard.quiz.pull|post|/api/dashboard/quiz/pull is missing"},
+		{"Go-only dashboard operation without security", []byte(strings.Replace(string(valid), "      operationId: dashboard.quiz.regenerate\n      x-go-only: true\n      security: *userSecurity\n", "      operationId: dashboard.quiz.regenerate\n      x-go-only: true\n", 1)), "dashboard.quiz.regenerate: security must be exactly bearerAuth"},
 		{"body documented for bodyless fixture", []byte(strings.Replace(string(valid), "      operationId: health.get\n", "      operationId: health.get\n      requestBody:\n        content:\n          application/json: {}\n", 1)), "must not declare requestBody"},
 	}
 	for _, test := range tests {
@@ -154,10 +159,18 @@ func validateOpenAPI(data []byte, fixture *Contract) error {
 		return err
 	}
 	actual := make(map[string]manifestOperation, len(operations))
+	goOnly := make(map[string]manifestOperation)
 	for _, operation := range operations {
 		key := operation.ID + "|" + operation.Method + "|" + operation.Path
 		if _, duplicate := actual[key]; duplicate {
 			return fmt.Errorf("duplicate OpenAPI operation %s", key)
+		}
+		if _, duplicate := goOnly[key]; duplicate {
+			return fmt.Errorf("duplicate OpenAPI operation %s", key)
+		}
+		if operation.GoOnly {
+			goOnly[key] = operation
+			continue
 		}
 		actual[key] = operation
 	}
@@ -183,7 +196,7 @@ func validateOpenAPI(data []byte, fixture *Contract) error {
 			return fmt.Errorf("OpenAPI operation set differs: unexpected %s", key)
 		}
 	}
-	return nil
+	return validateGoOnlyOperations(goOnly)
 }
 
 func parseOpenAPIManifest(data []byte) ([]manifestOperation, error) {
@@ -253,7 +266,7 @@ func parseOpenAPIManifest(data []byte) ([]manifestOperation, error) {
 				sort.Strings(responses[status])
 			}
 			operations = append(operations, manifestOperation{
-				ID: operation.OperationID, Method: method.name, Path: path,
+				ID: operation.OperationID, GoOnly: operation.GoOnly, Method: method.name, Path: path,
 				Parameters: parameters, Security: operation.Security, RequestBody: operation.RequestBody, Responses: responses,
 			})
 		}
@@ -338,6 +351,42 @@ func validatePathParameters(path string, parameters []openAPIParameter) error {
 	for name := range expected {
 		if !declared[name] {
 			return fmt.Errorf("template {%s} has no declared required path parameter", name)
+		}
+	}
+	return nil
+}
+
+// goOnlyOperations are the operations the Go server adds beyond the Node
+// fixture, marked x-go-only in the manifest, with the security each needs
+// ("" for public). They have no recorded Node response to compare against.
+var goOnlyOperations = map[string]string{
+	"quiz.today|get|/api/quiz/today":                                "",
+	"dashboard.quiz.pull|post|/api/dashboard/quiz/pull":             "bearerAuth",
+	"dashboard.quiz.regenerate|post|/api/dashboard/quiz/regenerate": "bearerAuth",
+}
+
+func validateGoOnlyOperations(documented map[string]manifestOperation) error {
+	for _, key := range sortedKeys(goOnlyOperations) {
+		if _, ok := documented[key]; !ok {
+			return fmt.Errorf("Go-only operation %s is missing", key)
+		}
+	}
+	for key, operation := range documented {
+		security, ok := goOnlyOperations[key]
+		if !ok {
+			return fmt.Errorf("unexpected Go-only operation %s", key)
+		}
+		if security == "" && len(operation.Security) != 0 {
+			return fmt.Errorf("%s: public Go-only operation must not declare security", operation.ID)
+		}
+		if security != "" && (len(operation.Security) != 1 || len(operation.Security[0]) != 1 || operation.Security[0][security] == nil) {
+			return fmt.Errorf("%s: security must be exactly %s", operation.ID, security)
+		}
+		if got := operation.Responses["200"]; len(got) != 1 || got[0] != "application/json" {
+			return fmt.Errorf("%s: 200 response content types are %v, want exactly [application/json]", operation.ID, got)
+		}
+		if operation.RequestBody != nil {
+			return fmt.Errorf("%s: must not declare requestBody", operation.ID)
 		}
 	}
 	return nil

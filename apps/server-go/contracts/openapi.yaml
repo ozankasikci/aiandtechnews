@@ -9,7 +9,8 @@ info:
     authority for concrete values, optionality, and nullability. Negative and error
     scenarios, including the typed 401 observation and multipart errors, are tracked
     but deferred; each must be added by a future vertical slice before error parity
-    is claimed.
+    is claimed. Operations marked x-go-only (the daily quiz) exist only in the
+    Go server and have no Node fixture; their error responses are listed too.
 servers:
   - url: /
 paths:
@@ -381,6 +382,65 @@ paths:
               $ref: '#/components/schemas/Settings'
       responses:
         '200': *settingsResponse
+  /api/quiz/today:
+    get:
+      operationId: quiz.today
+      x-go-only: true
+      responses:
+        '200': &quizResponse
+          description: The most recent published daily quiz
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quiz:
+                    $ref: '#/components/schemas/Quiz'
+        '404':
+          description: No quiz available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/dashboard/quiz/pull:
+    post:
+      operationId: dashboard.quiz.pull
+      x-go-only: true
+      security: *userSecurity
+      responses:
+        '200':
+          description: Today's (UTC) quiz is hidden; the loop does not generate the day again
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pulled: {type: string, format: date}
+        '404':
+          description: No quiz for today
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/dashboard/quiz/regenerate:
+    post:
+      operationId: dashboard.quiz.regenerate
+      x-go-only: true
+      security: *userSecurity
+      responses:
+        '200': *quizResponse
+        '502':
+          description: The model's quiz failed validation or the model call failed; today's quiz is unchanged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Quiz generation is not configured (the publisher is disabled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 components:
   securitySchemes:
     bearerAuth:
@@ -524,3 +584,25 @@ components:
         newsletter_enabled: {type: boolean}
         newsletter_provider: {type: string}
         newsletter_webhook_url: {type: string}
+    Quiz:
+      type: object
+      properties:
+        number: {type: integer}
+        day: {type: string, format: date}
+        questions:
+          type: array
+          items:
+            type: object
+            properties:
+              question: {type: string}
+              options:
+                type: array
+                items: {type: string}
+                minItems: 4
+                maxItems: 4
+              answer: {type: integer, minimum: 0, maximum: 3}
+              article:
+                type: object
+                properties:
+                  slug: {type: string}
+                  title: {type: string}

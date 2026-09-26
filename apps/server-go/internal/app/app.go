@@ -28,6 +28,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsletter"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsroom"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/quiz"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/settings"
 )
 
@@ -141,6 +142,18 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		logger.Info("Newsletter delivery not configured (RESEND_API_KEY, NEWSLETTER_FROM); signups still work, digest deliveries will fail")
 	}
 	newsletterHandler := newsletter.NewHandler(newsletterService, cfg.NewsletterCronSecret, now, logger)
+	// The Gemini client exists only with the publisher; without it the quiz
+	// is still served but never generated.
+	var geminiClient *gemini.Client
+	var quizGenerator *quiz.Generator
+	if cfg.PublisherEnabled {
+		geminiClient = gemini.New(cfg.GeminiAPIKey, cfg.GeminiTextModel,
+			gemini.WithImageModel(cfg.GeminiImageModel), gemini.WithImageSize(cfg.GeminiImageSize),
+			gemini.WithVisionModel(cfg.GeminiVisionModel))
+		quizGenerator = quiz.NewGenerator(geminiClient)
+	}
+	quizService := quiz.NewService(quiz.NewSQLiteStore(db), quizGenerator, now, logger)
+	quizHandler := quiz.NewHandler(quizService, logger)
 	dashboardMedia := media.NewHandler(media.NewLibrary(media.NewSQLiteLibrary(db), mediaStorage, now), mediaStorage, logger)
 	handler := httpserver.NewRouter(logger, func(router chi.Router) {
 		// Health answers 503 when the database cannot answer a query.
@@ -149,6 +162,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			return db.QueryRowContext(ctx, `SELECT 1`).Scan(&one)
 		})
 		articles.MountPublic(router)
+		quizHandler.MountPublic(router)
 		categories.MountPublic(router)
 		authors.MountPublic(router)
 		auth.Mount(router)
@@ -161,6 +175,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			dashboardContent.Mount(dashboard)
 			dashboardSettings.Mount(dashboard)
 			dashboardMedia.Mount(dashboard)
+			quizHandler.Mount(dashboard)
 		})
 	}, uploads.MountStatic)
 	server := httpserver.NewServer(cfg.Address, handler, logger)
@@ -172,9 +187,6 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		})
 	}
 	if cfg.PublisherEnabled {
-		geminiClient := gemini.New(cfg.GeminiAPIKey, cfg.GeminiTextModel,
-			gemini.WithImageModel(cfg.GeminiImageModel), gemini.WithImageSize(cfg.GeminiImageSize),
-			gemini.WithVisionModel(cfg.GeminiVisionModel))
 		imageStore := media.NewStore(media.Config{Region: cfg.AWSRegion, Bucket: cfg.S3Bucket, Prefix: cfg.S3Prefix, PublicBaseURL: cfg.S3PublicURL},
 			objectAPI, newPublicHTTPClient(), now)
 		illustrator := illustration.NewPipeline(illustration.BuildPipelineDeps(illustration.PipelineConfig{
@@ -205,9 +217,15 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		application.background = append(application.background, func(ctx context.Context) {
 			newsPublisher.Loop(ctx, cfg.PublisherInterval)
 		})
+		application.background = append(application.background, func(ctx context.Context) {
+			quizService.Loop(ctx, quizInterval)
+		})
 	}
 	return application, nil
 }
+
+// quizInterval is how often the quiz loop checks whether today's quiz is due.
+const quizInterval = 15 * time.Minute
 
 // newsletterDrainTimeout bounds how long Run waits for an in-flight digest
 // or welcome email after shutdown cancelled it (a delivery outcome write
@@ -270,6 +288,7 @@ func Migrations() []migrate.Descriptor {
 	descriptors = append(descriptors, newsroom.Migrations()...)
 	descriptors = append(descriptors, media.Migrations()...)
 	descriptors = append(descriptors, newsletter.Migrations()...)
+	descriptors = append(descriptors, quiz.Migrations()...)
 	slices.SortStableFunc(descriptors, func(a, b migrate.Descriptor) int { return cmp.Compare(a.Version, b.Version) })
 	return descriptors
 }

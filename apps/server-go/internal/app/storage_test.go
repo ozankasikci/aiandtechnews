@@ -163,8 +163,8 @@ func TestNewWithDatabaseWiresPublisherWhenStorageCheckPasses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(application.background) != 1 {
-		t.Fatalf("background tasks = %d, want the publisher loop", len(application.background))
+	if len(application.background) != 2 {
+		t.Fatalf("background tasks = %d, want the publisher and quiz loops", len(application.background))
 	}
 }
 

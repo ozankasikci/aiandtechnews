@@ -28,6 +28,8 @@ var dashboardRoutes = []struct{ method, path string }{
 	{http.MethodDelete, "/api/dashboard/categories/104"},
 	{http.MethodGet, "/api/dashboard/settings"},
 	{http.MethodPut, "/api/dashboard/settings"},
+	{http.MethodPost, "/api/dashboard/quiz/pull"},
+	{http.MethodPost, "/api/dashboard/quiz/regenerate"},
 	{http.MethodGet, "/api/dashboard/not-a-route"},
 }
 
