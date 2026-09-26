@@ -39,9 +39,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
 function RotatedLogo() {
   return (
-    <div className="hidden lg:flex items-start justify-center w-16 shrink-0 pt-8 sticky top-20">
-      <div className="-rotate-90 whitespace-nowrap origin-center mt-24">
-        <span className="text-5xl font-black tracking-[-0.06em] text-white uppercase" style={{ fontFamily: "var(--font-sans)" }}>TECHNEWS</span>
+    <div className="hidden lg:flex items-start justify-center w-16 xl:w-20 shrink-0 pt-8 sticky top-20">
+      <div className="-rotate-90 whitespace-nowrap origin-center mt-24 xl:mt-32">
+        <span className="text-5xl xl:text-6xl font-black tracking-[-0.06em] text-white uppercase" style={{ fontFamily: "var(--font-sans)" }}>TECHNEWS</span>
       </div>
     </div>
   );
@@ -99,7 +99,7 @@ export default async function Home() {
             <ArticleFeed initialArticles={initialFeedArticles} initialTotal={total - 1} />
           </div>
 
-          <div className="lg:w-[300px] shrink-0">
+          <div className="lg:w-[300px] xl:w-[360px] shrink-0">
             <TrendingSidebar />
             <div className="mt-8">
               {stickerArticles.map((s, i) => (
