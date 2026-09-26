@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { pickReadNext, splitAfterParagraph, titleTerms } from "./read-next";
+import { pickReadNext, splitAfterParagraph, titleTerms, unseenFirst } from "./read-next";
 
 const now = new Date("2026-09-26T18:00:00Z");
 const story = (slug: string, headline: string, tag: string, hoursAgo: number) => ({
@@ -50,11 +50,26 @@ test("the article body splits after the third paragraph only when enough text fo
   assert.deepEqual(splitAfterParagraph("<p>1</p><p>2</p><p>3</p><p>4</p>", 3), ["<p>1</p><p>2</p><p>3</p><p>4</p>", ""]);
 });
 
-test("the article page shows a mid-article card and a keep-reading row from the picks", () => {
+test("stories the reader already opened move to the back, so two related articles don't point at each other", () => {
+  const picks = [{ slug: "a" }, { slug: "c" }, { slug: "d" }, { slug: "e" }];
+  // Reading b after a: a is b's best match, but it has been read.
+  assert.deepEqual(unseenFirst(picks, ["a"]).map((p) => p.slug), ["c", "d", "e", "a"]);
+  assert.deepEqual(unseenFirst(picks, []).map((p) => p.slug), ["a", "c", "d", "e"]);
+  // Everything read: keep the original order rather than show nothing.
+  assert.deepEqual(unseenFirst(picks, ["a", "c", "d", "e"]).map((p) => p.slug), ["a", "c", "d", "e"]);
+});
+
+test("the article page hands its picks to the read-next component for the card and the keep-reading row", () => {
   const page = readFileSync(new URL("../article/[slug]/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /pickReadNext\(article, /);
+  const component = readFileSync(new URL("../components/ReadNext.tsx", import.meta.url), "utf8");
+  assert.match(page, /pickReadNext\(article, .*count: 10 \}\)/);
   assert.match(page, /splitAfterParagraph\(body, 3\)/);
-  assert.match(page, /link_position: "mid_article"/);
-  assert.match(page, /Keep reading/);
+  assert.match(page, /<ReadNext placement="mid"/);
+  assert.match(page, /<ReadNext placement="row"/);
   assert.doesNotMatch(page, /Related Stories/);
+  assert.match(component, /^"use client";/);
+  assert.match(component, /unseenFirst\(picks, readVisited\(\)\)/);
+  assert.match(component, /recordVisit\(current\)/);
+  assert.match(component, /link_position: "mid_article"/);
+  assert.match(component, /Keep reading/);
 });

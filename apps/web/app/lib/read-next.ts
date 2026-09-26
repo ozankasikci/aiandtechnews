@@ -61,3 +61,10 @@ export function splitAfterParagraph(html: string, n: number): [string, string] {
   if ((rest.match(/<\/p>/g) ?? []).length < 2) return [html, ""];
   return [html.slice(0, end), rest];
 }
+
+// Picks the reader has not opened yet, in order, then the ones they have. With
+// everything already read the original order comes back unchanged.
+export function unseenFirst<T extends { slug: string }>(picks: T[], visited: string[]): T[] {
+  const seen = new Set(visited);
+  return [...picks.filter((p) => !seen.has(p.slug)), ...picks.filter((p) => seen.has(p.slug))];
+}

@@ -5,7 +5,7 @@ import { fallbackArticlesByCategory } from "../../lib/fallback";
 import { TrendingSidebar } from "../../components/Sidebar";
 import { ShareButtons } from "../../components/ShareButtons";
 import { ArticleSummary } from "../../components/ArticleSummary";
-import { AnalyticsLink } from "../../components/AnalyticsLink";
+import { ReadNext } from "../../components/ReadNext";
 import { ArticleReadTracker } from "../../components/ArticleReadTracker";
 import { NewsletterBanner } from "../../components/Newsletter";
 import { getArticleLookup, getArticles, mapArticle } from "../../lib/api";
@@ -75,11 +75,11 @@ export default async function ArticlePage({ params }: Props) {
   // picked from the last week's stories by shared headline words.
   const recentData = await getArticles({ limit: 50 });
   const picks = recentData?.articles?.length
-    ? pickReadNext(article, recentData.articles.map(mapArticle), { count: 4 })
+    ? pickReadNext(article, recentData.articles.map(mapArticle), { count: 10 })
     : fallbackArticlesByCategory(article.tag).filter((a) => a.slug !== slug).slice(0, 3);
+  const readNext = picks.map(({ slug, headline, image, tag, tagColor }) => ({ slug, headline, image, tag, tagColor }));
   const [bodyStart, bodyRest] = splitAfterParagraph(body, 3);
-  const midArticle = bodyRest && picks.length > 3 ? picks[0] : undefined;
-  const related = midArticle ? picks.slice(1, 4) : picks.slice(0, 3);
+  const withMidCard = Boolean(bodyRest) && readNext.length > 3;
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -144,75 +144,14 @@ export default async function ArticlePage({ params }: Props) {
                 [&_blockquote]:border-l-4 [&_blockquote]:border-accent-purple [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-text-secondary [&_blockquote]:my-6"
             >
               <div dangerouslySetInnerHTML={{ __html: bodyStart }} />
-              {midArticle && (
-                <AnalyticsLink
-                  href={`/article/${midArticle.slug}`}
-                  eventName="select_content"
-                  eventParameters={{
-                    content_type: "related_article",
-                    item_id: midArticle.slug,
-                    source_article: article.slug,
-                    link_position: "mid_article",
-                  }}
-                  className="group grid grid-cols-[96px_1fr] sm:grid-cols-[120px_1fr] gap-4 items-center bg-bg-card border border-border rounded-sm p-3 mb-6 no-underline"
-                >
-                  <span className="relative block h-[64px] sm:h-[76px] rounded-sm overflow-hidden">
-                    <Image src={midArticle.image} alt="" fill className="object-cover" sizes="120px" />
-                  </span>
-                  <span>
-                    <span className="block text-[10px] font-bold uppercase tracking-widest text-accent-purple mb-1">Read next</span>
-                    <span className="block text-base font-bold leading-snug text-white group-hover:text-accent-purple transition-colors">{midArticle.headline}</span>
-                  </span>
-                </AnalyticsLink>
-              )}
+              {withMidCard && <ReadNext placement="mid" current={article.slug} picks={readNext} withMidCard />}
               {bodyRest && <div dangerouslySetInnerHTML={{ __html: bodyRest }} />}
             </div>
             <ArticleReadTracker bodyId="article-body" slug={article.slug} category={article.tag} />
 
             <NewsletterBanner placement="article_footer" />
 
-            {related.length > 0 && (
-              <section className="mt-12 pt-8 border-t border-border">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-text-muted mb-6">Keep reading</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {related.map((r) => (
-                    <div key={r.id} className="group">
-                      <AnalyticsLink
-                        href={`/article/${r.slug}`}
-                        eventName="select_content"
-                        eventParameters={{
-                          content_type: "related_article",
-                          item_id: r.slug,
-                          source_article: article.slug,
-                          link_position: "image",
-                        }}
-                      >
-                        <div className="relative h-[160px] rounded-sm overflow-hidden mb-3">
-                          <Image src={r.image} alt="" fill className="object-cover group-hover:scale-105 transition-transform" sizes="300px" />
-                        </div>
-                      </AnalyticsLink>
-                      <Link href={`/${r.tag.toLowerCase()}`} className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-black rounded-sm mb-1 hover:opacity-80 transition-opacity ${r.tagColor}`}>
-                        {r.tag}
-                      </Link>
-                      <AnalyticsLink
-                        href={`/article/${r.slug}`}
-                        eventName="select_content"
-                        eventParameters={{
-                          content_type: "related_article",
-                          item_id: r.slug,
-                          source_article: article.slug,
-                          link_position: "headline",
-                        }}
-                      >
-                        <h3 className="text-sm font-bold leading-snug group-hover:text-accent-purple transition-colors">
-                          {r.headline}
-                        </h3>
-                      </AnalyticsLink>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+            <ReadNext placement="row" current={article.slug} picks={readNext} withMidCard={withMidCard} />
           </article>
 
           <div className="lg:mt-32">
