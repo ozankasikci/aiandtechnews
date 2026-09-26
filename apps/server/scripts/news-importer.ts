@@ -590,6 +590,7 @@ Requirements:
 - Write a search description, maximum 155 characters, as one plain sentence with the key facts and no HTML.
 - Write a TL;DR of exactly 3 plain sentences, each maximum 140 characters, giving the key facts in order of importance, with no HTML.
 - Write one plain sentence, maximum 200 characters, on why the story matters, using only what the source reporting supports.
+- In the TL;DR and the why-it-matters sentence, keep any limit the source puts on a claim, such as "in this test", "in the US" or "according to the company".
 - Write ${minWords} to ${maxWords} words in 5 to 12 paragraphs.
 - Open with a clear lede explaining what happened.
 - Include relevant context and background.

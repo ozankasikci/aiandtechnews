@@ -228,6 +228,7 @@ func TestRewriteAsksForSummary(t *testing.T) {
 	for _, want := range []string{
 		"Write a TL;DR of exactly 3 plain sentences, each maximum 140 characters",
 		"Write one plain sentence, maximum 200 characters, on why the story matters",
+		"keep any limit the source puts on a claim",
 		`"tldr":["First key fact.","Second key fact.","Third key fact."],"whyItMatters":"One sentence on why it matters."`,
 	} {
 		if !strings.Contains(text.prompts[0], want) {
