@@ -41,7 +41,7 @@ const SimpleRules = "Simple composition: no people at all; show the action descr
 
 // CollageRules turn the brief into a background for the public-figure
 // collage: the person's photo is pasted over the left side afterwards.
-const CollageRules = "This is the background for a photo collage: a photo of a person will be pasted onto the LEFT 45% of the frame later, so keep the left 45% mostly empty except one large, simple backdrop shape (a big circle or arch) behind where a head and shoulders will go. Put the story's scene on the right side. No people, no faces, no hands."
+const CollageRules = "This is the background for a photo collage: a photo of a person will be pasted onto the LEFT 45% of the frame later, so keep the left 45% a plain, flat, calm backdrop with exactly one large solid-colour circle behind where a head and shoulders will go: a crisp clean edge, one flat colour from the palette, and no glow, halo, rays, texture, noise, gradient or splatter around it. Put the story's scene on the right side. No people, no faces, no hands."
 
 const anchorRules = "The attached style-reference images are style references only: match their technique, linework, shading and finish, but not their colours, and do not copy their subjects or composition."
 
