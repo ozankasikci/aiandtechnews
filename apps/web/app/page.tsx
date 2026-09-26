@@ -61,7 +61,7 @@ export default async function Home() {
 
   if (!hero) {
     return (
-      <div className="max-w-[1400px] mx-auto px-4 py-16 text-center">
+      <div className="max-w-[1200px] mx-auto px-4 py-16 text-center">
         <h1 className="text-3xl font-black mb-4">No articles yet</h1>
         <p className="text-text-secondary">Check back soon for the latest tech news.</p>
       </div>
@@ -69,7 +69,7 @@ export default async function Home() {
   }
 
   return (
-    <div className="max-w-[1400px] mx-auto flex">
+    <div className="max-w-[1200px] mx-auto flex">
       <RotatedLogo />
       <main className="flex-1 min-w-0 px-4 lg:px-8 py-8">
         {/* Hero */}

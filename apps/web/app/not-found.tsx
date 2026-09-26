@@ -3,7 +3,7 @@ import { NAV_ITEMS } from "./data/articles";
 
 export default function NotFound() {
   return (
-    <div className="max-w-[1400px] mx-auto px-4 lg:px-8 py-24 text-center">
+    <div className="max-w-[1200px] mx-auto px-4 lg:px-8 py-24 text-center">
       <p className="text-[10px] font-bold uppercase tracking-widest text-accent-purple mb-3">404</p>
       <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-4">Page not found</h1>
       <p className="text-text-secondary text-lg mb-8">

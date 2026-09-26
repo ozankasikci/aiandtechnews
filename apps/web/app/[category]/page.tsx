@@ -45,7 +45,7 @@ export default async function CategoryPage({ params }: Props) {
   const total = data?.total || articles.length;
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 lg:px-8 py-8">
+    <div className="max-w-[1200px] mx-auto px-4 lg:px-8 py-8">
       <div className="mb-8 pb-6 border-b border-border">
         <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-2">{cat.title}</h1>
         <p className="text-text-secondary text-lg">{cat.description}</p>

@@ -28,7 +28,7 @@ export function MobileNav() {
 
       {open && (
         <nav className="absolute left-0 right-0 top-14 bg-bg border-b border-border shadow-2xl">
-          <div className="max-w-[1400px] mx-auto px-4 py-2 flex flex-col">
+          <div className="max-w-[1200px] mx-auto px-4 py-2 flex flex-col">
             {NAV_ITEMS.map((item) => (
               <Link
                 key={item}

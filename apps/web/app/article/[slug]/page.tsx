@@ -107,7 +107,7 @@ export default async function ArticlePage({ params }: Props) {
   };
 
   return (
-    <div className="max-w-[1400px] mx-auto">
+    <div className="max-w-[1200px] mx-auto">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <div className="relative w-full h-[300px] md:h-[450px] lg:h-[500px]">
         <Image src={article.image} alt={article.headline} fill className="object-cover" sizes="100vw" priority />
