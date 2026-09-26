@@ -14,7 +14,7 @@ const ABOUT_LINKS = [
 export function Footer() {
   return (
     <footer className="border-t border-border mt-12 py-10 px-4">
-      <div className="max-w-[1400px] mx-auto">
+      <div className="max-w-[1280px] mx-auto">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
           <div>
             <Link href="/" className="font-black text-white text-sm uppercase tracking-tight">AI &amp; Tech News</Link>
