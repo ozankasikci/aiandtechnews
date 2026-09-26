@@ -16,6 +16,11 @@ import (
 
 const webpQuality = 82
 
+// minFeatureWidth is the narrowest featured image stored. Google Discover
+// only shows its large card for images at least 1200 px wide, and source
+// images are often smaller.
+const minFeatureWidth = 1200
+
 type ImageStore interface {
 	StoreWebP(ctx context.Context, slug string, data []byte) (media.Stored, error)
 	Delete(ctx context.Context, key string) error
