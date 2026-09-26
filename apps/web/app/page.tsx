@@ -60,7 +60,7 @@ export default async function Home() {
 
   const hero = articles[0];
   const feed = articles.slice(1, 7);
-  // "Popular this week": the week's most-read stories that are at least a day
+  // "Popular last week": the week's most-read stories that are at least a day
   // old, so the section shows the past week rather than today's news, and none
   // already in Trending's Today list.
   const trendingToday = new Set((todayData?.articles ?? []).map((a) => a.slug));
@@ -115,7 +115,7 @@ export default async function Home() {
           <div className="lg:w-[300px] xl:w-[380px] shrink-0">
             <TrendingSidebar />
             <div className="mt-8">
-              <h2 className="text-xs font-bold uppercase tracking-widest text-text-muted mb-4 pb-2 border-b border-border">Popular this week</h2>
+              <h2 className="text-xs font-bold uppercase tracking-widest text-text-muted mb-4 pb-2 border-b border-border">Popular last week</h2>
               {stickerArticles.map((s, i) => (
                 <Link key={s.id} href={`/article/${s.slug}`} className="block relative rounded-sm overflow-hidden mb-6 group cursor-pointer">
                   <div className="relative h-[220px]">

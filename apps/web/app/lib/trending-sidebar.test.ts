@@ -33,5 +33,5 @@ test("the homepage's colored cards show five of the week's most-read stories not
   assert.match(home, /getTrendingArticles\(5, "24h"\)/);
   assert.match(home, /!trendingToday\.has\(a\.slug\) && Date\.parse\(a\.publishedAt \?\? ""\) < dayAgo/, "skips today's news");
   assert.match(home, /const dayAgo = Date\.now\(\) - 24 \* 3_600_000;/);
-  assert.match(home, /Popular this week/);
+  assert.match(home, /Popular last week/);
 });
