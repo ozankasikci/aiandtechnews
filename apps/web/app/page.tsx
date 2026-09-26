@@ -107,7 +107,7 @@ export default async function Home() {
             <ArticleFeed initialArticles={initialFeedArticles} initialTotal={total - 1} />
           </div>
 
-          <div className="lg:w-[300px] xl:w-[360px] shrink-0">
+          <div className="lg:w-[300px] xl:w-[420px] shrink-0">
             <TrendingSidebar />
             <div className="mt-8">
               <h2 className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-4 pb-2 border-b border-border">Popular this week</h2>

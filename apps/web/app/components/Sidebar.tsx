@@ -15,7 +15,7 @@ export async function TrendingSidebar() {
   if (!today.length && !week.length) return null;
 
   return (
-    <aside className="w-full lg:w-[300px] xl:w-[360px] shrink-0">
+    <aside className="w-full lg:w-[300px] xl:w-[420px] shrink-0">
       <TrendingTabs heading="Trending" today={today} week={week} />
       <QuizCard />
     </aside>

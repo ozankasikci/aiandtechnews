@@ -105,7 +105,7 @@ export function ArticleFeed({
                 <p className="text-text-secondary text-sm leading-relaxed mb-2 line-clamp-2">{a.excerpt}</p>
                 <span className="text-text-muted text-xs">{a.time}</span>
               </div>
-              <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] xl:w-[280px] xl:h-[175px] relative rounded-sm overflow-hidden shrink-0">
+              <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] relative rounded-sm overflow-hidden shrink-0">
                 <ArticleImage src={a.image} alt="" fill className="object-cover" sizes="180px" />
               </div>
             </article>
