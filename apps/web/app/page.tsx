@@ -3,7 +3,7 @@ import { ArticleImage } from "./components/ArticleImage";
 import Link from "next/link";
 import { TrendingSidebar } from "./components/Sidebar";
 import { ArticleFeed } from "./components/ArticleFeed";
-import { getArticles, mapArticle } from "./lib/api";
+import { getArticles, getTrendingArticles, mapArticle } from "./lib/api";
 import { fallbackArticles } from "./lib/fallback";
 import { TAG_COLORS } from "./data/articles";
 import { SHARE_CARD_SIZE, shareCardUrl } from "./lib/share-card";
@@ -48,7 +48,11 @@ function RotatedLogo() {
 }
 
 export default async function Home() {
-  const data = await getArticles({ limit: 12 });
+  const [data, weekData, todayData] = await Promise.all([
+    getArticles({ limit: 12 }),
+    getTrendingArticles(20, "7d"),
+    getTrendingArticles(5, "24h"),
+  ]);
   const articles = data?.articles?.length
     ? data.articles.map(mapArticle)
     : fallbackArticles(12);
@@ -56,7 +60,11 @@ export default async function Home() {
 
   const hero = articles[0];
   const feed = articles.slice(1, 7);
-  const stickerArticles = articles.slice(7, 9);
+  // "Popular this week": the week's most-read stories, skipping any already in
+  // Trending's Today list so the two don't repeat each other.
+  const trendingToday = new Set((todayData?.articles ?? []).map((a) => a.slug));
+  const popularThisWeek = (weekData?.articles ?? []).map(mapArticle).filter((a) => !trendingToday.has(a.slug)).slice(0, 5);
+  const stickerArticles = popularThisWeek.length ? popularThisWeek : articles.slice(7, 12);
   const initialFeedArticles = articles.slice(1); // all except hero for infinite scroll
 
   if (!hero) {
@@ -102,6 +110,7 @@ export default async function Home() {
           <div className="lg:w-[300px] xl:w-[360px] shrink-0">
             <TrendingSidebar />
             <div className="mt-8">
+              <h2 className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-4 pb-2 border-b border-border">Popular this week</h2>
               {stickerArticles.map((s, i) => (
                 <Link key={s.id} href={`/article/${s.slug}`} className="block relative rounded-sm overflow-hidden mb-6 group cursor-pointer">
                   <div className="relative h-[220px]">
