@@ -101,7 +101,7 @@ export default async function Home() {
         <div className="flex flex-col lg:flex-row gap-8">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-text-muted">Latest</span>
+              <span className="text-xs font-bold uppercase tracking-widest text-text-muted">Latest</span>
               <div className="flex-1 h-px bg-border" />
             </div>
             <ArticleFeed initialArticles={initialFeedArticles} initialTotal={total - 1} />
@@ -110,7 +110,7 @@ export default async function Home() {
           <div className="lg:w-[300px] xl:w-[380px] shrink-0">
             <TrendingSidebar />
             <div className="mt-8">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-4 pb-2 border-b border-border">Popular this week</h2>
+              <h2 className="text-xs font-bold uppercase tracking-widest text-text-muted mb-4 pb-2 border-b border-border">Popular this week</h2>
               {stickerArticles.map((s, i) => (
                 <Link key={s.id} href={`/article/${s.slug}`} className="block relative rounded-sm overflow-hidden mb-6 group cursor-pointer">
                   <div className="relative h-[220px]">

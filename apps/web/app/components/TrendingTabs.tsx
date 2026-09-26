@@ -21,7 +21,7 @@ export function TrendingTabs({ heading, today, week }: { heading: string; today:
   return (
     <>
       <div className="flex items-center justify-between mb-4 pb-2 border-b border-border">
-        <h2 className="text-[10px] font-bold uppercase tracking-widest text-text-muted">{heading}</h2>
+        <h2 className="text-xs font-bold uppercase tracking-widest text-text-muted">{heading}</h2>
         <div role="tablist" aria-label={`${heading} period`} className="flex gap-3">
           {TABS.map(({ key, label }) => (
             <button
