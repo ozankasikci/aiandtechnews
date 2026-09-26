@@ -262,7 +262,9 @@ func TestItemRejectionExactParityVectors(t *testing.T) {
 }
 
 func TestEveryAITitleAndURLSignal(t *testing.T) {
-	titles := []string{"AI", "artificial intelligence", "generative AI", "machine learning", "deep learning", "LLM", "large language model", "ChatGPT", "chatbot", "OpenAI", "Anthropic", "Gemini", "Claude", "neural network", "foundation model", "frontier model", "Apple Intelligence", "Microsoft Copilot"}
+	titles := []string{"AI", "artificial intelligence", "generative AI", "machine learning", "deep learning", "LLM", "large language model", "ChatGPT", "chatbot", "OpenAI", "Anthropic", "Gemini", "Claude", "neural network", "foundation model", "frontier model", "Apple Intelligence", "Microsoft Copilot",
+		"LLMs", "chatbots", "neural networks", "frontier models", "Copilot", "Copilot+ PC", "DeepMind", "GPT-6", "JudgeGPT", "Llama", "Mistral", "Grok", "xAI", "Perplexity",
+		"agentic", "MCP", "coding agent", "open source agents", "computer-use agents", "humanoid", "humanoids", "robotaxis", "self-driving", "driverless", "autonomous vehicles"}
 	for _, signal := range titles {
 		t.Run("title "+signal, func(t *testing.T) {
 			if got := ItemRejectionReason(signal+" update", "https://techcrunch.com/news/update", "TechCrunch", policyNow); got != "" {
@@ -276,7 +278,17 @@ func TestEveryAITitleAndURLSignal(t *testing.T) {
 			t.Errorf("path %q got %q", path, got)
 		}
 	}
-	for _, weak := range []string{"software", "cybersecurity", "chips", "apps", "startups", "robotics"} {
+	for _, path := range []string{"/2026/china-ai-healthcare-biotech", "/innovation/microsoft-new-copilot-unified-ai-app", "/ai-and-ml/2026/09/25/story"} {
+		if got := ItemRejectionReason("New safeguards arrive", "https://restofworld.org"+path, "Rest of World", policyNow); got != "" {
+			t.Errorf("url word %q got %q", path, got)
+		}
+	}
+	for _, path := range []string{"/2026/thai-election", "/2026/maintenance-window", "/2026/said-no"} {
+		if got := ItemRejectionReason("New safeguards arrive", "https://restofworld.org"+path, "Rest of World", policyNow); !strings.Contains(got, "not clearly AI-related") {
+			t.Errorf("url path %q got %q", path, got)
+		}
+	}
+	for _, weak := range []string{"software", "cybersecurity", "chips", "apps", "startups", "robotics", "insurance agent", "travel agents", "Egypt", "Mistrial", "museum"} {
 		if got := ItemRejectionReason("New "+weak+" update", "https://techcrunch.com/tech/update", "TechCrunch", policyNow); !strings.Contains(got, "not clearly AI-related") {
 			t.Errorf("weak signal %q got %q", weak, got)
 		}

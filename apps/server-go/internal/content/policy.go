@@ -644,8 +644,11 @@ var (
 	titleYear         = regexp.MustCompile(`\(((?:19|20)\d{2})\)` + javascriptWhitespacePattern + `*$`)
 	pathYear          = regexp.MustCompile(`/((?:19|20)\d{2})/`)
 	urlWordSeparators = regexp.MustCompile(`[-_/]+`)
-	aiTitle           = regexp.MustCompile(`(?i)\b(?:ai|artificial intelligence|generative ai|machine learning|deep learning|llm|large language model|chatgpt|chatbot|openai|anthropic|gemini|claude|neural network|foundation model|frontier model|apple intelligence|microsoft copilot)\b`)
+	aiTitle           = regexp.MustCompile(`(?i)\b(?:ai|artificial intelligence|generative ai|machine learning|deep learning|llms?|large language models?|chatbots?|openai|anthropic|gemini|claude|neural networks?|foundation models?|frontier models?|apple intelligence|copilot|deepmind|\w*gpt|llama|mistral|grok|xai|perplexity|agentic|mcp|(?:coding|software|autonomous|open[- ]source|browser|computer[- ]use) agents?|humanoids?|robotaxis?|self-driving|driverless|autonomous vehicles?)\b`)
 	aiSection         = regexp.MustCompile(`(?i)/(?:ai|category/ai|ai-artificial-intelligence|artificial-intelligence)(?:/|$)`)
+	// aiURLWord matches "ai" as a whole word of the URL path once separators
+	// are spaces, e.g. /2026/china-ai-healthcare.
+	aiURLWord = regexp.MustCompile(`(?i)(?:^|\s)ai(?:\s|$)`)
 )
 
 func ItemRejectionReason(title, sourceURL, expectedSource string, now time.Time) string {
@@ -705,7 +708,7 @@ func ItemRejectionReason(title, sourceURL, expectedSource string, now time.Time)
 			return "obviously old repost"
 		}
 	}
-	if !aiTitle.MatchString(trimmedTitle) && !aiSection.MatchString(encodedPath) {
+	if !aiTitle.MatchString(trimmedTitle) && !aiSection.MatchString(encodedPath) && !aiURLWord.MatchString(urlWords) {
 		return "not clearly AI-related; only AI news may be published"
 	}
 	return ""
