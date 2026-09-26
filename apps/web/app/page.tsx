@@ -60,10 +60,15 @@ export default async function Home() {
 
   const hero = articles[0];
   const feed = articles.slice(1, 7);
-  // "Popular this week": the week's most-read stories, skipping any already in
-  // Trending's Today list so the two don't repeat each other.
+  // "Popular this week": the week's most-read stories that are at least a day
+  // old, so the section shows the past week rather than today's news, and none
+  // already in Trending's Today list.
   const trendingToday = new Set((todayData?.articles ?? []).map((a) => a.slug));
-  const popularThisWeek = (weekData?.articles ?? []).map(mapArticle).filter((a) => !trendingToday.has(a.slug)).slice(0, 5);
+  const dayAgo = Date.now() - 24 * 3_600_000;
+  const popularThisWeek = (weekData?.articles ?? [])
+    .map(mapArticle)
+    .filter((a) => !trendingToday.has(a.slug) && Date.parse(a.publishedAt ?? "") < dayAgo)
+    .slice(0, 5);
   const stickerArticles = popularThisWeek.length ? popularThisWeek : articles.slice(7, 12);
   const initialFeedArticles = articles.slice(1); // all except hero for infinite scroll
 

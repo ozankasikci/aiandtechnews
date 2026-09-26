@@ -31,6 +31,7 @@ test("the homepage's colored cards show five of the week's most-read stories not
   const home = readFileSync(new URL("../page.tsx", import.meta.url), "utf8");
   assert.match(home, /getTrendingArticles\(20, "7d"\)/);
   assert.match(home, /getTrendingArticles\(5, "24h"\)/);
-  assert.match(home, /filter\(\(a\) => !trendingToday\.has\(a\.slug\)\)\.slice\(0, 5\)/);
+  assert.match(home, /!trendingToday\.has\(a\.slug\) && Date\.parse\(a\.publishedAt \?\? ""\) < dayAgo/, "skips today's news");
+  assert.match(home, /const dayAgo = Date\.now\(\) - 24 \* 3_600_000;/);
   assert.match(home, /Popular this week/);
 });
