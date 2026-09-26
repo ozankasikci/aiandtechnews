@@ -30,11 +30,11 @@ test("the summary sits between the share buttons and the article body", () => {
   assert.ok(share >= 0 && summary > share && body > summary, "order: share buttons, summary, body");
 });
 
-test("the summary is a numbered brief with a separate why-it-matters section, and nothing when both are missing", () => {
+test("the summary leads with why it matters as a pull quote, then the facts, and shows nothing when both are missing", () => {
   assert.match(summarySource, /if \(!tldr\?\.length && !whyItMatters\) return null;/);
-  assert.match(summarySource, /The short version/);
-  assert.match(summarySource, /Why it matters/);
-  assert.match(summarySource, /<ol /);
-  assert.match(summarySource, /\{i \+ 1\}/);
+  const why = summarySource.indexOf("Why it matters");
+  const facts = summarySource.indexOf("The facts");
+  assert.ok(why > 0 && facts > why, "why it matters comes before the facts");
+  assert.match(summarySource, /<li key=\{point\}/);
   assert.doesNotMatch(summarySource, /border-l-4/, "no left-border callout");
 });
