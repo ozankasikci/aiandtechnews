@@ -4,7 +4,7 @@ import Link from "next/link";
 
 export default function Error({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
-    <div className="max-w-[1200px] mx-auto px-4 lg:px-8 py-24 text-center">
+    <div className="max-w-[1400px] mx-auto px-4 lg:px-8 py-24 text-center">
       <p className="text-[10px] font-bold uppercase tracking-widest text-accent-orange mb-3">Error</p>
       <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-4">Something went wrong</h1>
       <p className="text-text-secondary text-lg mb-8">
