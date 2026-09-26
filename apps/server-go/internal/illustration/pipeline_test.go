@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -536,5 +537,69 @@ func TestCompliancePromptAllowsOnlyTheRequestedLogos(t *testing.T) {
 	branded := illustration.BuildCompliancePrompt(illustration.Article{Title: "T", Excerpt: "E", Brands: []string{"OpenAI"}})
 	if strings.Contains(plain, "Exception") || !strings.Contains(branded, "the real logo of OpenAI was placed on purpose") {
 		t.Fatalf("plain has exception or branded lacks it:\n%s", branded)
+	}
+}
+
+func TestPipelineMixedCollageStyle(t *testing.T) {
+	collageBrief := strings.Replace(validBrief, `"style":"graphic"`, `"style":"collage"`, 1)
+	collageBrief = strings.Replace(collageBrief, `"public_figure":null`, `"brands":["openai"],"public_figure":{"name":"Sam Altman","visible_in_source":true}`, 1)
+
+	codex := logoPlacingProvider{&fakeProvider{name: "codex", attempts: 1, image: solidPNG(t, 320, 180)}}
+	fixture := newFixture(t, illustration.ProviderStep(codex))
+	fixture.deps.Brands = brands.MustLoad()
+	fixture.deps.Analyzers = []illustration.Analyzer{&fakeAnalyzer{name: "codex", brief: collageBrief}}
+	fixture.request.ReferenceImageURL = sourceServer(t, solidPNG(t, 200, 200))
+	fixture.deps.Cutter = &fakeCutter{cutout: personCutout(t, 200, 200)}
+	result, err := fixture.produce(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := codex.requests[0]
+	if !result.Report.Collage || result.Report.Style != "collage@1" || !request.Collage || len(request.Logos) != 0 || result.Report.LogoBadge {
+		t.Fatalf("report = %+v, request collage %v logos %d", result.Report, request.Collage, len(request.Logos))
+	}
+	if bytes.Equal(fixture.reviewer.reviewed[0], result.Image) {
+		t.Fatal("the reviewer must see the backdrop, not the pasted collage")
+	}
+
+	// Without a source photo, collage is never offered.
+	fixture = newFixture(t, illustration.ProviderStep(codex))
+	analyzer := &fakeAnalyzer{name: "codex", brief: validBrief}
+	fixture.deps.Analyzers = []illustration.Analyzer{analyzer}
+	if _, err := fixture.produce(t); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(analyzer.input.Styles.Names(), "collage") {
+		t.Fatalf("collage offered without a source photo: %v", analyzer.input.Styles.Names())
+	}
+
+	// Nothing to paste (no cut-out, no brand): falls back to another style.
+	plain := strings.Replace(validBrief, `"style":"graphic"`, `"style":"collage"`, 1)
+	fixture = newFixture(t, illustration.ProviderStep(codex))
+	fixture.deps.Analyzers = []illustration.Analyzer{&fakeAnalyzer{name: "codex", brief: plain}}
+	fixture.request.ReferenceImageURL = sourceServer(t, solidPNG(t, 200, 200))
+	fixture.deps.Cutter = &fakeCutter{err: errors.New("no subject")}
+	result, err = fixture.produce(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Report.Collage || result.Report.Style == "collage@1" {
+		t.Fatalf("expected a fallback style, got %+v", result.Report)
+	}
+}
+
+func TestMixedCollageKeepsSizeAndPastesPieces(t *testing.T) {
+	backdrop, _ := png.Decode(bytes.NewReader(solidPNG(t, 320, 180)))
+	subject, err := illustration.PrepareSubject(personCutout(t, 200, 200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	palette, _ := styles.MustLoad().Palette("navy-red")
+	out := illustration.MixedCollage(backdrop, illustration.CollageParts{Subject: subject, Logos: brands.MustLoad().Resolve([]string{"google"}, 1)}, palette, "slug")
+	if out.Bounds() != backdrop.Bounds() {
+		t.Fatalf("bounds = %v", out.Bounds())
+	}
+	if r, g, b, _ := out.At(90, 160).RGBA(); r>>8 == 10 && g>>8 == 20 && b>>8 == 30 {
+		t.Fatal("the subject was not pasted over the backdrop")
 	}
 }

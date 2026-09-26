@@ -1,0 +1,8 @@
+{
+  "name": "collage",
+  "version": 1,
+  "summary": "Mixed-media magazine collage: real cut-outs of the people or products in the source photo and real brand logos, pasted as torn paper prints over a painted backdrop. Best for stories about a well-known person or a well-known company.",
+  "prompt": "Mixed-media editorial collage backdrop: layered torn and cut paper, halftone dot textures, bold painted brush strokes, scraps of newsprint-like texture with no readable words, visible paper grain, like a Wired or New York Times Magazine collage cover, in a limited palette of the given colours plus neutrals.",
+  "collage": true,
+  "anchors": ["anchor-web-bots.jpg", "anchor-government-sites.jpg"]
+}

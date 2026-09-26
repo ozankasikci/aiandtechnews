@@ -14,7 +14,7 @@ func TestEmbeddedStylesLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := catalog.Names()
-	if len(names) != 2 || names[0] != "graphic" || names[1] != "midcentury" {
+	if len(names) != 3 || names[0] != "collage" || names[1] != "graphic" || names[2] != "midcentury" {
 		t.Fatalf("names = %v", names)
 	}
 	for _, style := range catalog.All() {
@@ -80,11 +80,27 @@ func TestEmbeddedPalettes(t *testing.T) {
 
 func TestWithoutStyles(t *testing.T) {
 	catalog := MustLoad()
-	kept := catalog.WithoutStyles([]string{"graphic"})
+	kept := catalog.WithoutStyles([]string{"graphic", "collage"})
 	if names := kept.Names(); len(names) != 1 || names[0] != "midcentury" || len(kept.Palettes()) != len(catalog.Palettes()) {
 		t.Fatalf("names = %v, palettes = %d", names, len(kept.Palettes()))
 	}
 	if len(catalog.WithoutStyles(catalog.Names()).Names()) != len(catalog.Names()) {
 		t.Fatal("avoiding every style must still offer all of them")
+	}
+}
+
+func TestCollageStyleAndDefault(t *testing.T) {
+	catalog := MustLoad()
+	collage, ok := catalog.Get("collage")
+	if !ok || !collage.Collage {
+		t.Fatalf("collage = %+v", collage)
+	}
+	if def := catalog.Default(); def.Collage {
+		t.Fatalf("default must not be a collage: %s", def.Name)
+	}
+	for _, palette := range catalog.Palettes() {
+		if len(palette.Dark) != 6 || len(palette.Light) != 6 {
+			t.Fatalf("palette %s lacks duotone inks", palette.Name)
+		}
 	}
 }

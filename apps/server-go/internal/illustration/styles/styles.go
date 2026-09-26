@@ -29,7 +29,10 @@ type Style struct {
 	// Summary tells the analyzer which stories the style suits.
 	Summary string
 	// Prompt is appended to every image prompt as "Style: <Prompt>".
-	Prompt  string
+	Prompt string
+	// Collage styles paint only a backdrop; real cut-outs and logos are
+	// pasted on afterwards (see illustration.MixedCollage).
+	Collage bool
 	Anchors []Anchor
 }
 
@@ -50,6 +53,9 @@ type Palette struct {
 	Colors string `json:"colors"`
 	// Suits tells the analyzer which stories the palette fits.
 	Suits string `json:"suits"`
+	// Dark and Light are hex inks for duotone prints (the collage style).
+	Dark  string `json:"dark"`
+	Light string `json:"light"`
 }
 
 // Catalog is the set of styles, sorted by name, and the palettes in file order.
@@ -63,6 +69,7 @@ type definition struct {
 	Version int      `json:"version"`
 	Summary string   `json:"summary"`
 	Prompt  string   `json:"prompt"`
+	Collage bool     `json:"collage"`
 	Anchors []string `json:"anchors"`
 }
 
@@ -103,7 +110,7 @@ func load(fsys fs.FS) (Catalog, error) {
 		if len(def.Anchors) < minAnchors || len(def.Anchors) > maxAnchors {
 			return Catalog{}, fmt.Errorf("style %s: want %d-%d anchors, got %d", folder, minAnchors, maxAnchors, len(def.Anchors))
 		}
-		style := Style{Name: def.Name, Version: def.Version, Summary: strings.TrimSpace(def.Summary), Prompt: strings.TrimSpace(def.Prompt)}
+		style := Style{Name: def.Name, Version: def.Version, Summary: strings.TrimSpace(def.Summary), Prompt: strings.TrimSpace(def.Prompt), Collage: def.Collage}
 		for _, name := range def.Anchors {
 			data, err := fs.ReadFile(fsys, path.Join(folder, name))
 			if err != nil {
@@ -148,8 +155,15 @@ func (c Catalog) Names() []string {
 }
 
 // Default is the style used when a brief names none that exists: the first
-// by name.
-func (c Catalog) Default() Style { return c.styles[0] }
+// by name that is not a collage (a collage needs pieces to paste).
+func (c Catalog) Default() Style {
+	for _, style := range c.styles {
+		if !style.Collage {
+			return style
+		}
+	}
+	return c.styles[0]
+}
 
 // loadPalettes reads palettes.json. It is optional: without it, images use
 // whatever colours the style prompt names.

@@ -199,6 +199,8 @@ type pipelineRun struct {
 	errs    []error
 	source  []byte
 	brands  []brands.Brand
+	// allowedStyles are the styles offered to the analyzer (for fallbacks).
+	allowedStyles styles.Catalog
 }
 
 func (r *pipelineRun) fail(provider string, attempt int, started time.Time, err error) {
@@ -219,8 +221,13 @@ func (r *pipelineRun) produce(ctx context.Context) ([]byte, error) {
 		}
 	}
 	var person *image.NRGBA
+	var parts *CollageParts
 	if brief != nil {
-		person = r.prepareCollage(ctx, *brief)
+		if style, _ := deps.Styles.Get(brief.Style); style.Collage {
+			parts = r.prepareMixed(ctx, brief)
+		} else {
+			person = r.prepareCollage(ctx, *brief)
+		}
 	}
 
 	for _, step := range deps.Chain {
@@ -242,7 +249,7 @@ func (r *pipelineRun) produce(ctx context.Context) ([]byte, error) {
 			r.fail(step.Name, 0, deps.Now(), ErrNoBrief)
 			continue
 		}
-		if image, ok := r.generate(ctx, step.Provider, *brief, person); ok {
+		if image, ok := r.generate(ctx, step.Provider, *brief, person, parts); ok {
 			return image, nil
 		}
 	}
@@ -269,7 +276,17 @@ func (r *pipelineRun) fetchSource(ctx context.Context) {
 
 func (r *pipelineRun) analyze(ctx context.Context) *Brief {
 	deps := r.p.deps
-	allowedStyles := deps.Styles.WithoutStyles(r.request.AvoidStyles)
+	avoid := r.request.AvoidStyles
+	if r.source == nil {
+		// A collage pastes pieces of the source photo; without one, never offer it.
+		for _, style := range deps.Styles.All() {
+			if style.Collage {
+				avoid = append(slices.Clone(avoid), style.Name)
+			}
+		}
+	}
+	allowedStyles := deps.Styles.WithoutStyles(avoid)
+	r.allowedStyles = allowedStyles
 	input := AnalyzeInput{Title: r.request.Title, Excerpt: r.request.Excerpt, Palettes: deps.Styles.PalettesExcept(r.request.AvoidPalettes), Styles: &allowedStyles, Compositions: allowedCompositions(r.request.Compositions), PreferComposition: r.request.PreferComposition, Brands: deps.Brands.All()}
 	if r.source != nil {
 		input.ImageURL = r.request.ReferenceImageURL
@@ -339,14 +356,15 @@ func (r *pipelineRun) prepareCollage(ctx context.Context, brief Brief) *image.NR
 
 // generate spends the provider's attempts; every image is reviewed before
 // use. A collage's background is reviewed before the photo is pasted on.
-func (r *pipelineRun) generate(ctx context.Context, provider Provider, brief Brief, person *image.NRGBA) ([]byte, bool) {
+func (r *pipelineRun) generate(ctx context.Context, provider Provider, brief Brief, person *image.NRGBA, parts *CollageParts) ([]byte, bool) {
 	deps := r.p.deps
 	style, _ := deps.Styles.Get(brief.Style)
 	article := Article{Title: r.request.Title, Excerpt: r.request.Excerpt}
 	var logos []brands.Brand
 	placer, places := provider.(interface{ PlacesLogos() bool })
-	placesLogos := places && placer.PlacesLogos()
-	if placesLogos {
+	// A collage pastes the real logos itself; its backdrop carries none.
+	placesLogos := places && placer.PlacesLogos() || parts != nil
+	if placesLogos && parts == nil {
 		logos = r.brands
 		for _, brand := range logos {
 			article.Brands = append(article.Brands, brand.Name)
@@ -357,7 +375,7 @@ func (r *pipelineRun) generate(ctx context.Context, provider Provider, brief Bri
 	for attempt := 1; attempt <= provider.Attempts(); attempt++ {
 		started := deps.Now()
 		palette, _ := deps.Styles.Palette(brief.Palette)
-		raw, err := provider.Generate(ctx, GenerateRequest{Brief: brief, Style: style, Palette: palette, Logos: logos, Collage: person != nil, Correction: correction})
+		raw, err := provider.Generate(ctx, GenerateRequest{Brief: brief, Style: style, Palette: palette, Logos: logos, Collage: person != nil || parts != nil, Correction: correction})
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, false
@@ -408,6 +426,14 @@ func (r *pipelineRun) generate(ctx context.Context, provider Provider, brief Bri
 				continue
 			}
 			r.report.LogoBadge = true
+		}
+		if parts != nil {
+			palette, _ := deps.Styles.Palette(brief.Palette)
+			if final, err = encodePNG(MixedCollage(framed, *parts, palette, r.request.Slug)); err != nil {
+				r.fail(provider.Name(), attempt, started, err)
+				continue
+			}
+			r.report.Collage = true
 		}
 		if person != nil {
 			composite := Composite(framed, person)
@@ -513,4 +539,46 @@ func chooseComposition(chosen string, allowed []string) string {
 		return chosen
 	}
 	return allowed[0]
+}
+
+// prepareMixed gathers the real pieces for a collage-style image. With no
+// cut-out and no logo there is nothing to paste, so the brief falls back to
+// another offered style and nil is returned.
+func (r *pipelineRun) prepareMixed(ctx context.Context, brief *Brief) *CollageParts {
+	deps := r.p.deps
+	parts := &CollageParts{Logos: r.brands}
+	if r.source != nil {
+		if decoded, err := imaging.Decode(r.source); err == nil {
+			parts.Scrap = decoded
+		}
+		// Cut out only a well-known person the source shows: products and
+		// robots cut badly (a dark visor vanishes), so they stay whole in the print.
+		if deps.Cutter != nil && brief.WantsCollage() {
+			started := deps.Now()
+			cutout, err := deps.Cutter.Cutout(ctx, r.source)
+			if err == nil {
+				parts.Subject, err = PrepareSubject(cutout)
+			}
+			outcome := "ok"
+			if err != nil {
+				outcome = err.Error()
+			}
+			r.report.Attempts = append(r.report.Attempts, Attempt{Provider: "cutout", Outcome: outcome, Seconds: deps.Now().Sub(started).Seconds()})
+		}
+	}
+	if parts.Subject != nil || len(parts.Logos) > 0 {
+		return parts
+	}
+	for _, style := range r.allowedStyles.All() {
+		if !style.Collage {
+			brief.Style = style.Name
+			r.report.Style = style.ID()
+			r.report.CollageNote = "collage needs a cut-out or a logo; used " + style.Name
+			deps.Logger.InfoContext(ctx, "collage style has nothing to paste; falling back", "style", style.Name)
+			return nil
+		}
+	}
+	fallback := deps.Styles.Default()
+	brief.Style, r.report.Style = fallback.Name, fallback.ID()
+	return nil
 }

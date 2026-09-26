@@ -9,7 +9,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/styles"
 )
 
-var styleNames = []string{"graphic", "midcentury", "photo"}
+var styleNames = []string{"collage", "graphic", "midcentury", "photo"}
 
 const validBrief = `{"scene":"A glowing helix unwinds like a map.","foreground":"A lantern over one bright rung.","background":"Night sky of nodes.","mood":"Curious","style":"graphic","style_reason":"Warm and human.","public_figure":null}`
 

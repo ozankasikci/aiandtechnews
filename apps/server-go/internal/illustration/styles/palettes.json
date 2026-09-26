@@ -1,10 +1,10 @@
 [
-  {"name": "navy-red", "colors": "deep navy, warm brick red, off-white and steel grey", "suits": "security, conflict, confrontation, crises"},
-  {"name": "teal-coral", "colors": "deep teal, soft coral, cream and charcoal", "suits": "research, science, health, studies"},
-  {"name": "forest-mustard", "colors": "forest green, mustard yellow, cream and charcoal", "suits": "business, money, deals, markets"},
-  {"name": "plum-amber", "colors": "deep plum, amber, blush pink and charcoal", "suits": "culture, creators, entertainment, consumer life"},
-  {"name": "cobalt-tangerine", "colors": "cobalt blue, tangerine orange, off-white and slate", "suits": "products, launches, gadgets, upbeat news"},
-  {"name": "charcoal-lime", "colors": "charcoal, acid lime green, cool grey and off-white", "suits": "hacking, AI agents, code, the internet"},
-  {"name": "burgundy-sand", "colors": "burgundy, warm sand, slate blue and off-white", "suits": "courts, law, government, policy"},
-  {"name": "ochre-sky", "colors": "ochre, sky blue, cream and dark brown", "suits": "jobs, work, society, education"}
+  {"name": "navy-red", "colors": "deep navy, warm brick red, off-white and steel grey", "suits": "security, conflict, confrontation, crises", "dark": "1f2a44", "light": "f2eee6"},
+  {"name": "teal-coral", "colors": "deep teal, soft coral, cream and charcoal", "suits": "research, science, health, studies", "dark": "0f3f40", "light": "f5ecd9"},
+  {"name": "forest-mustard", "colors": "forest green, mustard yellow, cream and charcoal", "suits": "business, money, deals, markets", "dark": "24402a", "light": "f3ecd8"},
+  {"name": "plum-amber", "colors": "deep plum, amber, blush pink and charcoal", "suits": "culture, creators, entertainment, consumer life", "dark": "3a1b37", "light": "f7e9dc"},
+  {"name": "cobalt-tangerine", "colors": "cobalt blue, tangerine orange, off-white and slate", "suits": "products, launches, gadgets, upbeat news", "dark": "1d3a8a", "light": "f4f1ea"},
+  {"name": "charcoal-lime", "colors": "charcoal, acid lime green, cool grey and off-white", "suits": "hacking, AI agents, code, the internet", "dark": "2b2d2f", "light": "f2f1ec"},
+  {"name": "burgundy-sand", "colors": "burgundy, warm sand, slate blue and off-white", "suits": "courts, law, government, policy", "dark": "5a1824", "light": "f4f0e8"},
+  {"name": "ochre-sky", "colors": "ochre, sky blue, cream and dark brown", "suits": "jobs, work, society, education", "dark": "4a3326", "light": "f5ecd6"}
 ]
