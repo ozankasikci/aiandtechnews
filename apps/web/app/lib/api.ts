@@ -161,6 +161,18 @@ export async function getArticlesUpTo(
 // stories; no window ranks by all-time views.
 export type TrendingWindow = "24h" | "7d";
 
+export interface ApiQuiz {
+  number: number;
+  day: string;
+  questions: { question: string; options: string[]; answer: number; article: { slug: string; title: string } }[];
+}
+
+// The latest published daily quiz, or null when there is none yet.
+export async function getTodayQuiz() {
+  const data = await apiFetch<{ quiz: ApiQuiz }>("/api/quiz/today");
+  return data?.quiz ?? null;
+}
+
 export async function getTrendingArticles(limit = 5, window?: TrendingWindow) {
   const windowParam = window ? `&window=${window}` : "";
   return apiFetch<{ articles: ApiArticle[] }>(`/api/articles/trending?limit=${limit}${windowParam}`);

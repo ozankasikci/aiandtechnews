@@ -6,6 +6,7 @@ const ABOUT_LINKS = [
   { label: "About", href: "/about" },
   { label: "Editorial Standards", href: "/about#editorial-standards" },
   { label: "AI Glossary", href: "/glossary" },
+  { label: "Daily Quiz", href: "/quiz" },
   { label: "Corrections", href: "/about#corrections" },
   { label: "Contact", href: "/about#contact" },
 ];

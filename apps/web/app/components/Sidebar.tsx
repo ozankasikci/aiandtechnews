@@ -1,5 +1,6 @@
 import { getTrendingArticles, mapArticle } from "../lib/api";
 import { TrendingTabs, type TrendingItem } from "./TrendingTabs";
+import { QuizCard } from "./QuizCard";
 
 async function trendingItems(request: ReturnType<typeof getTrendingArticles>): Promise<TrendingItem[]> {
   const data = await request;
@@ -16,6 +17,7 @@ export async function TrendingSidebar() {
   return (
     <aside className="w-full lg:w-[300px] shrink-0">
       <TrendingTabs heading="Trending" today={today} week={week} />
+      <QuizCard />
     </aside>
   );
 }
