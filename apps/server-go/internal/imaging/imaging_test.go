@@ -84,6 +84,33 @@ func TestEncodeWebP(t *testing.T) {
 	}
 }
 
+func TestEncodeWebPMinWidthUpscalesNarrowImages(t *testing.T) {
+	out, width, height, err := imaging.EncodeWebPMinWidth(pngImage(t, 1024, 512, false), 82, 1200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if width != 1200 || height != 600 {
+		t.Fatalf("got %dx%d, want 1200x600", width, height)
+	}
+	img, _, err := image.Decode(bytes.NewReader(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := img.Bounds(); b.Dx() != 1200 || b.Dy() != 600 {
+		t.Fatalf("encoded %dx%d, want 1200x600", b.Dx(), b.Dy())
+	}
+}
+
+func TestEncodeWebPMinWidthKeepsWideImages(t *testing.T) {
+	_, width, height, err := imaging.EncodeWebPMinWidth(pngImage(t, 1600, 900, false), 82, 1200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if width != 1600 || height != 900 {
+		t.Fatalf("got %dx%d, want 1600x900 unchanged", width, height)
+	}
+}
+
 func TestDecodeRejectsGarbage(t *testing.T) {
 	if _, err := imaging.FitJPEG([]byte("not an image"), 1024, 85); err == nil {
 		t.Fatal("garbage should fail")

@@ -90,9 +90,22 @@ func FitJPEG(data []byte, maxEdge, quality int) ([]byte, error) {
 // EncodeWebP re-encodes an image as lossy WebP at the given quality
 // (encodeFeatureImageAsWebp uses 82) without resizing.
 func EncodeWebP(data []byte, quality int) ([]byte, int, int, error) {
+	return EncodeWebPMinWidth(data, quality, 0)
+}
+
+// EncodeWebPMinWidth is EncodeWebP, but first enlarges an image narrower than
+// minWidth to exactly minWidth, keeping its aspect ratio. Wider images are
+// left at their own size.
+func EncodeWebPMinWidth(data []byte, quality, minWidth int) ([]byte, int, int, error) {
 	src, err := decode(data)
 	if err != nil {
 		return nil, 0, 0, err
+	}
+	if bounds := src.Bounds(); bounds.Dx() < minWidth {
+		height := max(1, bounds.Dy()*minWidth/bounds.Dx())
+		scaled := image.NewRGBA(image.Rect(0, 0, minWidth, height))
+		xdraw.CatmullRom.Scale(scaled, scaled.Bounds(), src, bounds, draw.Src, nil)
+		src = scaled
 	}
 	var out bytes.Buffer
 	if err := webp.Encode(&out, src, &webp.Options{Quality: float32(quality)}); err != nil {

@@ -363,6 +363,23 @@ func TestPipelineIllustrateStoresWebPAndDiscards(t *testing.T) {
 	}
 }
 
+func TestPipelineIllustrateEnlargesNarrowSourceImages(t *testing.T) {
+	fixture := newFixture(t, illustration.SourceStep())
+	fixture.request.ReferenceImageURL = sourceServer(t, solidPNG(t, 1024, 512))
+	store := &fakeImageStore{}
+	fixture.deps.Store = store
+	if _, err := illustration.NewPipeline(fixture.deps).Illustrate(context.Background(), fixture.request); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := image.DecodeConfig(bytes.NewReader(store.stored))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Width != 1200 || config.Height != 600 {
+		t.Fatalf("stored %dx%d, want 1200x600", config.Width, config.Height)
+	}
+}
+
 func TestPipelineCropsTo16x9(t *testing.T) {
 	gem := &fakeProvider{name: "gemini", attempts: 3, image: solidPNG(t, 300, 200)}
 	result, err := newFixture(t, illustration.ProviderStep(gem)).produce(t)

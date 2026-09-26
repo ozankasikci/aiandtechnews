@@ -108,7 +108,7 @@ func (p *Pipeline) Illustrate(ctx context.Context, request publisher.Illustratio
 	if err != nil {
 		return publisher.Illustration{}, err
 	}
-	webp, _, _, err := imaging.EncodeWebP(result.Image, webpQuality)
+	webp, _, _, err := imaging.EncodeWebPMinWidth(result.Image, webpQuality, minFeatureWidth)
 	if err != nil {
 		return publisher.Illustration{}, publisher.Permanent(fmt.Errorf("encode featured image: %w", err))
 	}
