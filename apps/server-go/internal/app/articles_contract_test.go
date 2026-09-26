@@ -36,6 +36,7 @@ func TestPublicReadsMatchApprovedNodeContractsInCanonicalOperationOrder(t *testi
 		if !ok {
 			t.Fatalf("%s missing", id)
 		}
+		op = withoutArticleSource(t, op)
 		if err := contracttest.Replay(application.Handler(), op); err != nil {
 			t.Fatalf("%s replay: %v", id, err)
 		}

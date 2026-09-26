@@ -22,6 +22,10 @@ type Article struct {
 	UpdatedAt       string   `json:"updated_at"`
 	Category        Category `json:"category"`
 	Author          Author   `json:"author"`
+	// TLDR and WhyItMatters come from article_summaries and are loaded only
+	// for a single article read by slug.
+	TLDR         []string `json:"tldr,omitempty"`
+	WhyItMatters string   `json:"why_it_matters,omitempty"`
 }
 
 type Category struct {

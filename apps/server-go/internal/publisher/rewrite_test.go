@@ -55,7 +55,7 @@ func TestRewriteBuildsPromptAndAcceptsValidArticle(t *testing.T) {
 		"Write 150 to 800 words in 5 to 12 paragraphs.",
 		"Publication: TechCrunch\nOriginal headline: Anthropic launches new model\nCanonical source URL: https://techcrunch.com/2026/09/23/anthropic",
 		"Source reporting:\nSource reporting text.",
-		`{"title":"Short factual headline","excerpt":"One sentence.","content":"<p>Article body.</p>","metaTitle":"Subject first search title","metaDescription":"One sentence for search results."}`,
+		`{"title":"Short factual headline","excerpt":"One sentence.","content":"<p>Article body.</p>","metaTitle":"Subject first search title","metaDescription":"One sentence for search results.","tldr":["First key fact.","Second key fact.","Third key fact."],"whyItMatters":"One sentence on why it matters."}`,
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt missing %q", want)
@@ -210,6 +210,65 @@ func TestRewriteDropsInvalidSearchMetadataWithoutFailing(t *testing.T) {
 			}
 			if article.MetaTitle != "" || article.MetaDescription != "" || len(text.prompts) != 1 {
 				t.Fatalf("meta = %q / %q after %d prompts", article.MetaTitle, article.MetaDescription, len(text.prompts))
+			}
+		})
+	}
+}
+
+func articleJSONWithSummary(tldr, whyItMatters string) string {
+	base := validArticleJSON()
+	return base[:len(base)-1] + `,"tldr":` + tldr + `,"whyItMatters":"` + whyItMatters + `"}`
+}
+
+func TestRewriteAsksForSummary(t *testing.T) {
+	text := &scriptedText{responses: []string{validArticleJSON()}}
+	if _, err := publisher.NewRewriter(text).Rewrite(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Write a TL;DR of exactly 3 plain sentences, each maximum 140 characters",
+		"Write one plain sentence, maximum 200 characters, on why the story matters",
+		`"tldr":["First key fact.","Second key fact.","Third key fact."],"whyItMatters":"One sentence on why it matters."`,
+	} {
+		if !strings.Contains(text.prompts[0], want) {
+			t.Errorf("prompt missing %q", want)
+		}
+	}
+}
+
+func TestRewriteKeepsValidSummary(t *testing.T) {
+	text := &scriptedText{responses: []string{articleJSONWithSummary(
+		`[" Anthropic released a cheaper model. ","It handles longer tasks.","A wider rollout comes next month."]`,
+		"Cheaper models let more developers build on Anthropic.")}}
+	article, err := publisher.NewRewriter(text).Rewrite(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Anthropic released a cheaper model.", "It handles longer tasks.", "A wider rollout comes next month."}
+	if strings.Join(article.TLDR, "|") != strings.Join(want, "|") || article.WhyItMatters != "Cheaper models let more developers build on Anthropic." {
+		t.Fatalf("summary = %q / %q", article.TLDR, article.WhyItMatters)
+	}
+}
+
+func TestRewriteDropsInvalidSummaryWithoutFailing(t *testing.T) {
+	cases := map[string][2]string{
+		"missing":     {`[]`, ""},
+		"two points":  {`["One.","Two."]`, strings.Repeat("b", 201)},
+		"four points": {`["One.","Two.","Three.","Four."]`, "A model — cheaper."},
+		"too long":    {`["` + strings.Repeat("a", 141) + `","Two.","Three."]`, "<p>Cheaper.</p>"},
+		"em dash":     {`["One — two.","Two.","Three."]`, ""},
+		"markup":      {`["<b>One.</b>","Two.","Three."]`, ""},
+		"blank point": {`["One."," ","Three."]`, ""},
+	}
+	for name, summary := range cases {
+		t.Run(name, func(t *testing.T) {
+			text := &scriptedText{responses: []string{articleJSONWithSummary(summary[0], summary[1])}}
+			article, err := publisher.NewRewriter(text).Rewrite(context.Background(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if article.TLDR != nil || article.WhyItMatters != "" || len(text.prompts) != 1 {
+				t.Fatalf("summary = %q / %q after %d prompts", article.TLDR, article.WhyItMatters, len(text.prompts))
 			}
 		})
 	}

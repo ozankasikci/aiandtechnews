@@ -466,9 +466,14 @@ components:
         published_at: {type: [string, 'null']}
         meta_title: {type: [string, 'null']}
         meta_description: {type: [string, 'null']}
+        # source and source_url appear only in dashboard (admin) responses;
+        # the public /api/articles routes never include them.
         source: {type: [string, 'null']}
         source_url: {type: [string, 'null']}
         view_count: {type: integer}
+        # Public single-article reads only, when the article has a summary.
+        tldr: {type: array, items: {type: string}}
+        why_it_matters: {type: string}
         created_at: {type: string}
         updated_at: {type: string}
         category:

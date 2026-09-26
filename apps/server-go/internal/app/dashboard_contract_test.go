@@ -149,6 +149,7 @@ func TestDashboardContentMatchesApprovedNodeContractSequence(t *testing.T) {
 	previous := -1
 	for _, id := range []string{"articles.list", "articles.trending", "articles.getBySlug", "articles.getById", "categories.list", "authors.list"} {
 		op, _ := contract.Operation(id)
+		op = withoutArticleSource(t, op)
 		previous = assertAfter(t, contract, id, previous)
 		if err := contracttest.Replay(handler, op); err != nil {
 			t.Fatalf("%s replay: %v", id, err)

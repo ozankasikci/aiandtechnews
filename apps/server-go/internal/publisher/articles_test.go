@@ -249,3 +249,32 @@ func TestPublishStoresSearchMetadataAndNullWhenEmpty(t *testing.T) {
 		t.Fatalf("without meta = %+v / %+v, want NULL", title, description)
 	}
 }
+
+func TestPublishStoresSummaryOnlyWhenPresent(t *testing.T) {
+	db := openDB(t)
+	articles := publisher.NewSQLiteArticles(db, func() time.Time { return publishNow })
+	ctx := context.Background()
+
+	with := newArticle("with-summary", "https://techcrunch.com/with-summary", "OpenAI ships a model", "<p>Body</p>")
+	with.TLDR = []string{"OpenAI shipped a model.", "It is cheaper.", "It reaches everyone next week."}
+	with.WhyItMatters = "Cheaper models reach more developers."
+	withID, err := articles.Publish(ctx, with)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutID, err := articles.Publish(ctx, newArticle("without-summary", "https://techcrunch.com/without-summary", "OpenAI ships another model", "<p>Body</p>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tldr, why string
+	if err := db.QueryRow(`SELECT tldr, why_it_matters FROM article_summaries WHERE article_id = ?`, withID).Scan(&tldr, &why); err != nil {
+		t.Fatal(err)
+	}
+	if tldr != `["OpenAI shipped a model.","It is cheaper.","It reaches everyone next week."]` || why != "Cheaper models reach more developers." {
+		t.Fatalf("summary = %s / %s", tldr, why)
+	}
+	var rows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM article_summaries WHERE article_id = ?`, withoutID).Scan(&rows); err != nil || rows != 0 {
+		t.Fatalf("summary rows without summary = %d, %v", rows, err)
+	}
+}

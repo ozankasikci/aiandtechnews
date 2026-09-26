@@ -3,6 +3,7 @@ package content
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -143,6 +144,9 @@ func (s *SQLiteStore) PublishedBySlugAndIncrement(ctx context.Context, slug stri
 		ON CONFLICT(article_id, day) DO UPDATE SET count = count + 1`, article.ID); err != nil {
 		return Article{}, fmt.Errorf("record article view for today: %w", err)
 	}
+	if err = loadSummary(ctx, tx, &article); err != nil {
+		return Article{}, err
+	}
 	if err = tx.Commit(); err != nil {
 		return Article{}, fmt.Errorf("commit article view transaction: %w", err)
 	}
@@ -208,3 +212,22 @@ func nullString(value sql.NullString) *string {
 // normalizeSearch preserves whitespace and wildcard characters just like the
 // Node endpoint; it exists to make the intentional no-trimming behavior clear.
 func normalizeSearch(value string) string { return strings.Clone(value) }
+
+func loadSummary(ctx context.Context, tx *sql.Tx, article *Article) error {
+	var points string
+	err := tx.QueryRowContext(ctx, `SELECT tldr, why_it_matters FROM article_summaries WHERE article_id = ?`, article.ID).
+		Scan(&points, &article.WhyItMatters)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read article summary: %w", err)
+	}
+	if err := json.Unmarshal([]byte(points), &article.TLDR); err != nil {
+		return fmt.Errorf("decode article summary: %w", err)
+	}
+	if len(article.TLDR) == 0 {
+		article.TLDR = nil
+	}
+	return nil
+}

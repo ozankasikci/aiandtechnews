@@ -38,6 +38,23 @@ func (h *PublicHandler) MountPublic(router chi.Router) {
 	router.Get("/articles/{slug}", h.bySlug)
 }
 
+// publicArticle is an article as the website sees it. Its source and
+// source_url stay stored for duplicate detection and the dashboard, but are
+// never published: the shallower nil fields hide the embedded ones.
+type publicArticle struct {
+	Article
+	Source    *struct{} `json:"source,omitempty"`
+	SourceURL *struct{} `json:"source_url,omitempty"`
+}
+
+func publicArticles(articles []Article) []publicArticle {
+	out := make([]publicArticle, len(articles))
+	for i, article := range articles {
+		out[i] = publicArticle{Article: article}
+	}
+	return out
+}
+
 func (h *PublicHandler) list(w http.ResponseWriter, r *http.Request) {
 	query := ListQuery{
 		Page: parseNodeNumber(r.URL.Query().Get("page"), 1), Limit: parseNodeLimit(r.URL.Query().Get("limit"), 12, 50),
@@ -48,7 +65,12 @@ func (h *PublicHandler) list(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, r, "list articles", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, page)
+	writeJSON(w, http.StatusOK, struct {
+		Articles   []publicArticle `json:"articles"`
+		Total      int64           `json:"total"`
+		Page       float64         `json:"page"`
+		TotalPages int64           `json:"totalPages"`
+	}{publicArticles(page.Articles), page.Total, page.Page, page.TotalPages})
 }
 
 func (h *PublicHandler) trending(w http.ResponseWriter, r *http.Request) {
@@ -58,8 +80,8 @@ func (h *PublicHandler) trending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
-		Articles []Article `json:"articles"`
-	}{articles})
+		Articles []publicArticle `json:"articles"`
+	}{publicArticles(articles)})
 }
 
 func (h *PublicHandler) bySlug(w http.ResponseWriter, r *http.Request) {
@@ -73,8 +95,8 @@ func (h *PublicHandler) bySlug(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
-		Article Article `json:"article"`
-	}{article})
+		Article publicArticle `json:"article"`
+	}{publicArticle{Article: article}})
 }
 
 func (h *PublicHandler) byID(w http.ResponseWriter, r *http.Request) {
@@ -88,8 +110,8 @@ func (h *PublicHandler) byID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
-		Article Article `json:"article"`
-	}{article})
+		Article publicArticle `json:"article"`
+	}{publicArticle{Article: article}})
 }
 
 func (h *PublicHandler) internalError(w http.ResponseWriter, r *http.Request, message string, err error) {

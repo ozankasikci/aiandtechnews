@@ -34,6 +34,10 @@ type RewrittenArticle struct {
 	// the website falls back to the headline and excerpt.
 	MetaTitle       string
 	MetaDescription string
+	// TLDR (exactly three sentences, or nil) and WhyItMatters are optional
+	// too. Empty means the article page shows no summary box.
+	TLDR         []string
+	WhyItMatters string
 }
 
 type ArticleValidationOptions struct {

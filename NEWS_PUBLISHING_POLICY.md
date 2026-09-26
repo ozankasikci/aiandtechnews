@@ -71,6 +71,7 @@ Rewrite the source into an original, human-sounding article. Do not copy the sou
 - Write a short, direct, factual, non-clickbait headline.
 - Re-run the promotional-language check against the rewritten headline. A rewrite must never turn an accepted source headline into promotional copy.
 - Write one plain-sentence excerpt with no HTML and no more than 180 characters.
+- Write a TL;DR of exactly three plain sentences, each no more than 140 characters, giving the key facts in order of importance, and one plain "Why it matters" sentence of no more than 200 characters that says only what the source reporting supports. Both are optional: a summary that breaks these rules or the writing contract is dropped, not published, and the article still publishes. They are stored in `article_summaries`, never in the article body.
 - Target 150 to 800 words, generally in 5 to 12 paragraphs.
 - Start with a clear lede explaining what happened.
 - Include relevant context and background.
@@ -85,6 +86,7 @@ If the available reporting cannot support a complete, accurate article, skip the
 - Preserve the publication name in `source`.
 - Preserve the canonical original article URL in `source_url`.
 - Attribution belongs in those fields. Do not append a source or sources line to the article body.
+- The source is kept only for duplicate checks and the dashboard. Never show it on the website: the public article API omits `source` and `source_url`.
 - Insert imported articles with `status = published`.
 - Use `TechNews Editorial` as the author. Do not invent journalist identities or rotate fictional personas.
 

@@ -129,6 +129,32 @@ func articleIDs(articles []content.Article) []int64 {
 	return ids
 }
 
+func TestSQLiteStoreReturnsSummaryWithArticleBySlug(t *testing.T) {
+	db, _ := testutil.OpenDatabase(t)
+	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, db)
+	if _, err := db.Exec(`INSERT INTO article_summaries(article_id, tldr, why_it_matters) VALUES (301, '["One.","Two.","Three."]', 'It matters.')`); err != nil {
+		t.Fatal(err)
+	}
+	store := content.NewSQLiteStore(db)
+	with, err := store.PublishedBySlugAndIncrement(context.Background(), "synthetic-published-newer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(with.TLDR) != 3 || with.TLDR[2] != "Three." || with.WhyItMatters != "It matters." {
+		t.Fatalf("summary = %q / %q", with.TLDR, with.WhyItMatters)
+	}
+	without, err := store.PublishedBySlugAndIncrement(context.Background(), "synthetic-published-null-options")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if without.TLDR != nil || without.WhyItMatters != "" {
+		t.Fatalf("summary without row = %q / %q", without.TLDR, without.WhyItMatters)
+	}
+}
+
 func TestSQLiteStoreHonorsCanceledContext(t *testing.T) {
 	db, _ := testutil.OpenDatabase(t)
 	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {

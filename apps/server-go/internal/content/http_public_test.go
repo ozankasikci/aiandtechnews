@@ -164,3 +164,18 @@ func TestPublicArticleDatabaseFailureIsLoggedAndNotLeaked(t *testing.T) {
 		t.Errorf("logs/body = %q / %q", logs.String(), response.Body.String())
 	}
 }
+
+func TestPublicArticlesDoNotExposeTheirSource(t *testing.T) {
+	handler, _ := newArticleHandler(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for _, target := range []string{"/api/articles", "/api/articles/trending", "/api/articles/synthetic-published-newer", "/api/articles/id/301"} {
+		body := request(t, handler, target).Body.String()
+		if !strings.Contains(body, `"id":301`) {
+			t.Fatalf("%s did not return article 301: %q", target, body)
+		}
+		for _, leak := range []string{`"source"`, `"source_url"`, "Synthetic Wire", "news.example.invalid"} {
+			if strings.Contains(body, leak) {
+				t.Errorf("%s exposes %s", target, leak)
+			}
+		}
+	}
+}

@@ -244,6 +244,7 @@ func (p *Publisher) publish(ctx context.Context, candidate newsroom.Candidate) (
 		CandidateID: candidate.ID, Title: article.Title, Slug: finalSlug, Excerpt: article.Excerpt, Content: article.Content,
 		FeaturedImage: illustration.URL, Source: source, SourceURL: canonicalURL,
 		MetaTitle: article.MetaTitle, MetaDescription: article.MetaDescription,
+		TLDR: article.TLDR, WhyItMatters: article.WhyItMatters,
 	})
 	if err != nil {
 		if illustration.Discard != nil {

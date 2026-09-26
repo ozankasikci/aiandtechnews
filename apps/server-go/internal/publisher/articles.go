@@ -3,6 +3,7 @@ package publisher
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -35,6 +36,9 @@ type NewArticle struct {
 	// Optional search snippets; empty values are stored as NULL.
 	MetaTitle       string
 	MetaDescription string
+	// Optional summary; stored in article_summaries only when present.
+	TLDR         []string
+	WhyItMatters string
 }
 
 // Categories in Node's CATEGORY_KEYWORDS insertion order (the matching
@@ -175,6 +179,11 @@ func (a *SQLiteArticles) Publish(ctx context.Context, article NewArticle) (id in
 		err = errors.New("post-insert readback did not match the publishing contract")
 		return 0, err
 	}
+	if len(article.TLDR) > 0 || article.WhyItMatters != "" {
+		if err = insertSummary(ctx, tx, id, article.TLDR, article.WhyItMatters); err != nil {
+			return 0, err
+		}
+	}
 	if article.CandidateID != 0 {
 		if err = markCandidatePublished(ctx, tx, article.CandidateID, id, a.now()); err != nil {
 			return 0, err
@@ -184,6 +193,21 @@ func (a *SQLiteArticles) Publish(ctx context.Context, article NewArticle) (id in
 		return 0, fmt.Errorf("commit article: %w", err)
 	}
 	return id, nil
+}
+
+func insertSummary(ctx context.Context, tx *sql.Tx, articleID int64, tldr []string, whyItMatters string) error {
+	if tldr == nil {
+		tldr = []string{}
+	}
+	points, err := json.Marshal(tldr)
+	if err != nil {
+		return fmt.Errorf("encode summary: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO article_summaries (article_id, tldr, why_it_matters) VALUES (?, ?, ?)`,
+		articleID, string(points), whyItMatters); err != nil {
+		return fmt.Errorf("insert article summary: %w", err)
+	}
+	return nil
 }
 
 // markCandidatePublished links a processing candidate to its new article.
