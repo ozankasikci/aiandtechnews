@@ -1,31 +1,21 @@
-import Link from "next/link";
 import { getTrendingArticles, mapArticle } from "../lib/api";
+import { TrendingTabs, type TrendingItem } from "./TrendingTabs";
 
-export async function MostPopularSidebar() {
-  const data = await getTrendingArticles(5);
-  const items = data?.articles?.length
-    ? data.articles.map(mapArticle).map((a) => ({ title: a.headline, slug: a.slug }))
-    : [];
+async function trendingItems(request: ReturnType<typeof getTrendingArticles>): Promise<TrendingItem[]> {
+  const data = await request;
+  return (data?.articles ?? []).map(mapArticle).map((a) => ({ title: a.headline, slug: a.slug, time: a.time }));
+}
 
-  if (!items.length) return null;
+export async function TrendingSidebar() {
+  const [today, week] = await Promise.all([
+    trendingItems(getTrendingArticles(5, "24h")),
+    trendingItems(getTrendingArticles(5, "7d")),
+  ]);
+  if (!today.length && !week.length) return null;
 
   return (
     <aside className="w-full lg:w-[300px] shrink-0">
-      <h2 className="text-xs font-bold uppercase tracking-widest text-text-muted mb-4 pb-2 border-b border-border">
-        Most Popular
-      </h2>
-      <ol className="space-y-4">
-        {items.map((item, i) => (
-          <li key={i}>
-            <Link href={item.slug === "#" ? "#" : `/article/${item.slug}`} className="flex gap-3 group cursor-pointer">
-              <span className="text-2xl font-black text-text-muted/50 leading-none shrink-0 w-7 text-right">{i + 1}</span>
-              <span className="text-sm font-semibold leading-snug group-hover:text-accent-purple transition-colors">
-                {item.title}
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ol>
+      <TrendingTabs heading="Trending" today={today} week={week} />
     </aside>
   );
 }

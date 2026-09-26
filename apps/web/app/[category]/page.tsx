@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { CATEGORIES } from "../data/articles";
 import { ArticleFeed } from "../components/ArticleFeed";
-import { MostPopularSidebar } from "../components/Sidebar";
+import { TrendingSidebar } from "../components/Sidebar";
 import { getArticles, mapArticle } from "../lib/api";
 import { fallbackArticlesByCategory } from "../lib/fallback";
 
@@ -64,7 +64,7 @@ export default async function CategoryPage({ params }: Props) {
             <p className="text-text-muted py-8">No articles in this category yet.</p>
           )}
         </div>
-        <MostPopularSidebar />
+        <TrendingSidebar />
       </div>
     </div>
   );

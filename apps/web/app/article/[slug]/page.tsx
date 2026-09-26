@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fallbackArticlesByCategory } from "../../lib/fallback";
-import { MostPopularSidebar } from "../../components/Sidebar";
+import { TrendingSidebar } from "../../components/Sidebar";
 import { ShareButtons } from "../../components/ShareButtons";
 import { AnalyticsLink } from "../../components/AnalyticsLink";
 import { ArticleReadTracker } from "../../components/ArticleReadTracker";
@@ -185,7 +185,7 @@ export default async function ArticlePage({ params }: Props) {
           </article>
 
           <div className="lg:mt-32">
-            <MostPopularSidebar />
+            <TrendingSidebar />
           </div>
         </div>
       </div>

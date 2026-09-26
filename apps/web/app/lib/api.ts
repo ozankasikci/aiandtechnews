@@ -157,8 +157,13 @@ export async function getArticlesUpTo(
   return articles.slice(0, maxCount);
 }
 
-export async function getTrendingArticles(limit = 5) {
-  return apiFetch<{ articles: ApiArticle[] }>(`/api/articles/trending?limit=${limit}`);
+// "24h" and "7d" rank by reads in that window, topped up with the newest
+// stories; no window ranks by all-time views.
+export type TrendingWindow = "24h" | "7d";
+
+export async function getTrendingArticles(limit = 5, window?: TrendingWindow) {
+  const windowParam = window ? `&window=${window}` : "";
+  return apiFetch<{ articles: ApiArticle[] }>(`/api/articles/trending?limit=${limit}${windowParam}`);
 }
 
 export type ArticleLookupResult =

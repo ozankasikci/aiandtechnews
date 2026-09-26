@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ArticleImage } from "./components/ArticleImage";
 import Link from "next/link";
-import { MostPopularSidebar } from "./components/Sidebar";
+import { TrendingSidebar } from "./components/Sidebar";
 import { ArticleFeed } from "./components/ArticleFeed";
 import { getArticles, mapArticle } from "./lib/api";
 import { fallbackArticles } from "./lib/fallback";
@@ -100,7 +100,7 @@ export default async function Home() {
           </div>
 
           <div className="lg:w-[300px] shrink-0">
-            <MostPopularSidebar />
+            <TrendingSidebar />
             <div className="mt-8">
               {stickerArticles.map((s, i) => (
                 <Link key={s.id} href={`/article/${s.slug}`} className="block relative rounded-sm overflow-hidden mb-6 group cursor-pointer">
