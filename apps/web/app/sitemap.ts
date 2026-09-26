@@ -3,6 +3,7 @@ import { getArticlesUpTo, getNewsletterEditions } from "./lib/api";
 import { parseApiDate } from "./lib/dates";
 import { fallbackArticles } from "./lib/fallback";
 import { CATEGORIES } from "./data/articles";
+import { GLOSSARY } from "./data/glossary";
 
 const BASE_URL = "https://www.aiandtech.news";
 
@@ -60,5 +61,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     article_pages = snapshotArticlePages();
   }
 
-  return [...static_pages, ...category_pages, ...edition_pages, ...article_pages];
+  const glossary_pages: MetadataRoute.Sitemap = [
+    { url: `${BASE_URL}/glossary`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.4 },
+    ...GLOSSARY.map((entry) => ({
+      url: `${BASE_URL}/glossary/${entry.slug}`,
+      lastModified: new Date(),
+      changeFrequency: "weekly" as const,
+      priority: 0.4,
+    })),
+  ];
+
+  return [...static_pages, ...category_pages, ...glossary_pages, ...edition_pages, ...article_pages];
 }

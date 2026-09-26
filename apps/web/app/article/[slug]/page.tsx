@@ -11,6 +11,8 @@ import { NewsletterBanner } from "../../components/Newsletter";
 import { getArticleLookup, getArticles, mapArticle } from "../../lib/api";
 import { toAbsoluteUrl } from "../../lib/dates";
 import { pickReadNext, splitAfterParagraph } from "../../lib/read-next";
+import { glossaryTerm, linkGlossaryTerms } from "../../lib/glossary";
+import { GlossaryPopover } from "../../components/GlossaryPopover";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -67,7 +69,9 @@ export default async function ArticlePage({ params }: Props) {
   if (lookup.state === "unavailable") throw new Error("Article backend unavailable");
   const article = mapArticle(lookup.article);
 
-  const body = article.body || "<p>Article content unavailable.</p>";
+  const glossary = linkGlossaryTerms(article.body || "<p>Article content unavailable.</p>");
+  const body = glossary.html;
+  const glossaryTerms = glossary.slugs.map((s) => glossaryTerm(s)!).map(({ slug, term, definition }) => ({ slug, term, definition }));
   const articleUrl = `${BASE_URL}/article/${article.slug}`;
   const imageUrl = toAbsoluteUrl(article.image, BASE_URL);
 
@@ -147,6 +151,7 @@ export default async function ArticlePage({ params }: Props) {
               {withMidCard && <ReadNext placement="mid" current={article.slug} picks={readNext} withMidCard />}
               {bodyRest && <div dangerouslySetInnerHTML={{ __html: bodyRest }} />}
             </div>
+            <GlossaryPopover terms={glossaryTerms} />
             <ArticleReadTracker bodyId="article-body" slug={article.slug} category={article.tag} />
 
             <NewsletterBanner placement="article_footer" />

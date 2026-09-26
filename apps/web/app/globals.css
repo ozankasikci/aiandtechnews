@@ -58,3 +58,16 @@ a:hover {
   background: #444;
   border-radius: 4px;
 }
+
+/* Glossary terms in article bodies: a dotted purple underline, tap for a definition */
+#article-body a.glossary-term {
+  color: inherit;
+  text-decoration: underline dotted #a855f7;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+  cursor: help;
+}
+#article-body a.glossary-term:hover {
+  color: #fff;
+  text-decoration-style: solid;
+}
