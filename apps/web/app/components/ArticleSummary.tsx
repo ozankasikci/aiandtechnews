@@ -9,7 +9,7 @@ export function ArticleSummary({ tldr, whyItMatters }: { tldr?: string[]; whyItM
       {tldr?.length ? (
         <>
           <div className="flex items-baseline justify-between gap-4">
-            <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent-purple">The short version</h2>
+            <h2 className="text-xs font-bold uppercase tracking-[0.14em] text-accent-purple">The short version</h2>
             <span className="text-xs text-text-muted">30-second read</span>
           </div>
           <ol className="flex flex-col gap-2.5">
@@ -30,7 +30,7 @@ export function ArticleSummary({ tldr, whyItMatters }: { tldr?: string[]; whyItM
             <path d="M13 6l6 6-6 6" />
           </svg>
           <div className="flex flex-col gap-1">
-            <h3 className="text-[11px] font-bold uppercase tracking-[0.14em] text-accent-purple">Why it matters</h3>
+            <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-accent-purple">Why it matters</h3>
             <p className="text-[15px] leading-relaxed font-medium text-white">{whyItMatters}</p>
           </div>
         </div>
