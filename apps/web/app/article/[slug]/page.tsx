@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { fallbackArticlesByCategory } from "../../lib/fallback";
 import { TrendingSidebar } from "../../components/Sidebar";
 import { ShareButtons } from "../../components/ShareButtons";
+import { ArticleSummary } from "../../components/ArticleSummary";
 import { AnalyticsLink } from "../../components/AnalyticsLink";
 import { ArticleReadTracker } from "../../components/ArticleReadTracker";
 import { NewsletterBanner } from "../../components/Newsletter";
@@ -127,6 +128,8 @@ export default async function ArticlePage({ params }: Props) {
             </div>
 
             <ShareButtons title={article.headline} />
+
+            <ArticleSummary tldr={article.tldr} whyItMatters={article.whyItMatters} />
 
             <div
               id="article-body"

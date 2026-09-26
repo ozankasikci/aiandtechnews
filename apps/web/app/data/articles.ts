@@ -13,8 +13,8 @@ export type Article = {
   updatedAt?: string;
   readTime: string;
   image: string;
-  source?: string;
-  sourceUrl?: string;
+  tldr?: string[];
+  whyItMatters?: string;
   metaTitle?: string;
   metaDescription?: string;
   body?: string;

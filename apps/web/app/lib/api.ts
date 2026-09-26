@@ -28,10 +28,10 @@ export interface ApiArticle {
   view_count: number;
   created_at: string;
   updated_at: string;
-  source?: string;
-  source_url?: string;
   meta_title?: string | null;
   meta_description?: string | null;
+  tldr?: string[];
+  why_it_matters?: string;
   category: { id: number; name: string; slug: string; description: string; color: string };
   author: { id: number; name: string; email: string; avatar: string; bio: string; role: string };
 }
@@ -103,8 +103,8 @@ export function mapArticle(a: ApiArticle): Article {
     updatedAt: toIsoDate(a.updated_at || a.published_at || a.created_at),
     readTime: readingTimeLabel(a.content),
     image: a.featured_image || "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=500&fit=crop",
-    source: a.source || undefined,
-    sourceUrl: a.source_url || undefined,
+    tldr: a.tldr?.length ? a.tldr : undefined,
+    whyItMatters: a.why_it_matters || undefined,
     metaTitle: a.meta_title || undefined,
     metaDescription: a.meta_description || undefined,
     body: a.content,
