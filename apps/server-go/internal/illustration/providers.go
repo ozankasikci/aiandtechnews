@@ -20,18 +20,22 @@ const (
 )
 
 // ImageRules are appended to every generation prompt.
-const ImageRules = "16:9 landscape. Absolutely no text, letters, numbers, logos, flags, national emblems, coats of arms, watermarks, UI or screens, and no real people or recognizable faces."
+const ImageRules = "16:9 landscape. Show the scene literally, as described. Absolutely no text, letters, numbers, logos, flags, national emblems, coats of arms or watermarks, and no readable writing on screens or signs. People are ordinary anonymous people, never the likeness of a real or famous person."
+
+// SimpleRules shape a "simple" composition: one subject, lots of space.
+const SimpleRules = "Simple composition: no people at all; show the action described happening, with its actor (a robot, agent, machine or product) and its visible result, drawn big and clear, on a plain or softly textured backdrop in the palette's colours, with generous empty space. Not a still life: something must be happening. No generic monitors, laptops or phone screens unless they are the subject."
 
 // CollageRules turn the brief into a background for the public-figure
 // collage: the person's photo is pasted over the left side afterwards.
 const CollageRules = "This is the background for a photo collage: a photo of a person will be pasted onto the LEFT 45% of the frame later, so keep the left 45% mostly empty except one large, simple backdrop shape (a big circle or arch) behind where a head and shoulders will go. Put the story's scene on the right side. No people, no faces, no hands."
 
-const anchorRules = "The attached images are style references only: match their painting technique, brushwork, palette and finish, but do not copy their subjects or composition."
+const anchorRules = "The attached images are style references only: match their technique, linework, shading and finish, but not their colours, and do not copy their subjects or composition."
 
 // GenerateRequest is one generation attempt.
 type GenerateRequest struct {
 	Brief      Brief
 	Style      styles.Style
+	Palette    styles.Palette
 	Collage    bool
 	Correction string
 }
@@ -51,7 +55,14 @@ func BuildImagePrompt(request GenerateRequest) string {
 		prompt.WriteString(CollageRules + " ")
 	}
 	prompt.WriteString(request.Brief.Text())
-	prompt.WriteString(" Style: " + request.Style.Prompt + " " + ImageRules)
+	prompt.WriteString(" Style: " + request.Style.Prompt)
+	if request.Palette.Colors != "" {
+		prompt.WriteString(" Colour palette: " + request.Palette.Colors + ".")
+	}
+	if request.Brief.Composition == CompositionSimple {
+		prompt.WriteString(" " + SimpleRules)
+	}
+	prompt.WriteString(" " + ImageRules)
 	if correction := strings.TrimSpace(request.Correction); correction != "" {
 		prompt.WriteString(" Correction: " + correction)
 	}

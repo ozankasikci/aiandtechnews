@@ -161,13 +161,13 @@ func TestPipelineFirstProviderWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	report := result.Report
-	if report.Provider != "codex" || report.Analyzer != "codex" || report.Style != "gouache@1" || report.Collage || len(gem.requests) != 0 {
+	if report.Provider != "codex" || report.Analyzer != "codex" || report.Style != "graphic@2" || report.Collage || len(gem.requests) != 0 {
 		t.Fatalf("report = %+v gemini calls = %d", report, len(gem.requests))
 	}
 	if len(fixture.reviewer.reviewed) != 1 {
 		t.Fatalf("reviewed %d images", len(fixture.reviewer.reviewed))
 	}
-	if codex.requests[0].Style.Name != "gouache" || codex.requests[0].Collage {
+	if codex.requests[0].Style.Name != "graphic" || codex.requests[0].Collage {
 		t.Fatalf("request = %+v", codex.requests[0])
 	}
 }
@@ -254,13 +254,13 @@ func TestPipelineAnalyzerFallback(t *testing.T) {
 	gem := &fakeProvider{name: "gemini", attempts: 3, image: solidPNG(t, 64, 36)}
 	fixture := newFixture(t, illustration.ProviderStep(gem))
 	first := &fakeAnalyzer{name: "codex", err: illustration.ErrCodexAuth}
-	second := &fakeAnalyzer{name: "gemini", brief: strings.Replace(validBrief, "gouache", "anime", 1)}
+	second := &fakeAnalyzer{name: "gemini", brief: strings.Replace(validBrief, "Curious", "Tense", 1)}
 	fixture.deps.Analyzers = []illustration.Analyzer{first, second}
 	result, err := fixture.produce(t)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Report.Analyzer != "gemini" || result.Report.Style != "anime@1" || first.calls != 1 {
+	if result.Report.Analyzer != "gemini" || result.Report.Style != "graphic@2" || first.calls != 1 {
 		t.Fatalf("report = %+v", result.Report)
 	}
 }
@@ -293,7 +293,7 @@ func TestPipelineSourceOnlyChainSkipsAnalysis(t *testing.T) {
 	}
 }
 
-const figureBrief = `{"scene":"A helix.","foreground":"A glowing rung.","background":"Stars.","mood":"Curious","style":"anime","style_reason":"Epic.","public_figure":{"name":"Dario Amodei","visible_in_source":true}}`
+const figureBrief = `{"scene":"A helix.","foreground":"A glowing rung.","background":"Stars.","mood":"Curious","style":"graphic","style_reason":"Epic.","public_figure":{"name":"Dario Amodei","visible_in_source":true}}`
 
 func TestPipelineCollage(t *testing.T) {
 	gem := &fakeProvider{name: "gemini", attempts: 3, image: solidPNG(t, 320, 180)}
@@ -406,4 +406,73 @@ func tinyMaskCutout(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+func TestPipelinePalette(t *testing.T) {
+	palettes := styles.MustLoad().Palettes()
+	for name, c := range map[string]struct {
+		chosen string
+		avoid  []string
+		want   func(string) bool
+	}{
+		"analyzer choice kept":    {palettes[1].Name, nil, func(got string) bool { return got == palettes[1].Name }},
+		"avoided choice replaced": {palettes[1].Name, []string{palettes[1].Name}, func(got string) bool { return got != "" && got != palettes[1].Name }},
+		"missing choice filled":   {"", nil, func(got string) bool { return got != "" }},
+	} {
+		codex := &fakeProvider{name: "codex", attempts: 1, image: solidPNG(t, 64, 36)}
+		fixture := newFixture(t, illustration.ProviderStep(codex))
+		brief := strings.Replace(validBrief, `"public_figure":null`, `"palette":"`+c.chosen+`","public_figure":null`, 1)
+		fixture.deps.Analyzers = []illustration.Analyzer{&fakeAnalyzer{name: "codex", brief: brief}}
+		fixture.request.AvoidPalettes = c.avoid
+		result, err := fixture.produce(t)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !c.want(result.Report.Palette) {
+			t.Fatalf("%s: palette = %q", name, result.Report.Palette)
+		}
+		prompt := illustration.BuildImagePrompt(codex.requests[0])
+		if palette, _ := styles.MustLoad().Palette(result.Report.Palette); !strings.Contains(prompt, "Colour palette: "+palette.Colors) {
+			t.Fatalf("%s: prompt lacks the palette: %s", name, prompt)
+		}
+	}
+}
+
+func TestPipelineOffersOnlyStylesNotRecentlyUsed(t *testing.T) {
+	codex := &fakeProvider{name: "codex", attempts: 1, image: solidPNG(t, 64, 36)}
+	fixture := newFixture(t, illustration.ProviderStep(codex))
+	analyzer := &fakeAnalyzer{name: "codex", brief: strings.Replace(validBrief, `"style":"graphic"`, `"style":"midcentury"`, 1)}
+	fixture.deps.Analyzers = []illustration.Analyzer{analyzer}
+	fixture.request.AvoidStyles = []string{"graphic"}
+	result, err := fixture.produce(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analyzer.input.Styles == nil || len(analyzer.input.Styles.Names()) != 1 || analyzer.input.Styles.Names()[0] != "midcentury" {
+		t.Fatalf("offered styles = %+v", analyzer.input.Styles)
+	}
+	if result.Report.Style != "midcentury@1" {
+		t.Fatalf("style = %q", result.Report.Style)
+	}
+}
+
+func TestPipelineSimpleComposition(t *testing.T) {
+	codex := &fakeProvider{name: "codex", attempts: 1, image: solidPNG(t, 64, 36)}
+	fixture := newFixture(t, illustration.ProviderStep(codex))
+	analyzer := &fakeAnalyzer{name: "codex", brief: strings.Replace(validBrief, `"public_figure":null`, `"composition":"scene","public_figure":null`, 1)}
+	fixture.deps.Analyzers = []illustration.Analyzer{analyzer}
+	fixture.request.Compositions = []string{illustration.CompositionSimple}
+	result, err := fixture.produce(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(analyzer.input.Compositions) != 1 || analyzer.input.Compositions[0] != illustration.CompositionSimple {
+		t.Fatalf("offered compositions = %v", analyzer.input.Compositions)
+	}
+	if result.Report.Composition != illustration.CompositionSimple {
+		t.Fatalf("composition = %q", result.Report.Composition)
+	}
+	if prompt := illustration.BuildImagePrompt(codex.requests[0]); !strings.Contains(prompt, illustration.SimpleRules) {
+		t.Fatalf("prompt lacks the simple rules: %s", prompt)
+	}
 }

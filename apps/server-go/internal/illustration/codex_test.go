@@ -99,7 +99,7 @@ func sampleRequest(t *testing.T) illustration.GenerateRequest {
 	if err != nil {
 		t.Fatal(err)
 	}
-	style, _ := styles.MustLoad().Get("gouache")
+	style, _ := styles.MustLoad().Get("graphic")
 	return illustration.GenerateRequest{Brief: brief, Style: style}
 }
 
@@ -129,11 +129,11 @@ func TestCodexProviderGeneratesWithAnchorsAndLogin(t *testing.T) {
 			images++
 		}
 	}
-	if images != 3 {
-		t.Fatalf("attached %d anchors, want 3", images)
+	if want := len(sampleRequest(t).Style.Anchors); images != want {
+		t.Fatalf("attached %d anchors, want %d", images, want)
 	}
 	prompt := args[len(args)-1]
-	for _, want := range []string{"$imagegen Create one image.", "Scene: A glowing helix", "Style: gouache painting", illustration.ImageRules, "style references only", "Save the final image as /", "and do nothing else."} {
+	for _, want := range []string{"$imagegen Create one image.", "Scene: A glowing helix", "Style: Bold flat vector editorial illustration", illustration.ImageRules, "style references only", "Save the final image as /", "and do nothing else."} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt lacks %q: %s", want, prompt)
 		}
@@ -196,7 +196,7 @@ func TestCodexAnalyzerReadsTheAnswerFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if brief.Style != "gouache" || analyzer.Name() != "codex" {
+	if brief.Style != "graphic" || analyzer.Name() != "codex" {
 		t.Fatalf("brief = %+v", brief)
 	}
 	args := harness.args(t)

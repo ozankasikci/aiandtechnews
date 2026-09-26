@@ -186,6 +186,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			CutoutBin:    cfg.CutoutBin,
 			Gemini:       geminiClient,
 			Store:        imageStore,
+			History:      illustration.NewSettingsHistory(db),
 			HTTP:         illustration.NewReferenceClient(),
 			Logger:       logger,
 		}))

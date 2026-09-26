@@ -26,6 +26,7 @@ type PipelineConfig struct {
 	CutoutBin    string
 	Gemini       GeminiClient
 	Store        ImageStore
+	History      History
 	HTTP         *http.Client
 	Logger       *slog.Logger
 }
@@ -39,6 +40,7 @@ func BuildPipelineDeps(cfg PipelineConfig) PipelineDeps {
 		Reviewer: NewGeminiReviewer(cfg.Gemini),
 		Styles:   catalog,
 		Store:    cfg.Store,
+		History:  cfg.History,
 		HTTP:     cfg.HTTP,
 		Logger:   cfg.Logger,
 	}

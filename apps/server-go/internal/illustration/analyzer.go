@@ -20,6 +20,22 @@ type AnalyzeInput struct {
 	Excerpt  string
 	ImageURL string
 	Source   []byte
+	// Palettes are the colour schemes the brief may use; empty means none.
+	Palettes []styles.Palette
+	// Compositions the brief may choose; empty means no composition key.
+	Compositions []string
+	// PreferComposition nudges the choice for homepage variety; the
+	// people-central rule still wins.
+	PreferComposition string
+	// Styles, when set, limits the styles the brief may choose.
+	Styles *styles.Catalog
+}
+
+func (input AnalyzeInput) catalog(fallback styles.Catalog) styles.Catalog {
+	if input.Styles != nil {
+		return *input.Styles
+	}
+	return fallback
 }
 
 // Analyzer turns a story and its source image into a Brief.
@@ -50,18 +66,19 @@ func (a *GeminiAnalyzer) Name() string { return ProviderGemini }
 func (a *GeminiAnalyzer) Analyze(ctx context.Context, input AnalyzeInput) (Brief, error) {
 	ctx, cancel := context.WithTimeout(ctx, analyzeTimeout)
 	defer cancel()
-	prompt := BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, a.catalog, input.Source != nil)
+	catalog := input.catalog(a.catalog)
+	prompt := BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition)
 	var raw string
 	var err error
 	if input.Source != nil {
-		raw, err = a.model.ReviewImage(ctx, prompt, input.Source, briefGeminiSchema(a.catalog.Names()))
+		raw, err = a.model.ReviewImage(ctx, prompt, input.Source, briefGeminiSchema(catalog.Names(), paletteNames(input.Palettes), input.Compositions))
 	} else {
 		raw, err = a.model.GenerateJSON(ctx, prompt)
 	}
 	if err != nil {
 		return Brief{}, fmt.Errorf("gemini analyze: %w", err)
 	}
-	return ParseBrief(raw, a.catalog.Names())
+	return ParseBrief(raw, catalog.Names())
 }
 
 // CodexAnalyzer writes the brief with `codex exec` in a read-only sandbox.
@@ -84,7 +101,8 @@ func (a *CodexAnalyzer) Analyze(ctx context.Context, input AnalyzeInput) (Brief,
 		return Brief{}, err
 	}
 	defer os.RemoveAll(dir)
-	schema, err := briefJSONSchema(a.catalog.Names())
+	catalog := input.catalog(a.catalog)
+	schema, err := briefJSONSchema(catalog.Names(), paletteNames(input.Palettes), input.Compositions)
 	if err != nil {
 		return Brief{}, err
 	}
@@ -97,7 +115,7 @@ func (a *CodexAnalyzer) Analyze(ctx context.Context, input AnalyzeInput) (Brief,
 		Dir:     dir,
 		Sandbox: "read-only",
 		Extra:   []string{"--output-schema", schemaPath, "-o", answerPath},
-		Prompt:  BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, a.catalog, input.Source != nil) + "\n\nDo not run any commands. Answer with the JSON object only.",
+		Prompt:  BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition) + "\n\nDo not run any commands. Answer with the JSON object only.",
 	}
 	if input.Source != nil {
 		sourcePath := filepath.Join(dir, "source.jpg")
@@ -114,5 +132,5 @@ func (a *CodexAnalyzer) Analyze(ctx context.Context, input AnalyzeInput) (Brief,
 	if readErr != nil || strings.TrimSpace(string(answer)) == "" {
 		answer = []byte(output)
 	}
-	return ParseBrief(string(answer), a.catalog.Names())
+	return ParseBrief(string(answer), catalog.Names())
 }

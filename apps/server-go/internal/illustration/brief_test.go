@@ -9,9 +9,9 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/styles"
 )
 
-var styleNames = []string{"anime", "gouache"}
+var styleNames = []string{"graphic", "midcentury", "photo"}
 
-const validBrief = `{"scene":"A glowing helix unwinds like a map.","foreground":"A lantern over one bright rung.","background":"Night sky of nodes.","mood":"Curious","style":"gouache","style_reason":"Warm and human.","public_figure":null}`
+const validBrief = `{"scene":"A glowing helix unwinds like a map.","foreground":"A lantern over one bright rung.","background":"Night sky of nodes.","mood":"Curious","style":"graphic","style_reason":"Warm and human.","public_figure":null}`
 
 func TestParseBriefAcceptsCleanAndFencedJSON(t *testing.T) {
 	for name, raw := range map[string]string{
@@ -24,7 +24,7 @@ func TestParseBriefAcceptsCleanAndFencedJSON(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if brief.Style != "gouache" || brief.PublicFigure != nil || brief.WantsCollage() {
+		if brief.Style != "graphic" || brief.PublicFigure != nil || brief.WantsCollage() {
 			t.Fatalf("%s: brief = %+v", name, brief)
 		}
 		if !strings.HasPrefix(brief.Text(), "Scene: A glowing helix") || !strings.Contains(brief.Text(), "Mood: Curious") {
@@ -63,8 +63,8 @@ func TestParseBriefRejectsInvalidAnswers(t *testing.T) {
 		"missing scene":    strings.Replace(validBrief, `"scene":"A glowing helix unwinds like a map.",`, "", 1),
 		"missing figure":   strings.Replace(validBrief, `,"public_figure":null`, "", 1),
 		"empty mood":       strings.Replace(validBrief, `"mood":"Curious"`, `"mood":"  "`, 1),
-		"unknown style":    strings.Replace(validBrief, `"style":"gouache"`, `"style":"oil"`, 1),
-		"unknown field":    strings.Replace(validBrief, `"mood":"Curious"`, `"mood":"Curious","palette":"red"`, 1),
+		"unknown style":    strings.Replace(validBrief, `"style":"graphic"`, `"style":"oil"`, 1),
+		"unknown field":    strings.Replace(validBrief, `"mood":"Curious"`, `"mood":"Curious","lighting":"red"`, 1),
 		"wrong type":       strings.Replace(validBrief, `"mood":"Curious"`, `"mood":3`, 1),
 		"figure no flag":   strings.Replace(validBrief, `"public_figure":null`, `"public_figure":{"name":"X"}`, 1),
 		"figure bad flag":  strings.Replace(validBrief, `"public_figure":null`, `"public_figure":{"name":"X","visible_in_source":"yes"}`, 1),
@@ -79,22 +79,22 @@ func TestParseBriefRejectsInvalidAnswers(t *testing.T) {
 }
 
 func TestParseBriefNormalizesStyleCase(t *testing.T) {
-	brief, err := illustration.ParseBrief(strings.Replace(validBrief, `"style":"gouache"`, `"style":" Anime "`, 1), styleNames)
-	if err != nil || brief.Style != "anime" {
+	brief, err := illustration.ParseBrief(strings.Replace(validBrief, `"style":"graphic"`, `"style":" Photo "`, 1), styleNames)
+	if err != nil || brief.Style != "photo" {
 		t.Fatalf("brief = %+v err = %v", brief, err)
 	}
 }
 
 func TestAnalyzePromptOffersEveryStyleAndForbidsBrands(t *testing.T) {
 	catalog := styles.MustLoad()
-	prompt := illustration.BuildAnalyzePrompt("Headline X", "Summary Y", "https://cdn.test/ceo-jane-doe.png", catalog, true)
-	for _, want := range []string{"Headline: Headline X", "Summary: Summary Y", `"gouache"`, `"anime"`, "public_figure", "visible_in_source",
-		"logos, brand names", "flags, national emblems or coats of arms", "visual metaphor", "Never set it for private individuals", "attached image", "ceo-jane-doe.png", "do not need to recognize the face"} {
+	prompt := illustration.BuildAnalyzePrompt("Headline X", "Summary Y", "https://cdn.test/ceo-jane-doe.png", catalog, true, nil, nil, "")
+	for _, want := range []string{"Headline: Headline X", "Summary: Summary Y", `"graphic"`, "public_figure", "visible_in_source",
+		"Never ask for logos", "flags, national emblems or coats of arms", "showing literally what happened", "Never replace the story with a visual metaphor", "Never set it for private individuals", "attached image", "ceo-jane-doe.png", "do not need to recognize the face"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("analyze prompt lacks %q", want)
 		}
 	}
-	if noImage := illustration.BuildAnalyzePrompt("H", "S", "", catalog, false); !strings.Contains(noImage, "No source image is available") {
+	if noImage := illustration.BuildAnalyzePrompt("H", "S", "", catalog, false, nil, nil, ""); !strings.Contains(noImage, "No source image is available") {
 		t.Error("text-only prompt should say there is no image")
 	}
 }

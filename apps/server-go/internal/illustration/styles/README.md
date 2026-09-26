@@ -7,7 +7,7 @@ Each style is a folder here:
 
 ```
 styles/<name>/style.json   name, version, summary, prompt, anchors
-styles/<name>/*.jpg        2-3 anchor reference images
+styles/<name>/*.jpg        1-3 anchor reference images
 ```
 
 - `name` must match the folder.
@@ -26,12 +26,12 @@ the next build.
 2. Increase `version`. Logs and dry-run reports show `name@version`, so you
    can tell which images came from which version.
 3. Run `go test -p 2 ./internal/illustration/...`. It checks every style
-   loads and has 2-3 decodable anchors.
+   loads and has 1-3 decodable anchors.
 
 ## Adding a style
 
 1. Create `styles/<name>/` with a `style.json` like the existing ones.
-2. Add 2-3 anchors. Pick generations you like that have no text, logos, flags
+2. Add 1-3 anchors. Pick generations you like that have no text, logos, flags
    or faces. Downscale them to about 1024px JPEG to keep the repo small:
    `sips -s format jpeg -s formatOptions 82 -Z 1024 in.png --out anchor-1.jpg`.
 3. The analyzer offers every style in the folder, so no code change is needed.
@@ -41,5 +41,7 @@ the next build.
 
 | Style | Anchors from |
 |---|---|
-| `gouache` | prototype runs `imagegen-test/three/{1568,17,3523}/3-gouache.png` |
-| `anime` | prototype runs `imagegen-test/three/{1568,17,3523}/2-anime-painted.png` |
+| `graphic` | `imagegen-test/literal/vector.png`, the Tesla Optimus image the owner chose in Sep 2026 |
+
+`gouache` and `anime` were removed in Sep 2026: the owner found them unappealing
+and their metaphor-driven scenes lost the story.

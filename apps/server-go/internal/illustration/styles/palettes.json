@@ -1,0 +1,10 @@
+[
+  {"name": "navy-red", "colors": "deep navy, warm brick red, off-white and steel grey", "suits": "security, conflict, confrontation, crises"},
+  {"name": "teal-coral", "colors": "deep teal, soft coral, cream and charcoal", "suits": "research, science, health, studies"},
+  {"name": "forest-mustard", "colors": "forest green, mustard yellow, cream and charcoal", "suits": "business, money, deals, markets"},
+  {"name": "plum-amber", "colors": "deep plum, amber, blush pink and charcoal", "suits": "culture, creators, entertainment, consumer life"},
+  {"name": "cobalt-tangerine", "colors": "cobalt blue, tangerine orange, off-white and slate", "suits": "products, launches, gadgets, upbeat news"},
+  {"name": "charcoal-lime", "colors": "charcoal, acid lime green, cool grey and off-white", "suits": "hacking, AI agents, code, the internet"},
+  {"name": "burgundy-sand", "colors": "burgundy, warm sand, slate blue and off-white", "suits": "courts, law, government, policy"},
+  {"name": "ochre-sky", "colors": "ochre, sky blue, cream and dark brown", "suits": "jobs, work, society, education"}
+]

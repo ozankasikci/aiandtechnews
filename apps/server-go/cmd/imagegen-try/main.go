@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/config"
@@ -57,6 +58,10 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 	chainFlag := flags.String("chain", getenv("FEATURED_IMAGE_CHAIN"), "providers in order, e.g. codex,gemini,source")
 	analyzerFlag := flags.String("analyzer", getenv("FEATURED_IMAGE_ANALYZER"), "analyzers in order (default: from the chain)")
 	outDir := flags.String("out", "", "output folder (default ./imagegen-try-<candidate or time>)")
+	prefer := flags.String("prefer", "", "composition to lean towards for variety (scene or simple)")
+	compositions := flags.String("compositions", "", "comma-separated compositions allowed (scene,simple); default both")
+	avoidStyles := flags.String("avoid-styles", "", "comma-separated styles to avoid, as if the latest articles used them")
+	avoid := flags.String("avoid", "", "comma-separated palettes to avoid, as if the latest articles used them")
 	analyzeOnly := flags.Bool("analyze-only", false, "only run the analyzers and print the brief")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -109,7 +114,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 		// No Store: Produce never uploads.
 	}))
 
-	request := publisher.IllustrationRequest{Slug: "imagegen-try-" + label, Title: *title, Excerpt: *excerpt, ReferenceImageURL: *imageURL}
+	request := publisher.IllustrationRequest{AvoidPalettes: splitList(*avoid), AvoidStyles: splitList(*avoidStyles), Compositions: splitList(*compositions), PreferComposition: *prefer, Slug: "imagegen-try-" + label, Title: *title, Excerpt: *excerpt, ReferenceImageURL: *imageURL}
 	if *analyzeOnly {
 		report, err := pipeline.AnalyzeOnly(ctx, request)
 		encoded, _ := json.MarshalIndent(report, "", "  ")
@@ -143,4 +148,14 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 	}
 	fmt.Println(string(report))
 	return produceErr
+}
+
+func splitList(value string) []string {
+	var items []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }

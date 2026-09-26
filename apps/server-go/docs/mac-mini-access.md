@@ -122,8 +122,9 @@ tail -f ~/aiandtechnews/logs/api.log                              # live request
 ## Featured-image pipeline (Codex, Gemini, collage)
 
 For each article, an analyzer (Codex or Gemini vision) looks at the source
-image and headline and writes a brief: scene, foreground, background, mood,
-one of the house styles (`internal/illustration/styles`: gouache or anime) and
+image and headline and writes a brief that shows literally what happened
+(no visual metaphors): scene, foreground, background, mood, the house style
+(`internal/illustration/styles`: graphic, a bold editorial graphic-novel look) and
 any public figure named in the story. The providers in `FEATURED_IMAGE_CHAIN`
 are then tried in order until one image passes the Gemini compliance review.
 When the analyzer sees a named public figure in the source photo, the person is

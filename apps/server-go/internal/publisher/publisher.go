@@ -44,6 +44,17 @@ type IllustrationRequest struct {
 	Excerpt           string
 	Content           string
 	ReferenceImageURL string
+	// AvoidPalettes names colour palettes used by the latest articles, so
+	// consecutive featured images don't share colours.
+	AvoidPalettes []string
+	// AvoidStyles names illustration styles used by the latest articles.
+	AvoidStyles []string
+	// Compositions limits the image to these compositions (e.g. only
+	// "simple" after two busy scenes in a row); empty allows every one.
+	Compositions []string
+	// PreferComposition nudges towards "scene" or "simple" for variety
+	// (after two of the other in a row); it never overrides the story.
+	PreferComposition string
 }
 
 // Illustration is a stored featured image. Discard removes it when the

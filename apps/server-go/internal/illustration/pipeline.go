@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"image"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/styles"
@@ -52,6 +54,7 @@ type PipelineDeps struct {
 	Cutter    Cutter // nil disables the public-figure collage
 	Styles    styles.Catalog
 	Store     ImageStore // only Illustrate uses it
+	History   History    // only Illustrate uses it; nil disables variety
 	HTTP      *http.Client
 	Logger    *slog.Logger
 	Now       func() time.Time
@@ -83,6 +86,8 @@ type Attempt struct {
 type Report struct {
 	Provider    string    `json:"provider,omitempty"`
 	Style       string    `json:"style,omitempty"`
+	Palette     string    `json:"palette,omitempty"`
+	Composition string    `json:"composition,omitempty"`
 	StyleReason string    `json:"style_reason,omitempty"`
 	Analyzer    string    `json:"analyzer,omitempty"`
 	Brief       *Brief    `json:"brief,omitempty"`
@@ -104,6 +109,7 @@ type Result struct {
 
 // Illustrate produces the image, encodes it as WebP and stores it.
 func (p *Pipeline) Illustrate(ctx context.Context, request publisher.IllustrationRequest) (publisher.Illustration, error) {
+	p.applyVariety(ctx, &request)
 	result, err := p.Produce(ctx, request)
 	if err != nil {
 		return publisher.Illustration{}, err
@@ -116,7 +122,34 @@ func (p *Pipeline) Illustrate(ctx context.Context, request publisher.Illustratio
 	if err != nil {
 		return publisher.Illustration{}, fmt.Errorf("store featured image: %w", err)
 	}
+	p.recordChoice(ctx, result.Report)
 	return illustration, nil
+}
+
+// applyVariety fills the request's avoid and prefer fields from the latest
+// images, unless the caller set them. History errors only cost variety.
+func (p *Pipeline) applyVariety(ctx context.Context, request *publisher.IllustrationRequest) {
+	if p.deps.History == nil || len(request.AvoidStyles) > 0 || len(request.AvoidPalettes) > 0 || request.PreferComposition != "" {
+		return
+	}
+	recent, err := p.deps.History.Recent(ctx)
+	if err != nil {
+		p.deps.Logger.WarnContext(ctx, "featured image history unavailable", "error", err)
+		return
+	}
+	variety := VarietyFrom(recent)
+	request.AvoidStyles, request.AvoidPalettes, request.PreferComposition = variety.AvoidStyles, variety.AvoidPalettes, variety.PreferComposition
+}
+
+// recordChoice remembers a generated image's look; the source photo has none.
+func (p *Pipeline) recordChoice(ctx context.Context, report Report) {
+	if p.deps.History == nil || report.SourceImage || report.Brief == nil {
+		return
+	}
+	style := report.Brief.Style
+	if err := p.deps.History.Record(ctx, Choice{Style: style, Palette: report.Palette, Composition: report.Composition}); err != nil {
+		p.deps.Logger.WarnContext(ctx, "could not record featured image history", "error", err)
+	}
 }
 
 // Produce runs the pipeline without storing anything.
@@ -231,7 +264,8 @@ func (r *pipelineRun) fetchSource(ctx context.Context) {
 
 func (r *pipelineRun) analyze(ctx context.Context) *Brief {
 	deps := r.p.deps
-	input := AnalyzeInput{Title: r.request.Title, Excerpt: r.request.Excerpt}
+	allowedStyles := deps.Styles.WithoutStyles(r.request.AvoidStyles)
+	input := AnalyzeInput{Title: r.request.Title, Excerpt: r.request.Excerpt, Palettes: deps.Styles.PalettesExcept(r.request.AvoidPalettes), Styles: &allowedStyles, Compositions: allowedCompositions(r.request.Compositions), PreferComposition: r.request.PreferComposition}
 	if r.source != nil {
 		input.ImageURL = r.request.ReferenceImageURL
 		if normalized, err := imaging.FitJPEG(r.source, analyzeMaxEdge, analyzeQuality); err == nil {
@@ -248,6 +282,10 @@ func (r *pipelineRun) analyze(ctx context.Context) *Brief {
 			continue
 		}
 		style, _ := deps.Styles.Get(brief.Style)
+		brief.Palette = choosePalette(brief.Palette, input.Palettes, r.request.Slug)
+		r.report.Palette = brief.Palette
+		brief.Composition = chooseComposition(brief.Composition, input.Compositions)
+		r.report.Composition = brief.Composition
 		r.report.Analyzer = analyzer.Name()
 		r.report.Brief = &brief
 		r.report.Style = style.ID()
@@ -262,6 +300,9 @@ func (r *pipelineRun) prepareCollage(ctx context.Context, brief Brief) *image.NR
 	deps := r.p.deps
 	switch {
 	case !brief.WantsCollage():
+		return nil
+	case brief.Composition == CompositionSimple:
+		r.report.CollageNote = "simple composition has no people"
 		return nil
 	case deps.Cutter == nil:
 		r.report.CollageNote = "CUTOUT_BIN is not configured"
@@ -295,7 +336,8 @@ func (r *pipelineRun) generate(ctx context.Context, provider Provider, brief Bri
 	rejected := false
 	for attempt := 1; attempt <= provider.Attempts(); attempt++ {
 		started := deps.Now()
-		raw, err := provider.Generate(ctx, GenerateRequest{Brief: brief, Style: style, Collage: person != nil, Correction: correction})
+		palette, _ := deps.Styles.Palette(brief.Palette)
+		raw, err := provider.Generate(ctx, GenerateRequest{Brief: brief, Style: style, Palette: palette, Collage: person != nil, Correction: correction})
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, false
@@ -399,4 +441,45 @@ func classifyChainFailure(errs []error) error {
 	// Flatten so a permanent step error inside does not make the whole
 	// failure look permanent to publisher.IsPermanent.
 	return errors.New(joined.Error())
+}
+
+// choosePalette keeps the analyzer's palette when it is one of the allowed
+// ones; otherwise it picks an allowed palette from the slug, so a missing or
+// avoided choice still varies between articles. No palettes: "".
+func choosePalette(chosen string, allowed []styles.Palette, slug string) string {
+	if len(allowed) == 0 {
+		return ""
+	}
+	for _, palette := range allowed {
+		if palette.Name == chosen {
+			return chosen
+		}
+	}
+	sum := fnv.New32a()
+	_, _ = sum.Write([]byte(slug))
+	return allowed[int(sum.Sum32()%uint32(len(allowed)))].Name
+}
+
+// allowedCompositions keeps the requested compositions that exist; none
+// requested (or none valid) allows every composition.
+func allowedCompositions(requested []string) []string {
+	var allowed []string
+	for _, name := range Compositions {
+		if slices.Contains(requested, name) {
+			allowed = append(allowed, name)
+		}
+	}
+	if len(allowed) == 0 {
+		return slices.Clone(Compositions)
+	}
+	return allowed
+}
+
+// chooseComposition keeps the analyzer's composition when it is allowed,
+// otherwise the first allowed one.
+func chooseComposition(chosen string, allowed []string) string {
+	if slices.Contains(allowed, chosen) {
+		return chosen
+	}
+	return allowed[0]
 }
