@@ -149,7 +149,7 @@ export default function SearchPage() {
                   <span className="text-text-muted text-xs">{timeAgo(a.published_at)}</span>
                 </div>
                 {a.featured_image && (
-                  <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] relative rounded-sm overflow-hidden shrink-0">
+                  <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] xl:w-[280px] xl:h-[175px] relative rounded-sm overflow-hidden shrink-0">
                     <Image src={a.featured_image} alt="" fill className="object-cover" sizes="180px" />
                   </div>
                 )}

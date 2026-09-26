@@ -90,9 +90,8 @@ export default async function Home() {
           </Link>
         </section>
 
-        {/* The list stays at a readable width on wide screens; the sidebar keeps to the right edge. */}
-        <div className="flex flex-col lg:flex-row lg:justify-between gap-8">
-          <div className="flex-1 min-w-0 lg:max-w-[760px]">
+        <div className="flex flex-col lg:flex-row gap-8">
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-[10px] font-bold uppercase tracking-widest text-text-muted">Latest</span>
               <div className="flex-1 h-px bg-border" />
