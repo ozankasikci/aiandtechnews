@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
 )
@@ -14,6 +15,9 @@ const (
 	minArticleWords = 150
 	maxArticleWords = 800
 	rewriteAttempts = 2
+
+	maxMetaTitleChars       = 60
+	maxMetaDescriptionChars = 155
 )
 
 type TextGenerator interface {
@@ -75,9 +79,11 @@ func parseRewrittenArticle(value string) (content.RewrittenArticle, bool) {
 		candidate = match
 	}
 	var parsed struct {
-		Title   *string `json:"title"`
-		Excerpt *string `json:"excerpt"`
-		Content *string `json:"content"`
+		Title           *string `json:"title"`
+		Excerpt         *string `json:"excerpt"`
+		Content         *string `json:"content"`
+		MetaTitle       string  `json:"metaTitle"`
+		MetaDescription string  `json:"metaDescription"`
 	}
 	if err := json.Unmarshal([]byte(candidate), &parsed); err != nil || parsed.Title == nil || parsed.Excerpt == nil || parsed.Content == nil {
 		return content.RewrittenArticle{}, false
@@ -86,7 +92,21 @@ func parseRewrittenArticle(value string) (content.RewrittenArticle, bool) {
 		Title:   strings.TrimSpace(*parsed.Title),
 		Excerpt: strings.TrimSpace(*parsed.Excerpt),
 		Content: strings.TrimSpace(*parsed.Content),
+
+		MetaTitle:       searchSnippet(parsed.MetaTitle, maxMetaTitleChars),
+		MetaDescription: searchSnippet(parsed.MetaDescription, maxMetaDescriptionChars),
 	}, true
+}
+
+// searchSnippet returns the trimmed value, or "" when it is too long or breaks
+// the writing contract. Search metadata is optional, so a bad snippet is
+// dropped instead of failing the rewrite.
+func searchSnippet(value string, maxChars int) string {
+	value = strings.TrimSpace(value)
+	if utf8.RuneCountInString(value) > maxChars || strings.ContainsAny(value, "—<>") {
+		return ""
+	}
+	return value
 }
 
 func rewritePrompt(input RewriteInput) string {
@@ -102,6 +122,8 @@ Requirements:
 - Never use "groundbreaking", "revolutionary", or "game-changing".
 - Write a short, direct, factual, non-clickbait headline, maximum 120 characters.
 - Write one plain-sentence excerpt, maximum 180 characters, with no HTML.
+- Write a search title, maximum 60 characters, that starts with the main searchable subject (the product, company, project, or person the story is about). Keep it factual and non-clickbait.
+- Write a search description, maximum 155 characters, as one plain sentence with the key facts and no HTML.
 - Write %d to %d words in 5 to 12 paragraphs.
 - Open with a clear lede explaining what happened.
 - Include relevant context and background.
@@ -119,6 +141,6 @@ Source reporting:
 %s
 
 Return only JSON with this exact shape:
-{"title":"Short factual headline","excerpt":"One sentence.","content":"<p>Article body.</p>"}`,
+{"title":"Short factual headline","excerpt":"One sentence.","content":"<p>Article body.</p>","metaTitle":"Subject first search title","metaDescription":"One sentence for search results."}`,
 		minArticleWords, maxArticleWords, input.Source, input.Title, input.CanonicalURL, input.SourceText)
 }

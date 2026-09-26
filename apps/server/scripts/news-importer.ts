@@ -586,6 +586,8 @@ Requirements:
 - Never use "groundbreaking", "revolutionary", or "game-changing".
 - Write a short, direct, factual, non-clickbait headline, maximum 120 characters.
 - Write one plain-sentence excerpt, maximum 180 characters, with no HTML.
+- Write a search title, maximum 60 characters, that starts with the main searchable subject (the product, company, project, or person the story is about). Keep it factual and non-clickbait.
+- Write a search description, maximum 155 characters, as one plain sentence with the key facts and no HTML.
 - Write ${minWords} to ${maxWords} words in 5 to 12 paragraphs.
 - Open with a clear lede explaining what happened.
 - Include relevant context and background.
@@ -603,7 +605,7 @@ Source reporting:
 ${sourceText}
 
 Return only JSON with this exact shape:
-{"title":"Short factual headline","excerpt":"One sentence.","content":"<p>Article body.</p>"}`;
+{"title":"Short factual headline","excerpt":"One sentence.","content":"<p>Article body.</p>","metaTitle":"Subject first search title","metaDescription":"One sentence for search results."}`;
 
   let correction = "";
   for (let attempt = 1; attempt <= 2; attempt += 1) {

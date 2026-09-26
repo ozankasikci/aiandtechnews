@@ -30,6 +30,10 @@ type RewrittenArticle struct {
 	Title   string
 	Excerpt string
 	Content string
+	// MetaTitle and MetaDescription are optional search snippets. Empty means
+	// the website falls back to the headline and excerpt.
+	MetaTitle       string
+	MetaDescription string
 }
 
 type ArticleValidationOptions struct {
