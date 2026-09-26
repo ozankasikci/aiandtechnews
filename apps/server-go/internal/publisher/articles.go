@@ -32,6 +32,9 @@ type NewArticle struct {
 	FeaturedImage string
 	Source        string
 	SourceURL     string
+	// Optional search snippets; empty values are stored as NULL.
+	MetaTitle       string
+	MetaDescription string
 }
 
 // Categories in Node's CATEGORY_KEYWORDS insertion order (the matching
@@ -152,10 +155,10 @@ func (a *SQLiteArticles) Publish(ctx context.Context, article NewArticle) (id in
 	stamp := a.now().UTC().Format(sqliteDateTime)
 	result, err := tx.ExecContext(ctx, `INSERT INTO articles (
 		title, slug, excerpt, content, featured_image, category_id, author_id,
-		status, published_at, view_count, created_at, updated_at, source, source_url
-	) VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, 0, ?, ?, ?, ?)`,
+		status, published_at, view_count, created_at, updated_at, source, source_url, meta_title, meta_description
+	) VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, 0, ?, ?, ?, ?, ?, ?)`,
 		article.Title, article.Slug, article.Excerpt, article.Content, article.FeaturedImage, categoryID, authorID,
-		stamp, stamp, stamp, article.Source, article.SourceURL)
+		stamp, stamp, stamp, article.Source, article.SourceURL, nullIfEmpty(article.MetaTitle), nullIfEmpty(article.MetaDescription))
 	if err != nil {
 		return 0, fmt.Errorf("insert article: %w", err)
 	}
@@ -230,4 +233,11 @@ func ensureEditorialAuthor(ctx context.Context, tx *sql.Tx) (int64, error) {
 		return 0, fmt.Errorf("insert editorial author: %w", err)
 	}
 	return result.LastInsertId()
+}
+
+func nullIfEmpty(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }

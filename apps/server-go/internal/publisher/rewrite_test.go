@@ -55,7 +55,7 @@ func TestRewriteBuildsPromptAndAcceptsValidArticle(t *testing.T) {
 		"Write 150 to 800 words in 5 to 12 paragraphs.",
 		"Publication: TechCrunch\nOriginal headline: Anthropic launches new model\nCanonical source URL: https://techcrunch.com/2026/09/23/anthropic",
 		"Source reporting:\nSource reporting text.",
-		`{"title":"Short factual headline","excerpt":"One sentence.","content":"<p>Article body.</p>"}`,
+		`{"title":"Short factual headline","excerpt":"One sentence.","content":"<p>Article body.</p>","metaTitle":"Subject first search title","metaDescription":"One sentence for search results."}`,
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt missing %q", want)
@@ -159,5 +159,58 @@ func TestRewritePromptMatchesNodeImporter(t *testing.T) {
 	}
 	if text.prompts[0] != want {
 		t.Fatalf("Go prompt differs from Node prompt.\n--- go ---\n%s\n--- node ---\n%s", text.prompts[0], want)
+	}
+}
+
+func articleJSONWithMeta(metaTitle, metaDescription string) string {
+	base := validArticleJSON()
+	return base[:len(base)-1] + `,"metaTitle":"` + metaTitle + `","metaDescription":"` + metaDescription + `"}`
+}
+
+func TestRewriteAsksForSearchMetadata(t *testing.T) {
+	text := &scriptedText{responses: []string{validArticleJSON()}}
+	if _, err := publisher.NewRewriter(text).Rewrite(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Write a search title, maximum 60 characters, that starts with the main searchable subject",
+		"Write a search description, maximum 155 characters",
+		`"metaTitle":"Subject first search title","metaDescription":"One sentence for search results."`,
+	} {
+		if !strings.Contains(text.prompts[0], want) {
+			t.Errorf("prompt missing %q", want)
+		}
+	}
+}
+
+func TestRewriteKeepsValidSearchMetadata(t *testing.T) {
+	text := &scriptedText{responses: []string{articleJSONWithMeta(" Claude Opus: cheaper model for developers ", "Anthropic's new model handles longer tasks at a lower price.")}}
+	article, err := publisher.NewRewriter(text).Rewrite(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if article.MetaTitle != "Claude Opus: cheaper model for developers" || article.MetaDescription != "Anthropic's new model handles longer tasks at a lower price." {
+		t.Fatalf("meta = %q / %q", article.MetaTitle, article.MetaDescription)
+	}
+}
+
+func TestRewriteDropsInvalidSearchMetadataWithoutFailing(t *testing.T) {
+	cases := map[string][2]string{
+		"missing":  {"", ""},
+		"too long": {strings.Repeat("a", 61), strings.Repeat("b", 156)},
+		"em dash":  {"Claude — cheaper", "A model — cheaper."},
+		"markup":   {"<b>Claude</b>", "<p>Cheaper.</p>"},
+	}
+	for name, meta := range cases {
+		t.Run(name, func(t *testing.T) {
+			text := &scriptedText{responses: []string{articleJSONWithMeta(meta[0], meta[1])}}
+			article, err := publisher.NewRewriter(text).Rewrite(context.Background(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if article.MetaTitle != "" || article.MetaDescription != "" || len(text.prompts) != 1 {
+				t.Fatalf("meta = %q / %q after %d prompts", article.MetaTitle, article.MetaDescription, len(text.prompts))
+			}
+		})
 	}
 }

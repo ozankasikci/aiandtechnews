@@ -232,6 +232,7 @@ func (p *Publisher) publish(ctx context.Context, candidate newsroom.Candidate) (
 	articleID, err := p.Articles.Publish(ctx, NewArticle{
 		CandidateID: candidate.ID, Title: article.Title, Slug: finalSlug, Excerpt: article.Excerpt, Content: article.Content,
 		FeaturedImage: illustration.URL, Source: source, SourceURL: canonicalURL,
+		MetaTitle: article.MetaTitle, MetaDescription: article.MetaDescription,
 	})
 	if err != nil {
 		if illustration.Discard != nil {

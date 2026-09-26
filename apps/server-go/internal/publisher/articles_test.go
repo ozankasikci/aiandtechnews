@@ -219,3 +219,33 @@ func TestPublishReleasesConnectionOnPanic(t *testing.T) {
 		t.Fatalf("articles = %d err=%v; the panicking insert must roll back", count, err)
 	}
 }
+
+func TestPublishStoresSearchMetadataAndNullWhenEmpty(t *testing.T) {
+	db := openDB(t)
+	articles := publisher.NewSQLiteArticles(db, func() time.Time { return publishNow })
+	ctx := context.Background()
+
+	with := newArticle("with-meta", "https://techcrunch.com/with", "OpenAI ships a model", "<p>Body</p>")
+	with.MetaTitle, with.MetaDescription = "OpenAI model: what ships", "OpenAI shipped a model."
+	withID, err := articles.Publish(ctx, with)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutID, err := articles.Publish(ctx, newArticle("without-meta", "https://techcrunch.com/without", "OpenAI ships another model", "<p>Body</p>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var title, description sql.NullString
+	if err := db.QueryRow(`SELECT meta_title, meta_description FROM articles WHERE id = ?`, withID).Scan(&title, &description); err != nil {
+		t.Fatal(err)
+	}
+	if title.String != "OpenAI model: what ships" || description.String != "OpenAI shipped a model." {
+		t.Fatalf("with meta = %+v / %+v", title, description)
+	}
+	if err := db.QueryRow(`SELECT meta_title, meta_description FROM articles WHERE id = ?`, withoutID).Scan(&title, &description); err != nil {
+		t.Fatal(err)
+	}
+	if title.Valid || description.Valid {
+		t.Fatalf("without meta = %+v / %+v, want NULL", title, description)
+	}
+}
