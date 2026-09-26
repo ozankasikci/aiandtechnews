@@ -54,6 +54,17 @@ func ParseVerdict(raw string) Verdict {
 	return verdict
 }
 
+// BrandLogoCorrection replaces LogoViolationCorrection when real logos were requested.
+const BrandLogoCorrection = "The previous attempt had a wrong, distorted or extra logo. Use the attached logo images exactly as given, without redrawing, recolouring or misspelling them, and remove every other brand mark."
+
+func brandException(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	list := strings.Join(names, " and ")
+	return fmt.Sprintf("Exception: the real logo of %s was placed on purpose. An accurate %s logo, including the words that are part of it, counts as neither readable text nor a logo. Still count any other logo or watermark, and any %s logo that is misspelled, distorted, recoloured or invented.\n\n", list, list, list)
+}
+
 const (
 	TextViolationCorrection   = "The previous attempt contained readable writing. Remove all words, letters, numbers, signs and labelled screens."
 	LogoViolationCorrection   = "The previous attempt contained a logo or watermark. Remove every logo, brand mark and watermark."
@@ -98,6 +109,8 @@ var ComplianceSchema = map[string]any{
 type Article struct {
 	Title   string
 	Excerpt string
+	// Brands are the company names whose real logos were placed on purpose.
+	Brands []string
 }
 
 // BuildCompliancePrompt asks the vision model to review a generated image.
@@ -118,8 +131,8 @@ Inspect the attached image and answer these questions.
 5. depicts_unsupported_injury_or_violence: true if the image depicts injury, wounds, blood, violence, physical struggle, damage, illness or visible distress that the headline and summary do not state.
 6. notes: one short sentence naming what you found, or "clean" when nothing was found.
 
-Be strict about readable text, logos, flags and emblems.
+%sBe strict about readable text, logos, flags and emblems.
 
 Return only JSON with exactly this shape:
-{"has_readable_text":false,"has_logo_or_watermark":false,"has_flag_or_emblem":false,"has_recognizable_real_person":false,"depicts_unsupported_injury_or_violence":false,"notes":"clean"}`, article.Title, article.Excerpt)
+{"has_readable_text":false,"has_logo_or_watermark":false,"has_flag_or_emblem":false,"has_recognizable_real_person":false,"depicts_unsupported_injury_or_violence":false,"notes":"clean"}`, article.Title, article.Excerpt, brandException(article.Brands))
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/brands"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/styles"
 )
 
@@ -27,6 +28,8 @@ type AnalyzeInput struct {
 	// PreferComposition nudges the choice for homepage variety; the
 	// people-central rule still wins.
 	PreferComposition string
+	// Brands the brief may name; empty means no brands key.
+	Brands []brands.Brand
 	// Styles, when set, limits the styles the brief may choose.
 	Styles *styles.Catalog
 }
@@ -67,11 +70,11 @@ func (a *GeminiAnalyzer) Analyze(ctx context.Context, input AnalyzeInput) (Brief
 	ctx, cancel := context.WithTimeout(ctx, analyzeTimeout)
 	defer cancel()
 	catalog := input.catalog(a.catalog)
-	prompt := BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition)
+	prompt := BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition, input.Brands)
 	var raw string
 	var err error
 	if input.Source != nil {
-		raw, err = a.model.ReviewImage(ctx, prompt, input.Source, briefGeminiSchema(catalog.Names(), paletteNames(input.Palettes), input.Compositions))
+		raw, err = a.model.ReviewImage(ctx, prompt, input.Source, briefGeminiSchema(catalog.Names(), paletteNames(input.Palettes), input.Compositions, brandIDs(input.Brands)))
 	} else {
 		raw, err = a.model.GenerateJSON(ctx, prompt)
 	}
@@ -102,7 +105,7 @@ func (a *CodexAnalyzer) Analyze(ctx context.Context, input AnalyzeInput) (Brief,
 	}
 	defer os.RemoveAll(dir)
 	catalog := input.catalog(a.catalog)
-	schema, err := briefJSONSchema(catalog.Names(), paletteNames(input.Palettes), input.Compositions)
+	schema, err := briefJSONSchema(catalog.Names(), paletteNames(input.Palettes), input.Compositions, brandIDs(input.Brands))
 	if err != nil {
 		return Brief{}, err
 	}
@@ -115,7 +118,7 @@ func (a *CodexAnalyzer) Analyze(ctx context.Context, input AnalyzeInput) (Brief,
 		Dir:     dir,
 		Sandbox: "read-only",
 		Extra:   []string{"--output-schema", schemaPath, "-o", answerPath},
-		Prompt:  BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition) + "\n\nDo not run any commands. Answer with the JSON object only.",
+		Prompt:  BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition, input.Brands) + "\n\nDo not run any commands. Answer with the JSON object only.",
 	}
 	if input.Source != nil {
 		sourcePath := filepath.Join(dir, "source.jpg")

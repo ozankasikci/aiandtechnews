@@ -15,6 +15,7 @@ import (
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/gemini"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/brands"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/styles"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/media"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
@@ -491,5 +492,49 @@ func TestPipelineSimpleComposition(t *testing.T) {
 	}
 	if prompt := illustration.BuildImagePrompt(codex.requests[0]); !strings.Contains(prompt, illustration.SimpleRules) {
 		t.Fatalf("prompt lacks the simple rules: %s", prompt)
+	}
+}
+
+type logoPlacingProvider struct{ *fakeProvider }
+
+func (logoPlacingProvider) PlacesLogos() bool { return true }
+
+func TestPipelineBrandLogos(t *testing.T) {
+	withBrands := strings.Replace(validBrief, `"public_figure":null`, `"brands":["openai","nope","google","meta"],"public_figure":null`, 1)
+
+	codex := logoPlacingProvider{&fakeProvider{name: "codex", attempts: 1, image: solidPNG(t, 64, 36)}}
+	fixture := newFixture(t, illustration.ProviderStep(codex))
+	fixture.deps.Brands = brands.MustLoad()
+	fixture.deps.Analyzers = []illustration.Analyzer{&fakeAnalyzer{name: "codex", brief: withBrands}}
+	result, err := fixture.produce(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logos := codex.requests[0].Logos
+	if len(logos) != 2 || logos[0].ID != "openai" || logos[1].ID != "google" || result.Report.LogoBadge {
+		t.Fatalf("logos = %+v, report = %+v", logos, result.Report)
+	}
+	if prompt := illustration.BuildImagePrompt(codex.requests[0]); !strings.Contains(prompt, "include the real OpenAI and Google logo") {
+		t.Fatalf("prompt lacks the logo rule: %s", prompt)
+	}
+
+	gem := &fakeProvider{name: "gemini", attempts: 1, image: solidPNG(t, 640, 360)}
+	fixture = newFixture(t, illustration.ProviderStep(gem))
+	fixture.deps.Brands = brands.MustLoad()
+	fixture.deps.Analyzers = []illustration.Analyzer{&fakeAnalyzer{name: "codex", brief: withBrands}}
+	result, err = fixture.produce(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gem.requests[0].Logos) != 0 || !result.Report.LogoBadge {
+		t.Fatalf("gemini got logos %d, badge %v", len(gem.requests[0].Logos), result.Report.LogoBadge)
+	}
+}
+
+func TestCompliancePromptAllowsOnlyTheRequestedLogos(t *testing.T) {
+	plain := illustration.BuildCompliancePrompt(illustration.Article{Title: "T", Excerpt: "E"})
+	branded := illustration.BuildCompliancePrompt(illustration.Article{Title: "T", Excerpt: "E", Brands: []string{"OpenAI"}})
+	if strings.Contains(plain, "Exception") || !strings.Contains(branded, "the real logo of OpenAI was placed on purpose") {
+		t.Fatalf("plain has exception or branded lacks it:\n%s", branded)
 	}
 }

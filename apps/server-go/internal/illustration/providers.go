@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/gemini"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/brands"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/styles"
 )
 
@@ -22,6 +23,19 @@ const (
 // ImageRules are appended to every generation prompt.
 const ImageRules = "16:9 landscape. Show the scene literally, as described. Absolutely no text, letters, numbers, logos, flags, national emblems, coats of arms or watermarks, and no readable writing on screens or signs. People are ordinary anonymous people, never the likeness of a real or famous person."
 
+// logoRules asks for the attached real logos, placed where they naturally belong.
+func logoRules(logos []brands.Brand) string {
+	var names, files []string
+	for _, logo := range logos {
+		names = append(names, logo.Name)
+		files = append(files, logoFileName(logo))
+	}
+	return fmt.Sprintf("Exception to the no-logo and no-text rules: include the real %s logo, from the attached image %s, exactly as given: same shape, spelling and colours, not redrawn or distorted. Place it once, where it would naturally appear in this scene (on the robot, a device, a building, a sign, a badge or a screen), large enough to recognise at thumbnail size. No other logos or text.",
+		strings.Join(names, " and "), strings.Join(files, " and "))
+}
+
+func logoFileName(logo brands.Brand) string { return "logo-" + logo.ID + ".png" }
+
 // SimpleRules shape a "simple" composition: one subject, lots of space.
 const SimpleRules = "Simple composition: no people at all; show the action described happening, with its actor (a robot, agent, machine or product) and its visible result, drawn big and clear, on a plain or softly textured backdrop in the palette's colours, with generous empty space. Not a still life: something must be happening. No generic monitors, laptops or phone screens unless they are the subject."
 
@@ -29,13 +43,15 @@ const SimpleRules = "Simple composition: no people at all; show the action descr
 // collage: the person's photo is pasted over the left side afterwards.
 const CollageRules = "This is the background for a photo collage: a photo of a person will be pasted onto the LEFT 45% of the frame later, so keep the left 45% mostly empty except one large, simple backdrop shape (a big circle or arch) behind where a head and shoulders will go. Put the story's scene on the right side. No people, no faces, no hands."
 
-const anchorRules = "The attached images are style references only: match their technique, linework, shading and finish, but not their colours, and do not copy their subjects or composition."
+const anchorRules = "The attached style-reference images are style references only: match their technique, linework, shading and finish, but not their colours, and do not copy their subjects or composition."
 
 // GenerateRequest is one generation attempt.
 type GenerateRequest struct {
-	Brief      Brief
-	Style      styles.Style
-	Palette    styles.Palette
+	Brief   Brief
+	Style   styles.Style
+	Palette styles.Palette
+	// Logos are real brand logos to place in the image (Codex only).
+	Logos      []brands.Brand
 	Collage    bool
 	Correction string
 }
@@ -63,6 +79,9 @@ func BuildImagePrompt(request GenerateRequest) string {
 		prompt.WriteString(" " + SimpleRules)
 	}
 	prompt.WriteString(" " + ImageRules)
+	if len(request.Logos) > 0 {
+		prompt.WriteString(" " + logoRules(request.Logos))
+	}
 	if correction := strings.TrimSpace(request.Correction); correction != "" {
 		prompt.WriteString(" Correction: " + correction)
 	}
@@ -91,8 +110,11 @@ func NewCodexProvider(runner *CodexRunner) *CodexProvider {
 	return &CodexProvider{runner: runner, attempts: 2, anchors: true}
 }
 
-func (p *CodexProvider) Name() string  { return ProviderCodex }
-func (p *CodexProvider) Attempts() int { return p.attempts }
+func (p *CodexProvider) Name() string { return ProviderCodex }
+
+// PlacesLogos: Codex can take the logo files as attachments.
+func (p *CodexProvider) PlacesLogos() bool { return true }
+func (p *CodexProvider) Attempts() int     { return p.attempts }
 
 // ErrCodexNoImage means codex finished without leaving an image.
 var ErrCodexNoImage = errors.New("codex produced no image")
@@ -112,6 +134,13 @@ func (p *CodexProvider) Generate(ctx context.Context, request GenerateRequest) (
 			}
 			images = append(images, path)
 		}
+	}
+	for _, logo := range request.Logos {
+		path := filepath.Join(dir, logoFileName(logo))
+		if err := os.WriteFile(path, logo.Logo, 0o600); err != nil {
+			return nil, err
+		}
+		images = append(images, path)
 	}
 	outputPath := filepath.Join(dir, "featured.png")
 	output, err := p.runner.Run(ctx, CodexRun{

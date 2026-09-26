@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/brands"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/styles"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/imaging"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
@@ -53,8 +54,9 @@ type PipelineDeps struct {
 	Reviewer  Reviewer
 	Cutter    Cutter // nil disables the public-figure collage
 	Styles    styles.Catalog
-	Store     ImageStore // only Illustrate uses it
-	History   History    // only Illustrate uses it; nil disables variety
+	Brands    brands.Catalog // logos the brief may ask for; empty disables logos
+	Store     ImageStore     // only Illustrate uses it
+	History   History        // only Illustrate uses it; nil disables variety
 	HTTP      *http.Client
 	Logger    *slog.Logger
 	Now       func() time.Time
@@ -88,6 +90,8 @@ type Report struct {
 	Style       string    `json:"style,omitempty"`
 	Palette     string    `json:"palette,omitempty"`
 	Composition string    `json:"composition,omitempty"`
+	Brands      []string  `json:"brands,omitempty"`
+	LogoBadge   bool      `json:"logo_badge,omitempty"`
 	StyleReason string    `json:"style_reason,omitempty"`
 	Analyzer    string    `json:"analyzer,omitempty"`
 	Brief       *Brief    `json:"brief,omitempty"`
@@ -194,6 +198,7 @@ type pipelineRun struct {
 	report  *Report
 	errs    []error
 	source  []byte
+	brands  []brands.Brand
 }
 
 func (r *pipelineRun) fail(provider string, attempt int, started time.Time, err error) {
@@ -265,7 +270,7 @@ func (r *pipelineRun) fetchSource(ctx context.Context) {
 func (r *pipelineRun) analyze(ctx context.Context) *Brief {
 	deps := r.p.deps
 	allowedStyles := deps.Styles.WithoutStyles(r.request.AvoidStyles)
-	input := AnalyzeInput{Title: r.request.Title, Excerpt: r.request.Excerpt, Palettes: deps.Styles.PalettesExcept(r.request.AvoidPalettes), Styles: &allowedStyles, Compositions: allowedCompositions(r.request.Compositions), PreferComposition: r.request.PreferComposition}
+	input := AnalyzeInput{Title: r.request.Title, Excerpt: r.request.Excerpt, Palettes: deps.Styles.PalettesExcept(r.request.AvoidPalettes), Styles: &allowedStyles, Compositions: allowedCompositions(r.request.Compositions), PreferComposition: r.request.PreferComposition, Brands: deps.Brands.All()}
 	if r.source != nil {
 		input.ImageURL = r.request.ReferenceImageURL
 		if normalized, err := imaging.FitJPEG(r.source, analyzeMaxEdge, analyzeQuality); err == nil {
@@ -286,6 +291,12 @@ func (r *pipelineRun) analyze(ctx context.Context) *Brief {
 		r.report.Palette = brief.Palette
 		brief.Composition = chooseComposition(brief.Composition, input.Compositions)
 		r.report.Composition = brief.Composition
+		r.brands = deps.Brands.Resolve(brief.Brands, MaxBrands)
+		brief.Brands = nil
+		for _, brand := range r.brands {
+			brief.Brands = append(brief.Brands, brand.ID)
+			r.report.Brands = append(r.report.Brands, brand.Name)
+		}
 		r.report.Analyzer = analyzer.Name()
 		r.report.Brief = &brief
 		r.report.Style = style.ID()
@@ -332,12 +343,21 @@ func (r *pipelineRun) generate(ctx context.Context, provider Provider, brief Bri
 	deps := r.p.deps
 	style, _ := deps.Styles.Get(brief.Style)
 	article := Article{Title: r.request.Title, Excerpt: r.request.Excerpt}
+	var logos []brands.Brand
+	placer, places := provider.(interface{ PlacesLogos() bool })
+	placesLogos := places && placer.PlacesLogos()
+	if placesLogos {
+		logos = r.brands
+		for _, brand := range logos {
+			article.Brands = append(article.Brands, brand.Name)
+		}
+	}
 	correction := ""
 	rejected := false
 	for attempt := 1; attempt <= provider.Attempts(); attempt++ {
 		started := deps.Now()
 		palette, _ := deps.Styles.Palette(brief.Palette)
-		raw, err := provider.Generate(ctx, GenerateRequest{Brief: brief, Style: style, Palette: palette, Collage: person != nil, Correction: correction})
+		raw, err := provider.Generate(ctx, GenerateRequest{Brief: brief, Style: style, Palette: palette, Logos: logos, Collage: person != nil, Correction: correction})
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, false
@@ -371,6 +391,9 @@ func (r *pipelineRun) generate(ctx context.Context, provider Provider, brief Bri
 		if !verdict.Compliant {
 			rejected = true
 			correction = Correction(verdict)
+			if verdict.HasLogo && len(logos) > 0 && !verdict.HasText {
+				correction = BrandLogoCorrection
+			}
 			r.report.Attempts = append(r.report.Attempts, Attempt{Provider: provider.Name(), Attempt: attempt, Outcome: "rejected: " + verdict.Notes, Seconds: deps.Now().Sub(started).Seconds()})
 			deps.Logger.InfoContext(ctx, "featured image rejected by compliance check", "provider", provider.Name(), "attempt", attempt,
 				"text", verdict.HasText, "logo", verdict.HasLogo, "flag", verdict.HasFlag, "person", verdict.HasPerson, "injury", verdict.HasInjury,
@@ -378,6 +401,14 @@ func (r *pipelineRun) generate(ctx context.Context, provider Provider, brief Bri
 			continue
 		}
 		final := normalized
+		if !placesLogos && len(r.brands) > 0 {
+			framed = AddLogoBadges(framed, r.brands)
+			if final, err = encodePNG(framed); err != nil {
+				r.fail(provider.Name(), attempt, started, err)
+				continue
+			}
+			r.report.LogoBadge = true
+		}
 		if person != nil {
 			composite := Composite(framed, person)
 			if final, err = encodePNG(composite); err != nil {

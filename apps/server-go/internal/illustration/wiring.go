@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/gemini"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/brands"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration/styles"
 )
 
@@ -39,6 +40,7 @@ func BuildPipelineDeps(cfg PipelineConfig) PipelineDeps {
 	deps := PipelineDeps{
 		Reviewer: NewGeminiReviewer(cfg.Gemini),
 		Styles:   catalog,
+		Brands:   brands.MustLoad(),
 		Store:    cfg.Store,
 		History:  cfg.History,
 		HTTP:     cfg.HTTP,

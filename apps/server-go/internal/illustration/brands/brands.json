@@ -1,0 +1,20 @@
+[
+  {"id": "openai", "name": "OpenAI", "aliases": ["ChatGPT", "GPT", "Sora", "Codex"]},
+  {"id": "anthropic", "name": "Anthropic", "aliases": ["Claude"]},
+  {"id": "google", "name": "Google", "aliases": ["Alphabet", "Gemini", "DeepMind", "Google Vids"]},
+  {"id": "youtube", "name": "YouTube", "aliases": []},
+  {"id": "meta", "name": "Meta", "aliases": ["Facebook", "Instagram", "WhatsApp", "Llama"]},
+  {"id": "microsoft", "name": "Microsoft", "aliases": ["Copilot", "Azure", "Windows", "GitHub"]},
+  {"id": "apple", "name": "Apple", "aliases": ["iPhone", "Siri", "iOS", "Mac"]},
+  {"id": "nvidia", "name": "Nvidia", "aliases": ["GeForce", "CUDA"]},
+  {"id": "tesla", "name": "Tesla", "aliases": ["Optimus"]},
+  {"id": "amazon", "name": "Amazon", "aliases": ["AWS", "Alexa"]},
+  {"id": "xai", "name": "xAI", "aliases": ["Grok"]},
+  {"id": "mistral", "name": "Mistral AI", "aliases": ["Le Chat"]},
+  {"id": "cloudflare", "name": "Cloudflare", "aliases": []},
+  {"id": "samsung", "name": "Samsung", "aliases": ["Galaxy"]},
+  {"id": "intel", "name": "Intel", "aliases": []},
+  {"id": "amd", "name": "AMD", "aliases": ["Radeon", "Ryzen"]},
+  {"id": "netflix", "name": "Netflix", "aliases": []},
+  {"id": "tiktok", "name": "TikTok", "aliases": ["ByteDance"]}
+]
