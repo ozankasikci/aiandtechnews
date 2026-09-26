@@ -141,6 +141,13 @@ func TestPublicArticleQueryDefaultsFiltersPaginationAndClamps(t *testing.T) {
 	if response.Code != 200 || strings.Index(response.Body.String(), `"id":301`) > strings.Index(response.Body.String(), `"id":302`) {
 		t.Errorf("trending = %q", response.Body.String())
 	}
+	// The seeded articles are older than a week and unread, so a windowed
+	// list is empty rather than falling back to all-time favourites.
+	for _, target := range []string{"/api/articles/trending?window=24h", "/api/articles/trending?window=7d"} {
+		if response := request(t, handler, target); response.Code != 200 || response.Body.String() != `{"articles":[]}` {
+			t.Errorf("%s = %d %q", target, response.Code, response.Body.String())
+		}
+	}
 }
 
 func TestPublicArticleDatabaseFailureIsLoggedAndNotLeaked(t *testing.T) {

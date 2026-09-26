@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 var ErrNotFound = errors.New("article not found")
@@ -91,8 +92,22 @@ func listWhere(query ListQuery) (string, []any) {
 	return where, args
 }
 
-func (s *SQLiteStore) Trending(ctx context.Context, limit int) ([]Article, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+articleColumns+articleJoins+` WHERE a.status = 'published' ORDER BY a.view_count DESC LIMIT ?`, limit)
+// Trending ranks by all-time view_count when since is zero. Otherwise it ranks
+// by reads recorded on or after since's UTC day, and fills the rest with
+// articles published since then, newest first, so the list never shows stale
+// favourites.
+func (s *SQLiteStore) Trending(ctx context.Context, limit int, since time.Time) ([]Article, error) {
+	query := `SELECT ` + articleColumns + articleJoins + ` WHERE a.status = 'published' ORDER BY a.view_count DESC LIMIT ?`
+	args := []any{limit}
+	if !since.IsZero() {
+		since = since.UTC()
+		query = `SELECT ` + articleColumns + articleJoins + `
+	LEFT JOIN (SELECT article_id, SUM(count) AS views FROM article_views WHERE day >= ? GROUP BY article_id) v ON v.article_id = a.id
+	WHERE a.status = 'published' AND (v.views > 0 OR datetime(a.published_at) >= datetime(?))
+	ORDER BY COALESCE(v.views, 0) DESC, datetime(a.published_at) DESC, a.id DESC LIMIT ?`
+		args = []any{since.Format(time.DateOnly), since.Format(time.DateTime), limit}
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list trending articles: %w", err)
 	}
@@ -123,6 +138,10 @@ func (s *SQLiteStore) PublishedBySlugAndIncrement(ctx context.Context, slug stri
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE articles SET view_count = view_count + 1 WHERE id = ?`, article.ID); err != nil {
 		return Article{}, fmt.Errorf("increment article view count: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO article_views(article_id, day, count) VALUES (?, date('now'), 1)
+		ON CONFLICT(article_id, day) DO UPDATE SET count = count + 1`, article.ID); err != nil {
+		return Article{}, fmt.Errorf("record article view for today: %w", err)
 	}
 	if err = tx.Commit(); err != nil {
 		return Article{}, fmt.Errorf("commit article view transaction: %w", err)

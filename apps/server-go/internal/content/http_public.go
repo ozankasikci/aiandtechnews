@@ -15,7 +15,7 @@ import (
 
 type publicArticleService interface {
 	List(context.Context, ListQuery) (Page, error)
-	Trending(context.Context, int) ([]Article, error)
+	Trending(context.Context, int, string) ([]Article, error)
 	BySlug(context.Context, string) (Article, error)
 	ByID(context.Context, string) (Article, error)
 }
@@ -52,7 +52,7 @@ func (h *PublicHandler) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PublicHandler) trending(w http.ResponseWriter, r *http.Request) {
-	articles, err := h.service.Trending(r.Context(), parseNodeLimit(r.URL.Query().Get("limit"), 5, 20))
+	articles, err := h.service.Trending(r.Context(), parseNodeLimit(r.URL.Query().Get("limit"), 5, 20), r.URL.Query().Get("window"))
 	if err != nil {
 		h.internalError(w, r, "list trending articles", err)
 		return

@@ -1,8 +1,10 @@
 package newsroom_test
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
+	"slices"
 	"testing"
 	"time"
 
@@ -21,6 +23,8 @@ func openStore(t *testing.T) (*newsroom.SQLiteStore, *sql.DB) {
 	descriptors := editorial.Migrations()
 	descriptors = append(descriptors, content.Migrations()...)
 	descriptors = append(descriptors, newsroom.Migrations()...)
+	// Content owns version 8 as well as 2, so order by version as app.Migrations does.
+	slices.SortStableFunc(descriptors, func(a, b migrate.Descriptor) int { return cmp.Compare(a.Version, b.Version) })
 	if err := migrate.Run(context.Background(), db, descriptors); err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/app"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
@@ -79,6 +80,53 @@ func TestSQLiteStoreByIDUsesBoundSQLiteCoercion(t *testing.T) {
 			t.Errorf("ByID(%q) error = %v", id, err)
 		}
 	}
+}
+
+func TestSQLiteStoreTrendingWindowRanksRecentReads(t *testing.T) {
+	db, _ := testutil.OpenDatabase(t)
+	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, db)
+	if _, err := db.Exec(`INSERT INTO articles(id,title,slug,excerpt,content,category_id,author_id,status,published_at,view_count) VALUES (304,'Synthetic Fresh','synthetic-fresh','Fresh','<p>Fresh.</p>',101,201,'published',datetime('now','-1 hour'),0)`); err != nil {
+		t.Fatal(err)
+	}
+	store := content.NewSQLiteStore(db)
+	for range 2 {
+		if _, err := store.PublishedBySlugAndIncrement(context.Background(), "synthetic-published-null-options"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var today int
+	if err := db.QueryRow(`SELECT count FROM article_views WHERE article_id = 302 AND day = date('now')`).Scan(&today); err != nil || today != 2 {
+		t.Fatalf("today's views for 302 = %d, %v", today, err)
+	}
+
+	allTime, err := store.Trending(context.Background(), 5, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := articleIDs(allTime); len(ids) == 0 || ids[0] != 301 {
+		t.Fatalf("all-time trending = %v, want 301 first", ids)
+	}
+
+	// 302 was read in the window, 304 was published in it with no reads yet,
+	// and 301 has the most reads overall but none in the window.
+	recent, err := store.Trending(context.Background(), 5, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := articleIDs(recent); len(ids) != 2 || ids[0] != 302 || ids[1] != 304 {
+		t.Fatalf("24h trending = %v, want [302 304]", ids)
+	}
+}
+
+func articleIDs(articles []content.Article) []int64 {
+	ids := make([]int64, len(articles))
+	for i, article := range articles {
+		ids[i] = article.ID
+	}
+	return ids
 }
 
 func TestSQLiteStoreHonorsCanceledContext(t *testing.T) {

@@ -4,18 +4,26 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"time"
 )
 
 type articleStore interface {
 	List(context.Context, ListQuery) (ListResult, error)
-	Trending(context.Context, int) ([]Article, error)
+	Trending(context.Context, int, time.Time) ([]Article, error)
 	PublishedBySlugAndIncrement(context.Context, string) (Article, error)
 	ByID(context.Context, string) (Article, error)
 }
 
-type Service struct{ store articleStore }
+type Service struct {
+	store articleStore
+	now   func() time.Time
+}
 
-func NewService(store articleStore) *Service { return &Service{store: store} }
+func NewService(store articleStore) *Service { return &Service{store: store, now: time.Now} }
+
+// trendingWindows are the ?window= values Trending accepts. Anything else
+// ranks by all-time views.
+var trendingWindows = map[string]time.Duration{"24h": 24 * time.Hour, "7d": 7 * 24 * time.Hour}
 
 type Page struct {
 	Articles   []Article `json:"articles"`
@@ -35,8 +43,12 @@ func (s *Service) List(ctx context.Context, query ListQuery) (Page, error) {
 	return Page{Articles: result.Articles, Total: result.Total, Page: query.Page, TotalPages: (result.Total + int64(query.Limit) - 1) / int64(query.Limit)}, nil
 }
 
-func (s *Service) Trending(ctx context.Context, limit int) ([]Article, error) {
-	articles, err := s.store.Trending(ctx, clamp(limit, 1, 20))
+func (s *Service) Trending(ctx context.Context, limit int, window string) ([]Article, error) {
+	var since time.Time
+	if span, ok := trendingWindows[window]; ok {
+		since = s.now().Add(-span)
+	}
+	articles, err := s.store.Trending(ctx, clamp(limit, 1, 20), since)
 	if err != nil {
 		return nil, fmt.Errorf("trending articles: %w", err)
 	}
