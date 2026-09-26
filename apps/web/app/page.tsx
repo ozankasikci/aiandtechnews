@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { ArticleImage } from "./components/ArticleImage";
 import Link from "next/link";
 import { MostPopularSidebar } from "./components/Sidebar";
@@ -5,6 +6,7 @@ import { ArticleFeed } from "./components/ArticleFeed";
 import { getArticles, mapArticle } from "./lib/api";
 import { fallbackArticles } from "./lib/fallback";
 import { TAG_COLORS } from "./data/articles";
+import { SHARE_CARD_SIZE, shareCardUrl } from "./lib/share-card";
 
 function tagHex(tagColor: string): string {
   return tagColor
@@ -19,6 +21,21 @@ function tagHex(tagColor: string): string {
 const STICKER_COLORS = ["bg-accent-green", "bg-accent-magenta", "bg-accent-blue", "bg-accent-purple"];
 
 export const dynamic = "force-dynamic";
+
+// The homepage shares as a large card of the latest stories. Setting
+// openGraph here replaces the layout's, so its fields are repeated.
+export async function generateMetadata(): Promise<Metadata> {
+  const image = { url: shareCardUrl(new Date()), ...SHARE_CARD_SIZE, alt: "The latest stories on AI and Tech News" };
+  return {
+    openGraph: {
+      siteName: "AI and Tech News",
+      type: "website",
+      url: "https://www.aiandtech.news",
+      images: [image],
+    },
+    twitter: { card: "summary_large_image", images: [image.url] },
+  };
+}
 
 function RotatedLogo() {
   return (
