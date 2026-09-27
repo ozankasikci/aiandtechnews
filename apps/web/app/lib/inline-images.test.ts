@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { INLINE_IMAGE_CAPTION, inlineFigure, insertInlineImages, usableInlineImages } from "./inline-images";
+import { INLINE_IMAGE_CAPTION, inlineCaption, inlineFigure, insertInlineImages, usableInlineImages } from "./inline-images";
 import { splitAfterParagraph } from "./read-next";
 
 const paragraphs = (n: number) =>
@@ -68,4 +68,42 @@ test("the article page inserts inline images before splitting for the read-next 
   assert.match(page, /const body = insertInlineImages\(glossary\.html, article\.inlineImages\);/);
   assert.ok(page.indexOf("insertInlineImages(glossary.html") < page.indexOf("readNextSlot(body)"));
   assert.match(api, /inlineImages: usableInlineImages\(a\.inlineImages\),/);
+});
+
+const commons = {
+  ...image,
+  credit: "Photo: Jane Doe / CC BY-SA 4.0, via Wikimedia Commons",
+  creditUrl: "https://commons.wikimedia.org/wiki/File:X.jpg",
+  license: "CC BY-SA 4.0",
+  licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0",
+};
+
+test("a Commons photo credits its author and links the file page and the licence", () => {
+  const caption = inlineCaption(commons);
+  assert.equal(
+    caption,
+    '<a href="https://commons.wikimedia.org/wiki/File:X.jpg" target="_blank" rel="nofollow noopener" class="underline underline-offset-2 hover:text-[#444]">Photo: Jane Doe</a>' +
+      ' / <a href="https://creativecommons.org/licenses/by-sa/4.0" target="_blank" rel="nofollow noopener" class="underline underline-offset-2 hover:text-[#444]">CC BY-SA 4.0</a>' +
+      ", via Wikimedia Commons",
+  );
+  assert.ok(inlineFigure(commons).includes(`<figcaption class="mt-2 text-[13px] leading-snug text-[#777]">${caption}</figcaption>`));
+  assert.doesNotMatch(inlineFigure(commons), /Illustration: AI & Tech News/);
+});
+
+test("an official image credits the maker, linked to its page", () => {
+  const caption = inlineCaption({ ...image, credit: "Image: WiCi", creditUrl: "https://wici.ai/wici-one" });
+  assert.match(caption, /^<a href="https:\/\/wici\.ai\/wici-one" target="_blank" rel="nofollow noopener"[^>]*>Image: WiCi<\/a>$/);
+});
+
+test("a credit is escaped, and shown unlinked without a usable link", () => {
+  assert.equal(inlineCaption({ ...image, credit: "Photo: <b>A & B</b> / Public domain, via Wikimedia Commons" }), "Photo: &lt;b&gt;A &amp; B&lt;/b&gt; / Public domain, via Wikimedia Commons");
+  assert.equal(inlineCaption({ ...image, credit: "  " }), INLINE_IMAGE_CAPTION);
+  const [cleaned] = usableInlineImages([{ ...commons, creditUrl: "javascript:alert(1)", licenseUrl: "data:x" }]) ?? [];
+  assert.deepEqual(cleaned, { ...image, credit: commons.credit, license: "CC BY-SA 4.0" });
+  assert.doesNotMatch(inlineCaption(cleaned), /<a /);
+});
+
+test("credits survive the API filter", () => {
+  assert.deepEqual(usableInlineImages([commons]), [commons]);
+  assert.deepEqual(usableInlineImages([{ ...image, credit: "", creditUrl: "https://x.test" }]), [image]);
 });

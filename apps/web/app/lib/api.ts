@@ -33,7 +33,15 @@ export interface ApiArticle {
   meta_description?: string | null;
   tldr?: string[];
   why_it_matters?: string;
-  inlineImages?: { url: string; alt: string; afterParagraph: number }[];
+  inlineImages?: {
+    url: string;
+    alt: string;
+    afterParagraph: number;
+    credit?: string;
+    creditUrl?: string;
+    license?: string;
+    licenseUrl?: string;
+  }[];
   category: { id: number; name: string; slug: string; description: string; color: string };
   author: { id: number; name: string; email: string; avatar: string; bio: string; role: string };
 }

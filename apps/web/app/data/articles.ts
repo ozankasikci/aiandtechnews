@@ -1,5 +1,15 @@
-// An illustration inside the body, after paragraph afterParagraph (from 1).
-export type InlineImage = { url: string; alt: string; afterParagraph: number };
+// An image inside the body, after paragraph afterParagraph (from 1). A real
+// photo has a credit linking to creditUrl (the Wikimedia Commons file page or
+// the maker's page) and, from Commons, its licence; an illustration has none.
+export type InlineImage = {
+  url: string;
+  alt: string;
+  afterParagraph: number;
+  credit?: string;
+  creditUrl?: string;
+  license?: string;
+  licenseUrl?: string;
+};
 
 export type Article = {
   id: number;
