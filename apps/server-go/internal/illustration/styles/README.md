@@ -42,6 +42,11 @@ the next build.
 | Style | Anchors from |
 |---|---|
 | `graphic` | `imagegen-test/literal/vector.png`, the Tesla Optimus image the owner chose in Sep 2026 |
+| `midcentury`, `collage` | owner-approved generations |
+| `risograph`, `isometric`, `blueprint`, `swiss`, `ligneclaire`, `pixel`, `papercut`, `neon` | Gemini samples the owner approved on 2026-09-27: one story (agents probing a government site) and one chip-factory scene per style |
+
+The analyzer picks a style from each one's `summary` ("Fits ..."), the article
+and the source image; `graphic` is the fallback when nothing more specific fits.
 
 `gouache` and `anime` were removed in Sep 2026: the owner found them unappealing
 and their metaphor-driven scenes lost the story.

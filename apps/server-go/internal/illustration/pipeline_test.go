@@ -163,7 +163,7 @@ func TestPipelineFirstProviderWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	report := result.Report
-	if report.Provider != "codex" || report.Analyzer != "codex" || report.Style != "graphic@2" || report.Collage || len(gem.requests) != 0 {
+	if report.Provider != "codex" || report.Analyzer != "codex" || report.Style != "graphic@3" || report.Collage || len(gem.requests) != 0 {
 		t.Fatalf("report = %+v gemini calls = %d", report, len(gem.requests))
 	}
 	if len(fixture.reviewer.reviewed) != 1 {
@@ -262,7 +262,7 @@ func TestPipelineAnalyzerFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Report.Analyzer != "gemini" || result.Report.Style != "graphic@2" || first.calls != 1 {
+	if result.Report.Analyzer != "gemini" || result.Report.Style != "graphic@3" || first.calls != 1 {
 		t.Fatalf("report = %+v", result.Report)
 	}
 }
@@ -467,10 +467,10 @@ func TestPipelineOffersOnlyStylesNotRecentlyUsed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if analyzer.input.Styles == nil || len(analyzer.input.Styles.Names()) != 1 || analyzer.input.Styles.Names()[0] != "midcentury" {
+	if analyzer.input.Styles == nil || slices.Contains(analyzer.input.Styles.Names(), "graphic") || !slices.Contains(analyzer.input.Styles.Names(), "midcentury") {
 		t.Fatalf("offered styles = %+v", analyzer.input.Styles)
 	}
-	if result.Report.Style != "midcentury@1" {
+	if result.Report.Style != "midcentury@2" {
 		t.Fatalf("style = %q", result.Report.Style)
 	}
 }

@@ -1,0 +1,10 @@
+{
+  "name": "blueprint",
+  "version": 1,
+  "summary": "Technical drawing on blue paper. Fits hardware, engineering, robotics, specifications and research breakthroughs, especially when the source image shows a device, machine, diagram or schematic. Not for people-centred stories.",
+  "prompt": "Technical blueprint drawing: fine white and pale cyan linework on deep blue paper, cutaway views, dimension lines and callout leader lines with no readable labels, drafting-table precision, with the given palette's warm colour only as a small accent.",
+  "anchors": [
+    "anchor-1.jpg",
+    "anchor-2.jpg"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "risograph",
+  "version": 1,
+  "summary": "Indie print look with grainy spot inks. Fits startups, research papers, open source, developer tools, culture and opinion-leaning stories: serious but with personality.",
+  "prompt": "Risograph print: two or three spot inks slightly out of register, visible grain and halftone dot shading, flat shapes, like an indie magazine print, in a limited palette of the given colours plus neutrals.",
+  "anchors": [
+    "anchor-1.jpg",
+    "anchor-2.jpg"
+  ]
+}

@@ -1,7 +1,7 @@
 {
   "name": "graphic",
-  "version": 2,
-  "summary": "Bold editorial illustration built around people reacting to the news. Suits every story.",
+  "version": 3,
+  "summary": "Bold flat vector editorial art built around people reacting to the news. The versatile choice for business, product and policy news when no more specific style clearly fits.",
   "prompt": "Bold flat vector editorial illustration: strong geometric shapes, flat colour areas with subtle grain texture, a limited palette of the given colours plus neutrals, like a New York Times or The Verge feature illustration.",
   "anchors": [
     "anchor-tesla-optimus.jpg"

@@ -1,0 +1,10 @@
+{
+  "name": "neon",
+  "version": 1,
+  "summary": "Dark neon night scene. Fits cybersecurity, hacking, leaks, AI agents acting on their own, surveillance, crypto and underground or late-night tech. Use for tense or ominous stories.",
+  "prompt": "Dark neon night scene: deep shadows, glowing rim lights and neon edges in the given palette's colours, moody cinematic lighting, sleek digital painting.",
+  "anchors": [
+    "anchor-1.jpg",
+    "anchor-2.jpg"
+  ]
+}

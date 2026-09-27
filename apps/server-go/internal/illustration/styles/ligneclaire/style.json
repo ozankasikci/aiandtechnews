@@ -1,0 +1,10 @@
+{
+  "name": "ligneclaire",
+  "version": 1,
+  "summary": "Clean-line comic art with detailed settings. Fits stories with a clear event and several people or places: incidents, launches on stage, cities, offices, labs and courtrooms.",
+  "prompt": "Ligne claire comic art in the tradition of classic Belgian comics: clean even black outlines, flat colours with no hatching, detailed but uncluttered backgrounds, drawn literally, in a limited palette of the given colours plus neutrals.",
+  "anchors": [
+    "anchor-1.jpg",
+    "anchor-2.jpg"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "isometric",
+  "version": 1,
+  "summary": "Clean 3D explainer look. Fits products, devices, chips, data centres, cloud infrastructure and how-it-works stories, especially when the source image is a product shot, render or diagram.",
+  "prompt": "Clean isometric 3D illustration: soft clay-like rounded objects, low-poly simplicity, soft ambient occlusion shadows on flat coloured ground, a product-explainer look, rendered rather than painted, in a limited palette of the given colours plus neutrals.",
+  "anchors": [
+    "anchor-1.jpg",
+    "anchor-2.jpg"
+  ]
+}

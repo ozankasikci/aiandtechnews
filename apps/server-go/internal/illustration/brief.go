@@ -241,7 +241,7 @@ func analyzeKeys(catalog styles.Catalog, palettes []styles.Palette, compositions
 - "foreground": one sentence, the main subject. For a "scene", the people and the action or reaction that carries the story: who is affected or acting, and their visible reaction (a gesture, a posture, an expression). For a "simple" image, the one object or machine the story is about.
 - "background": one sentence, the setting (for a "simple" image, a plain backdrop and at most two small supporting elements).
 - "mood": a few words, the emotional tone.
-- "style": exactly one of %s. Pick the style that fits this story best:
+- "style": exactly one of %s. Pick the style that fits this story best, judging both what the article is about and its tone, and what the source image shows (a product shot, a portrait, a screenshot, a chart, a machine, an event). Follow each style's "Fits" note; use "graphic" only when no more specific style clearly fits:
 %s- "style_reason": one short sentence on why that style fits.
 %s%s%s%s%s- "public_figure": null, or {"name": "...", "visible_in_source": true|false}. This field is separate from the illustration and is used to credit a real press photo. Set it when the headline or summary names a newsworthy public figure (such as a CEO, founder, prominent researcher or politician) who is part of the story, even if only quoted; use the most central one. Never set it for private individuals, anonymous people or crowds. "visible_in_source" is true when the attached image is a photo whose main subject is one clearly visible real person and the context (headline, summary, image file name) indicates that person is the named figure; you do not need to recognize the face. Otherwise false.
 

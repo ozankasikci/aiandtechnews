@@ -1,0 +1,10 @@
+{
+  "name": "papercut",
+  "version": 1,
+  "summary": "Layered paper diorama with real depth. Fits science, health, climate, education, space and gentle explainers with a hopeful or curious tone.",
+  "prompt": "Layered paper cut-out diorama: stacked coloured paper layers with soft realistic drop shadows and depth, visible paper texture and cut edges, photographed flat, in the given colours plus neutrals.",
+  "anchors": [
+    "anchor-1.jpg",
+    "anchor-2.jpg"
+  ]
+}

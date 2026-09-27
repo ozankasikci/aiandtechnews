@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	_ "image/jpeg"
+	"slices"
 	"testing"
 	"testing/fstest"
 )
@@ -14,7 +15,8 @@ func TestEmbeddedStylesLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := catalog.Names()
-	if len(names) != 3 || names[0] != "collage" || names[1] != "graphic" || names[2] != "midcentury" {
+	want := []string{"blueprint", "collage", "graphic", "isometric", "ligneclaire", "midcentury", "neon", "papercut", "pixel", "risograph", "swiss"}
+	if !slices.Equal(names, want) {
 		t.Fatalf("names = %v", names)
 	}
 	for _, style := range catalog.All() {
@@ -32,7 +34,7 @@ func TestEmbeddedStylesLoad(t *testing.T) {
 		}
 	}
 	graphic, ok := catalog.Get("graphic")
-	if !ok || graphic.ID() != "graphic@2" {
+	if !ok || graphic.ID() != "graphic@3" {
 		t.Fatalf("graphic = %+v %v", graphic.ID(), ok)
 	}
 	if _, ok := catalog.Get("oil"); ok {
@@ -81,7 +83,7 @@ func TestEmbeddedPalettes(t *testing.T) {
 func TestWithoutStyles(t *testing.T) {
 	catalog := MustLoad()
 	kept := catalog.WithoutStyles([]string{"graphic", "collage"})
-	if names := kept.Names(); len(names) != 1 || names[0] != "midcentury" || len(kept.Palettes()) != len(catalog.Palettes()) {
+	if names := kept.Names(); len(names) != len(catalog.Names())-2 || slices.Contains(names, "graphic") || slices.Contains(names, "collage") || len(kept.Palettes()) != len(catalog.Palettes()) {
 		t.Fatalf("names = %v, palettes = %d", names, len(kept.Palettes()))
 	}
 	if len(catalog.WithoutStyles(catalog.Names()).Names()) != len(catalog.Names()) {

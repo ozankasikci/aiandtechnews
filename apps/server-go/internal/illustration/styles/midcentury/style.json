@@ -1,7 +1,9 @@
 {
   "name": "midcentury",
-  "version": 1,
-  "summary": "1950s-60s magazine illustration with stylised, expressive figures and a touch of drama. Suits every story.",
+  "version": 2,
+  "summary": "1950s-60s magazine art with stylised, expressive figures and a touch of drama. Fits people-centred stories with a human or dramatic angle: jobs, workplaces, courts, culture and society.",
   "prompt": "Mid-century modern magazine illustration from the 1950s and 60s: stylised elongated figures, simplified geometric shapes, dry-brush and crayon textures on warm paper, witty dramatic staging and clean composition, like vintage Saturday Evening Post or Fortune illustrations redone today, in a limited palette of the given colours plus neutrals.",
-  "anchors": ["anchor-tesla-optimus.jpg"]
+  "anchors": [
+    "anchor-tesla-optimus.jpg"
+  ]
 }

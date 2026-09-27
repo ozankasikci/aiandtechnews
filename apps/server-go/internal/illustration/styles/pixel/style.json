@@ -1,0 +1,10 @@
+{
+  "name": "pixel",
+  "version": 1,
+  "summary": "16-bit pixel art. Only for gaming, consoles, game studios, retro computing and light consumer or internet-culture stories. Never for harm, security, legal or policy news.",
+  "prompt": "16-bit pixel art: crisp visible pixels, a limited palette of the given colours plus neutrals, a retro video game scene, clean dithering.",
+  "anchors": [
+    "anchor-1.jpg",
+    "anchor-2.jpg"
+  ]
+}
