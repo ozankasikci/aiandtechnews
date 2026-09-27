@@ -66,6 +66,7 @@ func (r *Rewriter) Rewrite(ctx context.Context, input RewriteInput) (content.Rew
 		minWords, maxWords := minArticleWords, maxArticleWords
 		problems := content.ValidateRewrittenArticle(article, content.ArticleValidationOptions{MinWords: &minWords, MaxWords: &maxWords})
 		if len(problems) == 0 {
+			article.Content = content.TidySubheadings(article.Content)
 			return article, nil
 		}
 		lastProblem = strings.Join(problems, "; ")
@@ -157,7 +158,8 @@ Requirements:
 - Include relevant context and background.
 - Include supported industry implications or analysis without presenting speculation as fact.
 - End with the next known step. Do not invent a next step.
-- Use only <p> and optional <h2> tags, with no tag attributes.
+- Use only <p> and <h2> tags, with no tag attributes.
+- Where the story has distinct parts, add up to 3 <h2> subheadings. Each is a short plain statement of what the next section covers, maximum 60 characters, never a question or a teaser. Never open or close the body with a subheading and never put two in a row. A short story with one thread needs none.
 - Do not include the headline in the body.
 - Do not add a source or sources footer. Attribution is stored separately.
 

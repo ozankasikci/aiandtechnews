@@ -274,3 +274,15 @@ func TestRewriteDropsInvalidSummaryWithoutFailing(t *testing.T) {
 		})
 	}
 }
+
+func TestRewriteTidiesMisplacedSubheadings(t *testing.T) {
+	draft := strings.Replace(validArticleJSON(), `"content":"`, `"content":"<h2>Opening heading</h2>`, 1)
+	text := &scriptedText{responses: []string{draft}}
+	article, err := publisher.NewRewriter(text).Rewrite(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(article.Content, "<h2>") || !strings.HasPrefix(article.Content, "<p>") {
+		t.Fatalf("leading subheading kept: %.80s", article.Content)
+	}
+}
