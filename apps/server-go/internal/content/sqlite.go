@@ -147,6 +147,9 @@ func (s *SQLiteStore) PublishedBySlugAndIncrement(ctx context.Context, slug stri
 	if err = loadSummary(ctx, tx, &article); err != nil {
 		return Article{}, err
 	}
+	if err = loadInlineImages(ctx, tx, &article); err != nil {
+		return Article{}, err
+	}
 	if err = tx.Commit(); err != nil {
 		return Article{}, fmt.Errorf("commit article view transaction: %w", err)
 	}
@@ -228,6 +231,27 @@ func loadSummary(ctx context.Context, tx *sql.Tx, article *Article) error {
 	}
 	if len(article.TLDR) == 0 {
 		article.TLDR = nil
+	}
+	return nil
+}
+
+// loadInlineImages reads the article's ready inline illustrations, in body order.
+func loadInlineImages(ctx context.Context, tx *sql.Tx, article *Article) error {
+	rows, err := tx.QueryContext(ctx, `SELECT url, alt, after_paragraph FROM article_images
+		WHERE article_id = ? AND status = 'ready' AND url <> '' ORDER BY after_paragraph, id`, article.ID)
+	if err != nil {
+		return fmt.Errorf("read inline images: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var image InlineImage
+		if err := rows.Scan(&image.URL, &image.Alt, &image.AfterParagraph); err != nil {
+			return fmt.Errorf("scan inline image: %w", err)
+		}
+		article.InlineImages = append(article.InlineImages, image)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate inline images: %w", err)
 	}
 	return nil
 }

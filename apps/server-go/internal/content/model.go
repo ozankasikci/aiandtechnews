@@ -26,6 +26,17 @@ type Article struct {
 	// for a single article read by slug.
 	TLDR         []string `json:"tldr,omitempty"`
 	WhyItMatters string   `json:"why_it_matters,omitempty"`
+	// InlineImages are the ready illustrations inside the body, from
+	// article_images; also loaded only for a single article read by slug.
+	InlineImages []InlineImage `json:"inlineImages,omitempty"`
+}
+
+// InlineImage is an illustration placed after paragraph AfterParagraph
+// (counting the body's <p> blocks from 1).
+type InlineImage struct {
+	URL            string `json:"url"`
+	Alt            string `json:"alt"`
+	AfterParagraph int    `json:"afterParagraph"`
 }
 
 type Category struct {

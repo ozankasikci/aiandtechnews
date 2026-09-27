@@ -3,6 +3,7 @@ package content_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -176,6 +177,30 @@ func TestPublicArticlesDoNotExposeTheirSource(t *testing.T) {
 			if strings.Contains(body, leak) {
 				t.Errorf("%s exposes %s", target, leak)
 			}
+		}
+	}
+}
+
+func TestPublicArticleBySlugIncludesReadyInlineImages(t *testing.T) {
+	handler, closer := newArticleHandler(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	db := closer.(*sql.DB)
+	for _, statement := range []string{
+		`INSERT INTO article_images(article_id, url, alt, after_paragraph, status, attempts, created_at, updated_at)
+			VALUES (301, 'https://img.test/features/x-inline.webp', 'Engineers roll in a rack.', 5, 'ready', 1, 'x', 'x')`,
+		`INSERT INTO article_images(article_id, status, attempts, last_error, created_at, updated_at)
+			VALUES (302, 'failed', 2, 'boom', 'x', 'x')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := request(t, handler, "/api/articles/synthetic-published-newer").Body.String()
+	if !strings.Contains(body, `"inlineImages":[{"url":"https://img.test/features/x-inline.webp","alt":"Engineers roll in a rack.","afterParagraph":5}]`) {
+		t.Fatalf("by slug = %s", body)
+	}
+	for _, target := range []string{"/api/articles", "/api/articles/trending", "/api/articles/id/301", "/api/articles/synthetic-published-null-options"} {
+		if body := request(t, handler, target).Body.String(); strings.Contains(body, "inlineImages") || strings.Contains(body, "boom") {
+			t.Errorf("%s = %s", target, body)
 		}
 	}
 }

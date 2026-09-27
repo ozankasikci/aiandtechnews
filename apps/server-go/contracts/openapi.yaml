@@ -534,6 +534,17 @@ components:
         # Public single-article reads only, when the article has a summary.
         tldr: {type: array, items: {type: string}}
         why_it_matters: {type: string}
+        # Public single-article reads only, when the article has a ready
+        # illustration inside its body. afterParagraph counts <p> blocks from 1.
+        inlineImages:
+          type: array
+          items:
+            type: object
+            required: [url, alt, afterParagraph]
+            properties:
+              url: {type: string}
+              alt: {type: string}
+              afterParagraph: {type: integer}
         created_at: {type: string}
         updated_at: {type: string}
         category:
