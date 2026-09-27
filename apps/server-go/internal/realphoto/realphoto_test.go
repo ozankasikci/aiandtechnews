@@ -338,7 +338,8 @@ func TestOutboundLinksAndPageImages(t *testing.T) {
 	}
 	images := realphoto.PageImages([]byte(`<meta name="twitter:image" content="https://cdn.maker.io/tw.jpg">
 		<img src="/a.svg"><img src="/icons/favicon.png"><img src="/hero.jpg" width="200"><img data-src="/lazy.jpg">
-		<picture><source srcset="/p-1x.webp 1x, /p-2x.webp 2x"></picture>`), "https://maker.io/p")
+		<picture><source srcset="/p-1x.webp 1x, /p-2x.webp 2x"></picture>
+		<video><source src="video/demo.mp4" type="video/mp4"><source src="video/demo" type="video/webm"></video>`), "https://maker.io/p")
 	want := []string{"https://cdn.maker.io/tw.jpg", "https://maker.io/lazy.jpg", "https://maker.io/p-2x.webp"}
 	if strings.Join(images, " ") != strings.Join(want, " ") {
 		t.Fatalf("images = %v", images)

@@ -312,6 +312,9 @@ func PageImages(page []byte, pageURL string) []string {
 				}
 			}
 		case "img", "source":
+			if strings.HasPrefix(strings.ToLower(attr(token, "type")), "video/") {
+				continue
+			}
 			if logoLike(attr(token, "alt")+" "+attr(token, "class")+" "+attr(token, "id")) || declaredSmall(token) {
 				continue
 			}
@@ -389,8 +392,10 @@ func likelyPhotoURL(raw string) bool {
 		return false
 	}
 	path := strings.ToLower(parsed.Path)
-	if strings.HasSuffix(path, ".svg") || strings.HasSuffix(path, ".ico") || strings.HasSuffix(path, ".gif") {
-		return false
+	for _, extension := range []string{".svg", ".ico", ".gif", ".mp4", ".webm", ".mov", ".m3u8", ".avif"} {
+		if strings.HasSuffix(path, extension) {
+			return false
+		}
 	}
 	name := path[strings.LastIndex(path, "/")+1:]
 	return !logoLike(name) && !logoLike(parsed.RawQuery)
