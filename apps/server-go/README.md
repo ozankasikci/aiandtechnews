@@ -53,6 +53,8 @@ Review contract changes in this order:
 | `COLLECTOR_INTERVAL` | `30m` | How often the collector loop runs when enabled |
 | `PUBLISHER_ENABLED` | `0` | Enables the publisher loop (queued candidate -> published article with a generated illustration) |
 | `PUBLISHER_INTERVAL` | `1m` | How often the publisher loop runs when enabled (minimum `10s`) |
+| `INLINE_IMAGES_ENABLED` | off | Runs the worker that adds a second illustration inside articles of 6+ paragraphs published in the last 7 days (so turning it on also backfills that week). Needs `PUBLISHER_ENABLED=1` |
+| `INLINE_IMAGES_INTERVAL` | `5m` | How often the inline image worker picks one article (minimum `1m`) |
 | `GEMINI_API_KEY` | none | Required when `PUBLISHER_ENABLED=1`; Gemini API key used for rewriting and illustration |
 | `GEMINI_TEXT_MODEL`, `GEMINI_IMAGE_MODEL`, `GEMINI_VISION_MODEL` | client defaults | Optional Gemini model overrides |
 | `AWS_REGION` | none | Required when `PUBLISHER_ENABLED=1`; region for the S3 feature-image bucket. Credentials come from the default AWS chain, never from a file in this repo |

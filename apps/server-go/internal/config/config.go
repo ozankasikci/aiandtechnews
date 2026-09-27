@@ -52,6 +52,9 @@ const (
 	// DefaultPublisherInterval is how often the publisher loop runs when
 	// PUBLISHER_INTERVAL is not set.
 	DefaultPublisherInterval = time.Minute
+	// DefaultInlineImagesInterval is how often the inline image worker picks
+	// an article when INLINE_IMAGES_INTERVAL is unset.
+	DefaultInlineImagesInterval = 5 * time.Minute
 	// minPublisherInterval is the smallest interval Validate accepts when the
 	// publisher is enabled.
 	minPublisherInterval = 10 * time.Second
@@ -157,6 +160,13 @@ type Config struct {
 	// false (the default), published URLs are not submitted to IndexNow.
 	IndexNowEnabled bool
 
+	// InlineImagesEnabled (INLINE_IMAGES_ENABLED, default off) runs the
+	// worker that gives articles of the last 7 days a second illustration
+	// inside the body, one article every InlineImagesInterval
+	// (INLINE_IMAGES_INTERVAL, default 5m). It needs the publisher.
+	InlineImagesEnabled  bool
+	InlineImagesInterval time.Duration
+
 	// Newsletter settings keep Node's names (apps/server/.env.example) and
 	// raw values: Node trims each one where it uses it, and so does
 	// internal/newsletter. None of them is required to start: like Node,
@@ -172,11 +182,11 @@ type Config struct {
 
 func (c Config) String() string {
 	return fmt.Sprintf("Config{Mode:%q Address:%q TimeZone:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
-		"PublisherEnabled:%t PublisherInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q FeaturedImageChain:%q FeaturedImageAnalyzers:%q CodexBin:%q CodexNodeDir:%q CodexTimeout:%s CutoutBin:%q GeminiVisionModel:%q "+
+		"PublisherEnabled:%t PublisherInterval:%s InlineImagesEnabled:%t InlineImagesInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q FeaturedImageChain:%q FeaturedImageAnalyzers:%q CodexBin:%q CodexNodeDir:%q CodexTimeout:%s CutoutBin:%q GeminiVisionModel:%q "+
 		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t "+
 		"NewsletterSiteURL:%q NewsletterTokenSecret:[REDACTED] NewsletterCronSecret:[REDACTED] ResendAPIKey:[REDACTED] NewsletterFrom:%q NewsletterReplyTo:%q}",
 		c.Mode, c.Address, c.TimeZone, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
-		c.PublisherEnabled, c.PublisherInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.FeaturedImageChain, c.FeaturedImageAnalyzers, c.CodexBin, c.CodexNodeDir, c.CodexTimeout, c.CutoutBin, c.GeminiVisionModel,
+		c.PublisherEnabled, c.PublisherInterval, c.InlineImagesEnabled, c.InlineImagesInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.FeaturedImageChain, c.FeaturedImageAnalyzers, c.CodexBin, c.CodexNodeDir, c.CodexTimeout, c.CutoutBin, c.GeminiVisionModel,
 		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled,
 		c.NewsletterSiteURL, c.NewsletterFrom, c.NewsletterReplyTo)
 }
@@ -247,6 +257,19 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 			return Config{}, fmt.Errorf("PUBLISHER_INTERVAL: %w", err)
 		}
 		cfg.PublisherInterval = interval
+	}
+	inlineImagesEnabled, err := parseOnOff("INLINE_IMAGES_ENABLED", lookup("INLINE_IMAGES_ENABLED"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.InlineImagesEnabled = inlineImagesEnabled
+	cfg.InlineImagesInterval = DefaultInlineImagesInterval
+	if value := lookup("INLINE_IMAGES_INTERVAL"); value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("INLINE_IMAGES_INTERVAL: %w", err)
+		}
+		cfg.InlineImagesInterval = interval
 	}
 	cfg.GeminiAPIKey = lookup("GEMINI_API_KEY")
 	cfg.GeminiTextModel = lookup("GEMINI_TEXT_MODEL")
@@ -373,6 +396,14 @@ func (c Config) Validate() error {
 	}
 	if c.CollectorEnabled && c.CollectorInterval < time.Minute {
 		return errors.New("COLLECTOR_INTERVAL must be at least 1m")
+	}
+	if c.InlineImagesEnabled {
+		if !c.PublisherEnabled {
+			return errors.New("INLINE_IMAGES_ENABLED needs PUBLISHER_ENABLED: inline images use the publisher's illustration pipeline")
+		}
+		if c.InlineImagesInterval < time.Minute {
+			return errors.New("INLINE_IMAGES_INTERVAL must be at least 1m")
+		}
 	}
 	if c.PublisherEnabled {
 		if err := c.validatePublisher(); err != nil {

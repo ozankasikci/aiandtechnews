@@ -24,6 +24,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/httpserver"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/indexnow"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/inlineimage"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/media"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsletter"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsroom"
@@ -226,6 +227,15 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		application.background = append(application.background, func(ctx context.Context) {
 			quizService.Loop(ctx, quizInterval)
 		})
+		if cfg.InlineImagesEnabled {
+			// Shares the publisher's pipeline, which makes one image at a time.
+			inlineImages := inlineimage.NewWorker(inlineimage.NewSQLiteStore(db, now), illustrator, now, logger,
+				inlineimage.OwnImagePrefix(cfg.S3PublicURL, cfg.S3Prefix))
+			logger.Info("inline images", "interval", cfg.InlineImagesInterval)
+			application.background = append(application.background, func(ctx context.Context) {
+				inlineImages.Loop(ctx, cfg.InlineImagesInterval)
+			})
+		}
 	}
 	return application, nil
 }
