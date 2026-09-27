@@ -73,7 +73,7 @@ func (h *SettingsHistory) Record(ctx context.Context, choice Choice) error {
 
 // How far back each kind of repeat is avoided.
 const (
-	avoidRecentStyles   = 1
+	avoidRecentStyles   = 2
 	avoidRecentPalettes = 3
 	avoidRecentShots    = 3
 	balanceRun          = 2 // this many of one composition in a row nudges towards the other

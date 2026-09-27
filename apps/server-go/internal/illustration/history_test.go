@@ -42,7 +42,7 @@ func TestVarietyFrom(t *testing.T) {
 		return illustration.Choice{Style: style, Palette: palette, Composition: illustration.CompositionScene}
 	}
 	v := illustration.VarietyFrom([]illustration.Choice{scene("graphic", "a"), scene("midcentury", "b"), scene("graphic", "c"), scene("midcentury", "d")})
-	if !slices.Equal(v.AvoidStyles, []string{"midcentury"}) || !slices.Equal(v.AvoidPalettes, []string{"b", "c", "d"}) || v.PreferComposition != illustration.CompositionSimple {
+	if !slices.Equal(v.AvoidStyles, []string{"graphic", "midcentury"}) || !slices.Equal(v.AvoidPalettes, []string{"b", "c", "d"}) || v.PreferComposition != illustration.CompositionSimple {
 		t.Fatalf("variety = %+v", v)
 	}
 	mixed := illustration.VarietyFrom([]illustration.Choice{scene("graphic", "a"), {Style: "graphic", Palette: "b", Composition: illustration.CompositionSimple}})
