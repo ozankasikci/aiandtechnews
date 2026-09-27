@@ -249,10 +249,14 @@ func runInline(ctx context.Context, pipeline *illustration.Pipeline, photos *rea
 		return err
 	}
 	slot, ok := inlineimage.Slot(article.Content)
-	if !ok {
-		return fmt.Errorf("%s has fewer than %d paragraphs; the worker would skip it", slug, inlineimage.MinParagraphs)
+	if photos != nil {
+		// Like the worker: a real photo also reaches shorter articles.
+		slot, ok = inlineimage.PhotoSlot(article.Content)
 	}
-	if prefix := inlineimage.OwnImagePrefix(getenv("S3_FEATURE_IMAGE_PUBLIC_URL"), s3Prefix(getenv)); prefix != "" && !strings.HasPrefix(article.FeaturedImage, prefix) {
+	if !ok {
+		return fmt.Errorf("%s is too short for an inline image; the worker would skip it", slug)
+	}
+	if prefix := inlineimage.OwnImagePrefix(getenv("S3_FEATURE_IMAGE_PUBLIC_URL"), s3Prefix(getenv)); photos == nil && prefix != "" && !strings.HasPrefix(article.FeaturedImage, prefix) {
 		return fmt.Errorf("featured image %s is not under %s; the worker would skip it", article.FeaturedImage, prefix)
 	}
 	out := inlineOutput{Slug: slug, Title: article.Title, FeaturedImage: article.FeaturedImage, AfterParagraph: slot,
@@ -406,8 +410,8 @@ func runInlineLatest(ctx context.Context, photos *realphoto.Finder, count int, d
 	var rows []latestRow
 	for _, article := range articles {
 		row := latestRow{Slug: article.Slug}
-		if _, ok := inlineimage.Slot(article.Content); !ok {
-			row.Skip = fmt.Sprintf("fewer than %d paragraphs", inlineimage.MinParagraphs)
+		if _, ok := inlineimage.PhotoSlot(article.Content); !ok {
+			row.Skip = fmt.Sprintf("fewer than %d paragraphs", inlineimage.MinPhotoParagraphs)
 			rows = append(rows, row)
 			continue
 		}
