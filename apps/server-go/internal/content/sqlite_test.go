@@ -187,3 +187,43 @@ func seed(t *testing.T, db *sql.DB) {
 		}
 	}
 }
+
+// "Today" ranks reads from the last 24 hours by hour; the week ranks by day.
+func TestSQLiteStoreTrendingTodayCountsHoursNotCalendarDays(t *testing.T) {
+	db, _ := testutil.OpenDatabase(t)
+	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, db)
+	store := content.NewSQLiteStore(db)
+	if _, err := store.PublishedBySlugAndIncrement(context.Background(), "synthetic-published-null-options"); err != nil {
+		t.Fatal(err)
+	}
+	var hourly int
+	if err := db.QueryRow(`SELECT count FROM article_views_hourly WHERE article_id = 302 AND hour = strftime('%Y-%m-%d %H', 'now')`).Scan(&hourly); err != nil || hourly != 1 {
+		t.Fatalf("this hour's views for 302 = %d, %v", hourly, err)
+	}
+	// 301 was read a lot 30 hours ago: inside the week, outside the last 24h,
+	// though its calendar day may still be yesterday.
+	old := time.Now().UTC().Add(-30 * time.Hour)
+	if _, err := db.Exec(`INSERT INTO article_views_hourly(article_id, hour, count) VALUES (301, ?, 50)`, old.Format("2006-01-02 15")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO article_views(article_id, day, count) VALUES (301, ?, 50)`, old.Format(time.DateOnly)); err != nil {
+		t.Fatal(err)
+	}
+	today, err := store.Trending(context.Background(), 5, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := articleIDs(today); len(ids) != 1 || ids[0] != 302 {
+		t.Fatalf("24h trending = %v, want [302]", ids)
+	}
+	week, err := store.Trending(context.Background(), 5, time.Now().Add(-7*24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := articleIDs(week); len(ids) < 2 || ids[0] != 301 || ids[1] != 302 {
+		t.Fatalf("7d trending = %v, want 301 then 302", ids)
+	}
+}

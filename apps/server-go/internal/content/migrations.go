@@ -18,6 +18,9 @@ var articleSummariesSchema string
 //go:embed migrations/011_article_images.sql
 var articleImagesSchema string
 
+//go:embed migrations/012_article_views_hourly.sql
+var articleViewsHourlySchema string
+
 // Migrations returns a fresh slice containing content's immutable schema descriptors.
 func Migrations() []migrate.Descriptor {
 	return []migrate.Descriptor{
@@ -25,5 +28,6 @@ func Migrations() []migrate.Descriptor {
 		{Version: 8, Name: "article views per day", SQL: articleViewsSchema},
 		{Version: 9, Name: "article summaries", SQL: articleSummariesSchema},
 		{Version: 11, Name: "article inline images", SQL: articleImagesSchema},
+		{Version: 12, Name: "article views per hour", SQL: articleViewsHourlySchema},
 	}
 }

@@ -94,19 +94,33 @@ func listWhere(query ListQuery) (string, []any) {
 }
 
 // Trending ranks by all-time view_count when since is zero. Otherwise it ranks
-// by reads recorded on or after since's UTC day, and fills the rest with
-// articles published since then, newest first, so the list never shows stale
-// favourites.
+// by reads recorded since then, and fills the rest with articles published
+// since then, newest first, so the list never shows stale favourites. Windows
+// up to hourlyWindow count by UTC hour, so "Today" is the last 24 hours; longer
+// ones count by UTC day from since's day.
+// hourlyWindow is the longest trending window counted by hour; hourFormat is
+// how article_views_hourly writes an hour.
+const (
+	hourlyWindow = 48 * time.Hour
+	hourFormat   = "2006-01-02 15"
+)
+
 func (s *SQLiteStore) Trending(ctx context.Context, limit int, since time.Time) ([]Article, error) {
 	query := `SELECT ` + articleColumns + articleJoins + ` WHERE a.status = 'published' ORDER BY a.view_count DESC LIMIT ?`
 	args := []any{limit}
 	if !since.IsZero() {
 		since = since.UTC()
+		views := `SELECT article_id, SUM(count) AS views FROM article_views WHERE day >= ? GROUP BY article_id`
+		from := since.Format(time.DateOnly)
+		if time.Since(since) <= hourlyWindow {
+			views = `SELECT article_id, SUM(count) AS views FROM article_views_hourly WHERE hour >= ? GROUP BY article_id`
+			from = since.Format(hourFormat)
+		}
 		query = `SELECT ` + articleColumns + articleJoins + `
-	LEFT JOIN (SELECT article_id, SUM(count) AS views FROM article_views WHERE day >= ? GROUP BY article_id) v ON v.article_id = a.id
+	LEFT JOIN (` + views + `) v ON v.article_id = a.id
 	WHERE a.status = 'published' AND (v.views > 0 OR datetime(a.published_at) >= datetime(?))
 	ORDER BY COALESCE(v.views, 0) DESC, datetime(a.published_at) DESC, a.id DESC LIMIT ?`
-		args = []any{since.Format(time.DateOnly), since.Format(time.DateTime), limit}
+		args = []any{from, since.Format(time.DateTime), limit}
 	}
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -143,6 +157,10 @@ func (s *SQLiteStore) PublishedBySlugAndIncrement(ctx context.Context, slug stri
 	if _, err = tx.ExecContext(ctx, `INSERT INTO article_views(article_id, day, count) VALUES (?, date('now'), 1)
 		ON CONFLICT(article_id, day) DO UPDATE SET count = count + 1`, article.ID); err != nil {
 		return Article{}, fmt.Errorf("record article view for today: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO article_views_hourly(article_id, hour, count) VALUES (?, strftime('%Y-%m-%d %H', 'now'), 1)
+		ON CONFLICT(article_id, hour) DO UPDATE SET count = count + 1`, article.ID); err != nil {
+		return Article{}, fmt.Errorf("record article view for this hour: %w", err)
 	}
 	if err = loadSummary(ctx, tx, &article); err != nil {
 		return Article{}, err
