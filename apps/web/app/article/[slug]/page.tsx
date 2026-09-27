@@ -10,7 +10,7 @@ import { ArticleReadTracker } from "../../components/ArticleReadTracker";
 import { NewsletterBanner } from "../../components/Newsletter";
 import { getArticleLookup, getArticles, mapArticle } from "../../lib/api";
 import { toAbsoluteUrl } from "../../lib/dates";
-import { pickReadNext, splitAfterParagraph } from "../../lib/read-next";
+import { pickReadNext, readNextSlot, splitAfterParagraph } from "../../lib/read-next";
 import { insertInlineImages } from "../../lib/inline-images";
 import { glossaryTerm, linkGlossaryTerms } from "../../lib/glossary";
 import { GlossaryPopover } from "../../components/GlossaryPopover";
@@ -76,14 +76,15 @@ export default async function ArticlePage({ params }: Props) {
   const articleUrl = `${BASE_URL}/article/${article.slug}`;
   const imageUrl = toAbsoluteUrl(article.image, BASE_URL);
 
-  // Read next: one card after the third paragraph, then a "Keep reading" row,
+  // Read next: one card at a section break near the top (readNextSlot), then a "Keep reading" row,
   // picked from the last week's stories by shared headline words.
   const recentData = await getArticles({ limit: 50 });
   const picks = recentData?.articles?.length
     ? pickReadNext(article, recentData.articles.map(mapArticle), { count: 10 })
     : fallbackArticlesByCategory(article.tag).filter((a) => a.slug !== slug).slice(0, 3);
   const readNext = picks.map(({ slug, headline, image, tag, tagColor }) => ({ slug, headline, image, tag, tagColor }));
-  const [bodyStart, bodyRest] = splitAfterParagraph(body, 3);
+  const slot = readNextSlot(body);
+  const [bodyStart, bodyRest] = slot ? splitAfterParagraph(body, slot) : [body, ""];
   const withMidCard = Boolean(bodyRest) && readNext.length > 3;
 
   const jsonLd = {

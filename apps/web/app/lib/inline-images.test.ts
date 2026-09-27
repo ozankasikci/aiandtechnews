@@ -66,6 +66,6 @@ test("the article page inserts inline images before splitting for the read-next 
   const page = readFileSync(new URL("../article/[slug]/page.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
   assert.match(page, /const body = insertInlineImages\(glossary\.html, article\.inlineImages\);/);
-  assert.ok(page.indexOf("insertInlineImages(glossary.html") < page.indexOf("splitAfterParagraph(body, 3)"));
+  assert.ok(page.indexOf("insertInlineImages(glossary.html") < page.indexOf("readNextSlot(body)"));
   assert.match(api, /inlineImages: usableInlineImages\(a\.inlineImages\),/);
 });

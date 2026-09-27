@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { pickReadNext, splitAfterParagraph, titleTerms, unseenFirst } from "./read-next";
+import { pickReadNext, readNextSlot, splitAfterParagraph, titleTerms, unseenFirst } from "./read-next";
 
 const now = new Date("2026-09-26T18:00:00Z");
 const story = (slug: string, headline: string, tag: string, hoursAgo: number) => ({
@@ -63,7 +63,7 @@ test("the article page hands its picks to the read-next component for the card a
   const page = readFileSync(new URL("../article/[slug]/page.tsx", import.meta.url), "utf8");
   const component = readFileSync(new URL("../components/ReadNext.tsx", import.meta.url), "utf8");
   assert.match(page, /pickReadNext\(article, .*count: 10 \}\)/);
-  assert.match(page, /splitAfterParagraph\(body, 3\)/);
+  assert.match(page, /splitAfterParagraph\(body, slot\)/);
   assert.match(page, /<ReadNext placement="mid"/);
   assert.match(page, /<ReadNext placement="row"/);
   assert.doesNotMatch(page, /Related Stories/);
@@ -72,4 +72,18 @@ test("the article page hands its picks to the read-next component for the card a
   assert.match(component, /recordVisit\(current\)/);
   assert.match(component, /link_position: "mid_article"/);
   assert.match(component, /Keep reading/);
+});
+
+test("the read-next card sits at a section break, never splits a section's first paragraph off, and keeps clear of illustrations", () => {
+  const fig = '<figure class="my-8"><img src="x"></figure>';
+  // WiCi: the card used to land after "Hardware"'s first paragraph, one paragraph above the image.
+  assert.equal(readNextSlot(`<p>1</p><p>2</p><h2>A</h2><p>3</p><p>4</p>${fig}<h2>B</h2><p>5</p><p>6</p><h2>C</h2><p>7</p><p>8</p><p>9</p>`), 2);
+  // No subheadings: after paragraph 3, as before.
+  assert.equal(readNextSlot("<p>1</p><p>2</p><p>3</p><p>4</p><p>5</p><p>6</p>"), 3);
+  // No subheadings, image after 4: 3 and 5 are too close, 2 is the nearest clear spot.
+  assert.equal(readNextSlot(`<p>1</p><p>2</p><p>3</p><p>4</p>${fig}<p>5</p><p>6</p><p>7</p><p>8</p>`), 2);
+  // A break before a later heading wins over the middle of the first section.
+  assert.equal(readNextSlot("<p>1</p><p>2</p><p>3</p><p>4</p><h2>A</h2><p>5</p><p>6</p><p>7</p>"), 4);
+  // Too short for a card with two paragraphs after it.
+  assert.equal(readNextSlot("<p>1</p><p>2</p><p>3</p>"), 0);
 });

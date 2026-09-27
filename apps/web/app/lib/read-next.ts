@@ -68,3 +68,31 @@ export function unseenFirst<T extends { slug: string }>(picks: T[], visited: str
   const seen = new Set(visited);
   return [...picks.filter((p) => !seen.has(p.slug)), ...picks.filter((p) => seen.has(p.slug))];
 }
+
+// Where the mid-article read-next card goes: after paragraph n (0: nowhere).
+// It sits at a section break (just before a subheading) when one is free,
+// otherwise as close to paragraph 3 as it can. It never goes after a
+// section's first paragraph, which would cut the heading off from its text,
+// and it keeps at least two paragraphs between itself and an illustration.
+// Two paragraphs must follow it, like splitAfterParagraph requires.
+export function readNextSlot(html: string): number {
+  const blocks = html.match(/<p>|<h2>|<figure/g) ?? [];
+  const paragraphs: { prev: string; next: string }[] = [];
+  const figuresAfter: number[] = [];
+  blocks.forEach((block, i) => {
+    if (block === "<p>") paragraphs.push({ prev: blocks[i - 1] ?? "", next: blocks[i + 1] ?? "" });
+    if (block === "<figure") figuresAfter.push(paragraphs.length);
+  });
+  let best = 0;
+  let bestScore = Infinity;
+  for (let n = 2; n <= paragraphs.length - 2; n++) {
+    const { prev, next } = paragraphs[n - 1];
+    if (prev === "<h2>" || figuresAfter.some((f) => Math.abs(f - n) < 2)) continue;
+    const score = next === "<h2>" ? 0 : Math.abs(n - 3) + 1;
+    if (score < bestScore) {
+      best = n;
+      bestScore = score;
+    }
+  }
+  return best;
+}
