@@ -84,7 +84,7 @@ func SubheadingPrompt(title string, paragraphTexts []string) string {
 
 Rules:
 - Add 0 to %d subheadings, only where the story moves to a distinct part. A short story with one thread needs none: return an empty list.
-- Each is a short plain statement of what the section below it covers, maximum 60 characters, never a question or a teaser, with no em dash and no final period.
+- Each is a short factual statement with a verb, saying what the section below it shows, maximum 60 characters, like "Government websites were a target" or "Pricing starts at $20 a month". Never a topic label like "Background", "Industry context" or "Capabilities and limitations", never a question or a teaser, with no em dash and no final period.
 - Use only facts stated in the article.
 - beforeParagraph is the number of the paragraph the subheading goes above. Never use 1 or 2, and leave at least 2 paragraphs between subheadings.
 
