@@ -15,7 +15,7 @@ import (
 
 // RunTimeout bounds one collection run, including background runs started by
 // POST /api/newsroom/collect.
-const RunTimeout = 5 * time.Minute
+const RunTimeout = 15 * time.Minute
 
 type FeedFetcher interface {
 	FetchText(ctx context.Context, url, expectedSource string) (body, finalURL string, err error)
@@ -35,6 +35,7 @@ type Report struct {
 	Duplicates   int
 	Inserted     int
 	Known        int
+	Judged       int // items the AI relevance judge decided this run
 	Rejections   map[string]int
 }
 
@@ -45,6 +46,8 @@ type Collector struct {
 	feeds   []content.ApprovedFeed
 	now     func() time.Time
 	logger  *slog.Logger
+	judge   Judge       // nil: the AI keyword rule decides relevance
+	memory  JudgeMemory // set with judge
 	running atomic.Bool
 
 	mu        sync.Mutex
@@ -168,7 +171,11 @@ func (c *Collector) collect(ctx context.Context) (Report, error) {
 	for _, items := range results {
 		for _, item := range items {
 			report.Items++
-			if reason := content.AutomaticItemRejectionReason(item.Title, item.URL, item.Source, now); reason != "" {
+			rule := content.AutomaticItemRejectionReason
+			if c.judge != nil {
+				rule = content.StructuralItemRejectionReason
+			}
+			if reason := rule(item.Title, item.URL, item.Source, now); reason != "" {
 				report.Rejected++
 				report.Rejections[reason]++
 				continue
@@ -181,6 +188,13 @@ func (c *Collector) collect(ctx context.Context) (Report, error) {
 			seenURLs[item.URL] = true
 			seenSlugs[slug] = true
 			accepted = append(accepted, item)
+		}
+	}
+
+	if c.judge != nil {
+		var err error
+		if accepted, err = c.applyJudge(ctx, accepted, &report); err != nil {
+			return report, err
 		}
 	}
 
@@ -207,7 +221,7 @@ func (c *Collector) collect(ctx context.Context) (Report, error) {
 	}
 	c.logger.InfoContext(ctx, "collection finished",
 		"feeds", report.Feeds, "feed_failures", report.FeedFailures, "items", report.Items,
-		"rejected", report.Rejected, "duplicates", report.Duplicates, "inserted", report.Inserted, "known", report.Known,
+		"rejected", report.Rejected, "duplicates", report.Duplicates, "inserted", report.Inserted, "known", report.Known, "judged", report.Judged,
 		"rejections", report.Rejections)
 	return report, nil
 }
@@ -233,4 +247,65 @@ func (item FeedItem) candidate() newsroom.NewCandidate {
 		candidate.SourceImageURL = &image
 	}
 	return candidate
+}
+
+// applyJudge keeps items already stored, drops items the judge rejected
+// before, and asks the judge about the rest. Items it cannot decide fall
+// back to the AI keyword rule and are judged again next run.
+func (c *Collector) applyJudge(ctx context.Context, items []FeedItem, report *Report) ([]FeedItem, error) {
+	urls := make([]string, len(items))
+	for i, item := range items {
+		urls[i] = item.URL
+	}
+	known, err := c.memory.KnownURLs(ctx, urls)
+	if err != nil {
+		return nil, err
+	}
+	rejected, err := c.memory.RejectedURLs(ctx, urls)
+	if err != nil {
+		return nil, err
+	}
+	var kept, fresh []FeedItem
+	for _, item := range items {
+		switch {
+		case known[item.URL]:
+			kept = append(kept, item)
+		case rejected[item.URL]:
+			report.Rejected++
+			report.Rejections[JudgedRejection]++
+		default:
+			fresh = append(fresh, item)
+		}
+	}
+	if len(fresh) == 0 {
+		return kept, nil
+	}
+	verdicts, undecided := c.judgeItems(ctx, fresh)
+	reasons := map[string]string{}
+	for _, item := range fresh {
+		verdict, ok := verdicts[item.URL]
+		switch {
+		case ok && verdict.Candidate:
+			kept = append(kept, item)
+		case ok:
+			report.Rejected++
+			report.Rejections[JudgedRejection]++
+			reasons[item.URL] = verdict.Reason
+		}
+	}
+	for _, item := range undecided {
+		if content.MentionsAI(item.Title, item.URL) {
+			kept = append(kept, item)
+		} else {
+			report.Rejected++
+			report.Rejections[content.NotAIRelatedReason]++
+		}
+	}
+	report.Judged = len(verdicts)
+	if len(reasons) > 0 {
+		if err := c.memory.RememberRejected(ctx, reasons); err != nil {
+			return nil, err
+		}
+	}
+	return kept, nil
 }

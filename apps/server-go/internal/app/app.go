@@ -29,6 +29,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsroom"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/quiz"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/relevance"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/settings"
 )
 
@@ -99,6 +100,11 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	var newsroomCollector newsroom.Collector
 	if cfg.CollectorEnabled {
 		feedCollector = collector.New(collector.NewFetcher(), newsroomStore, content.ApprovedFeeds(), now, logger)
+		if cfg.RelevanceMode == "ai" {
+			runner := &illustration.CodexRunner{Bin: cfg.CodexBin, NodeDir: cfg.CodexNodeDir, Timeout: relevance.DefaultTimeout}
+			feedCollector.WithJudge(relevance.New(runner, cfg.RelevanceModel, cfg.RelevanceEffort), newsroomStore)
+			logger.Info("newsroom relevance", "mode", "ai", "model", relevance.New(nil, cfg.RelevanceModel, cfg.RelevanceEffort).Model)
+		}
 		newsroomCollector = feedCollector
 	}
 	newsroomHandler := newsroom.NewHandler(newsroomService, newsroomCollector, logger)

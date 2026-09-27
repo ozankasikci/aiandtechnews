@@ -185,7 +185,7 @@ func (p *Publisher) PublishNext(ctx context.Context) (bool, error) {
 func (p *Publisher) publish(ctx context.Context, candidate newsroom.Candidate) (int64, string, error) {
 	source := candidate.SourceName
 	now := p.Now()
-	if reason := content.AutomaticItemRejectionReason(candidate.Title, candidate.SourceURL, source, now); reason != "" {
+	if reason := content.StructuralItemRejectionReason(candidate.Title, candidate.SourceURL, source, now); reason != "" {
 		return 0, "", Permanent(fmt.Errorf("rejected by publishing policy: %s", reason))
 	}
 	initialSlug := content.Slugify(candidate.Title)
@@ -207,7 +207,7 @@ func (p *Publisher) publish(ctx context.Context, candidate newsroom.Candidate) (
 	if canonicalSource, ok := content.SourceForURL(canonicalURL); !ok || canonicalSource != source {
 		return 0, "", Permanent(fmt.Errorf("canonical URL is outside %s: %s", source, canonicalURL))
 	}
-	if reason := content.AutomaticItemRejectionReason(candidate.Title, canonicalURL, source, now); reason != "" {
+	if reason := content.StructuralItemRejectionReason(candidate.Title, canonicalURL, source, now); reason != "" {
 		return 0, "", Permanent(fmt.Errorf("canonical URL rejected by publishing policy: %s", reason))
 	}
 	if err := p.rejectDuplicate(ctx, canonicalURL, initialSlug); err != nil {

@@ -138,6 +138,12 @@ type Config struct {
 	CodexBin     string
 	CodexNodeDir string
 	CodexTimeout time.Duration
+	// RelevanceMode (NEWSROOM_RELEVANCE) is "ai" (default when CODEX_BIN is
+	// set): Codex reads each new feed item and decides if it becomes a
+	// candidate; or "keywords": the old title keyword rule.
+	RelevanceMode   string
+	RelevanceModel  string // NEWSROOM_RELEVANCE_MODEL, default gpt-6-sol
+	RelevanceEffort string // NEWSROOM_RELEVANCE_EFFORT, default medium
 	// CutoutBin (CUTOUT_BIN) is tools/cutout; empty disables the
 	// public-figure collage.
 	CutoutBin         string
@@ -270,6 +276,21 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	cfg.CodexBin = lookup("CODEX_BIN")
 	cfg.CodexNodeDir = lookup("CODEX_NODE_DIR")
 	cfg.CutoutBin = lookup("CUTOUT_BIN")
+	cfg.RelevanceMode = lookup("NEWSROOM_RELEVANCE")
+	if cfg.RelevanceMode == "" {
+		cfg.RelevanceMode = "keywords"
+		if cfg.CodexBin != "" {
+			cfg.RelevanceMode = "ai"
+		}
+	}
+	if cfg.RelevanceMode != "ai" && cfg.RelevanceMode != "keywords" {
+		return Config{}, fmt.Errorf("NEWSROOM_RELEVANCE must be ai or keywords, got %q", cfg.RelevanceMode)
+	}
+	if cfg.RelevanceMode == "ai" && cfg.CodexBin == "" {
+		return Config{}, errors.New("NEWSROOM_RELEVANCE=ai needs CODEX_BIN")
+	}
+	cfg.RelevanceModel = lookup("NEWSROOM_RELEVANCE_MODEL")
+	cfg.RelevanceEffort = lookup("NEWSROOM_RELEVANCE_EFFORT")
 	cfg.CodexTimeout = DefaultCodexTimeout
 	if value := lookup("CODEX_TIMEOUT"); value != "" {
 		timeout, err := time.ParseDuration(value)

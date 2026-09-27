@@ -245,3 +245,96 @@ func TestLoopRunsImmediatelyThenOnInterval(t *testing.T) {
 		t.Fatalf("feed fetches = %d, want at least two runs", fetcher.calls.Load())
 	}
 }
+
+type fakeJudge struct {
+	mu      sync.Mutex
+	calls   int
+	seen    []collector.JudgeItem
+	accept  map[string]bool
+	failing bool
+}
+
+func (j *fakeJudge) Judge(_ context.Context, items []collector.JudgeItem) (map[string]collector.Verdict, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.calls++
+	j.seen = append(j.seen, items...)
+	if j.failing {
+		return nil, errors.New("codex is down")
+	}
+	out := map[string]collector.Verdict{}
+	for _, item := range items {
+		out[item.Key] = collector.Verdict{Candidate: j.accept[item.Title], Reason: "test"}
+	}
+	return out, nil
+}
+
+func TestJudgeDecidesRelevanceAndRemembersRejections(t *testing.T) {
+	fetcher := &fakeFetcher{bodies: map[string]string{
+		"https://techcrunch.com/feed/": rss(
+			item("Datacenters hit a power wall", "https://techcrunch.com/2026/09/23/datacenters-power/", "Wed, 23 Sep 2026 08:00:00 +0000"),
+			item("A new phone case", "https://techcrunch.com/2026/09/23/phone-case/", "Wed, 23 Sep 2026 09:00:00 +0000"),
+			item("Best laptops for students", "https://techcrunch.com/2026/09/22/best-laptops/", "Tue, 22 Sep 2026 09:00:00 +0000"),
+		),
+	}}
+	page := "<p>Operators say AI training clusters now need more power than the grid can deliver this year.</p>"
+	for _, u := range []string{"https://techcrunch.com/2026/09/23/datacenters-power/", "https://techcrunch.com/2026/09/23/datacenters-power"} {
+		fetcher.bodies[u] = page
+	}
+	c, store := setup(t, fetcher)
+	judge := &fakeJudge{accept: map[string]bool{"Datacenters hit a power wall": true}}
+	c.WithJudge(judge, store)
+
+	report, err := c.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if titles := pendingTitles(t, store); len(titles) != 1 || titles[0] != "Datacenters hit a power wall" {
+		t.Fatalf("pending = %v", titles)
+	}
+	if len(judge.seen) != 3 || report.Judged != 3 || report.Rejections[collector.JudgedRejection] != 2 {
+		t.Fatalf("judge saw %d items, report %+v", len(judge.seen), report)
+	}
+	var text string
+	for _, seen := range judge.seen {
+		if seen.Title == "Datacenters hit a power wall" {
+			text = seen.Text
+		}
+	}
+	if text == "" {
+		t.Fatal("the judge must get the article text")
+	}
+
+	// Second run: the stored item and the remembered rejection are not judged again.
+	if _, err := c.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if judge.calls != 1 {
+		t.Fatalf("judge called %d times, want 1", judge.calls)
+	}
+}
+
+func TestJudgeFailureFallsBackToKeywords(t *testing.T) {
+	fetcher := &fakeFetcher{bodies: map[string]string{
+		"https://techcrunch.com/feed/": rss(
+			item("OpenAI raises prices for its API", "https://techcrunch.com/2026/09/22/openai-prices/", "Tue, 22 Sep 2026 08:00:00 +0000"),
+			item("A new phone case", "https://techcrunch.com/2026/09/23/phone-case/", "Wed, 23 Sep 2026 09:00:00 +0000"),
+		),
+	}}
+	c, store := setup(t, fetcher)
+	judge := &fakeJudge{failing: true}
+	c.WithJudge(judge, store)
+	if _, err := c.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if titles := pendingTitles(t, store); len(titles) != 1 || titles[0] != "OpenAI raises prices for its API" {
+		t.Fatalf("pending = %v", titles)
+	}
+	// Not remembered: the next run asks the judge again.
+	if _, err := c.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if judge.calls != 2 {
+		t.Fatalf("judge calls = %d, want 2", judge.calls)
+	}
+}

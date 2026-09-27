@@ -651,7 +651,9 @@ var (
 	aiURLWord = regexp.MustCompile(`(?i)(?:^|\s)ai(?:\s|$)`)
 )
 
-func ItemRejectionReason(title, sourceURL, expectedSource string, now time.Time) string {
+// StructuralItemRejectionReason applies every rule except AI relevance:
+// approved source, no media, deals, reviews or old reposts.
+func StructuralItemRejectionReason(title, sourceURL, expectedSource string, now time.Time) string {
 	source, approved := SourceForURL(sourceURL)
 	if !approved {
 		return "source is not on the approved publication list"
@@ -708,10 +710,33 @@ func ItemRejectionReason(title, sourceURL, expectedSource string, now time.Time)
 			return "obviously old repost"
 		}
 	}
-	if !aiTitle.MatchString(trimmedTitle) && !aiSection.MatchString(encodedPath) && !aiURLWord.MatchString(urlWords) {
-		return "not clearly AI-related; only AI news may be published"
+	return ""
+}
+
+// NotAIRelatedReason is the keyword rule's rejection.
+const NotAIRelatedReason = "not clearly AI-related; only AI news may be published"
+
+// ItemRejectionReason is StructuralItemRejectionReason plus the AI keyword
+// rule: the title or URL must name AI. The collector uses the keyword rule
+// only when no AI relevance judge is available.
+func ItemRejectionReason(title, sourceURL, expectedSource string, now time.Time) string {
+	if reason := StructuralItemRejectionReason(title, sourceURL, expectedSource, now); reason != "" {
+		return reason
+	}
+	if !MentionsAI(title, sourceURL) {
+		return NotAIRelatedReason
 	}
 	return ""
+}
+
+// MentionsAI reports whether the title or URL path names AI.
+func MentionsAI(title, sourceURL string) bool {
+	encodedPath, urlWords := "", ""
+	if parsed, protections, err := parsePolicyURLDetailed(sourceURL); err == nil {
+		encodedPath = restoreURLProtections(parsed.EscapedPath(), protections)
+		urlWords = urlWordSeparators.ReplaceAllString(restoreURLProtections(parsed.Path, protections), " ")
+	}
+	return aiTitle.MatchString(strings.TrimSpace(title)) || aiSection.MatchString(encodedPath) || aiURLWord.MatchString(urlWords)
 }
 
 func AutomaticItemRejectionReason(title, sourceURL, expectedSource string, now time.Time) string {
