@@ -43,12 +43,18 @@ type Link struct {
 // page URL and the maker's name for the credit.
 func (f *Finder) official(ctx context.Context, request Request, plan Plan) ([]Candidate, string, string, error) {
 	candidates, pageURL, maker, err := f.officialFromSource(ctx, request, plan)
-	if err == nil || ctx.Err() != nil {
+	usable := func(c Candidate) bool { return c.Usable }
+	if (err == nil && slices.ContainsFunc(candidates, usable)) || ctx.Err() != nil {
 		return candidates, pageURL, maker, err
+	}
+	if err == nil {
+		err = fmt.Errorf("no usable image on %s", pageURL)
 	}
 	// The source links to no maker site: try the maker's own pages, found by
 	// a web search and then the planner's suggestions, kept only while they
 	// stay on the maker's domain.
+	tried := candidates
+	lastPage := pageURL
 	for _, page := range f.makerPages(ctx, plan) {
 		fetched, fetchErr := f.getPage(ctx, page)
 		if fetchErr != nil || !onMakerDomain(fetched.FinalURL, plan.MakerDomain) {
@@ -59,10 +65,24 @@ func (f *Finder) official(ctx context.Context, request Request, plan Plan) ([]Ca
 			name = plan.MakerDomain
 		}
 		found, imagesErr := f.officialImages(ctx, request, plan, fetched.Body, fetched.FinalURL)
-		if imagesErr == nil {
+		if imagesErr == nil && slices.ContainsFunc(found, usable) {
 			return found, fetched.FinalURL, name, nil
 		}
+		// Nothing usable here (a newsroom page may carry only menu icons and
+		// other stories' thumbnails): keep what was checked, try the next page.
+		tried = append(tried, found...)
+		lastPage = fetched.FinalURL
+		if imagesErr == nil {
+			imagesErr = errors.New("no usable image")
+		}
 		err = fmt.Errorf("%w; maker page %s: %v", err, fetched.FinalURL, imagesErr)
+	}
+	if len(tried) > 0 {
+		name := plan.Maker
+		if name == "" {
+			name = plan.MakerDomain
+		}
+		return tried, lastPage, name, nil
 	}
 	return nil, "", "", err
 }
