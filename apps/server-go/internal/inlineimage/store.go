@@ -3,6 +3,7 @@ package inlineimage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -93,4 +94,26 @@ func (s *SQLiteStore) MarkFailed(ctx context.Context, articleID int64, message s
 		return fmt.Errorf("record inline image failure: %w", err)
 	}
 	return nil
+}
+
+// ErrNotFound means no published article has the slug.
+var ErrNotFound = errors.New("article not found")
+
+// BySlug reads one published article, for trying the pipeline by hand.
+func (s *SQLiteStore) BySlug(ctx context.Context, slug string) (Article, error) {
+	var article Article
+	var featured sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT a.id, a.slug, a.title, a.content, a.featured_image,
+		COALESCE((SELECT c.source_image_url FROM candidates c WHERE c.article_id = a.id ORDER BY c.id LIMIT 1), ''),
+		COALESCE((SELECT i.attempts FROM article_images i WHERE i.article_id = a.id), 0)
+	FROM articles a WHERE a.slug = ? AND a.status = 'published'`, slug).
+		Scan(&article.ID, &article.Slug, &article.Title, &article.Content, &featured, &article.SourceImage, &article.Attempts)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Article{}, ErrNotFound
+	}
+	if err != nil {
+		return Article{}, fmt.Errorf("read article %q: %w", slug, err)
+	}
+	article.FeaturedImage = featured.String
+	return article, nil
 }

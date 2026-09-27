@@ -3,6 +3,7 @@ package inlineimage_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -97,5 +98,16 @@ func TestSQLiteStoreMarkReadyReplacesAFailure(t *testing.T) {
 	var count int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM article_images WHERE article_id = 8`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("rows after article delete = %d, %v", count, err)
+	}
+}
+
+func TestSQLiteStoreBySlug(t *testing.T) {
+	_, store := openStore(t)
+	article, err := store.BySlug(context.Background(), "failed-once")
+	if err != nil || article.ID != 8 || article.Attempts != 1 || article.FeaturedImage != "https://img.test/features/h.webp" {
+		t.Fatalf("article = %+v, err = %v", article, err)
+	}
+	if _, err := store.BySlug(context.Background(), "draft"); !errors.Is(err, inlineimage.ErrNotFound) {
+		t.Fatalf("draft err = %v", err)
 	}
 }
