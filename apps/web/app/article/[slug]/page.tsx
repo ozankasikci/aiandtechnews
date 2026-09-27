@@ -146,8 +146,7 @@ export default async function ArticlePage({ params }: Props) {
               id="article-body"
               className="prose prose-invert max-w-none
                 [&_p]:text-[#e5e5e5] [&_p]:text-base [&_p]:leading-relaxed [&_p]:mb-5
-                [&_h2]:text-[21px] md:[&_h2]:text-2xl [&_h2]:font-extrabold [&_h2]:leading-tight [&_h2]:tracking-[-0.015em] [&_h2]:mt-10 [&_h2]:mb-4 [&_h2]:text-white
-                [&_h2]:before:block [&_h2]:before:content-[''] [&_h2]:before:w-7 [&_h2]:before:h-[3px] [&_h2]:before:mb-3 [&_h2]:before:bg-accent-purple
+                [&_h2]:text-[21px] md:[&_h2]:text-2xl [&_h2]:font-extrabold [&_h2]:leading-tight [&_h2]:tracking-[-0.015em] [&_h2]:mt-[55px] [&_h2]:mb-4 [&_h2]:text-white
                 [&_blockquote]:border-l-4 [&_blockquote]:border-accent-purple [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-text-secondary [&_blockquote]:my-6"
             >
               <div dangerouslySetInnerHTML={{ __html: bodyStart }} />
