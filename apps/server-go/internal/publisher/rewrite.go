@@ -159,7 +159,7 @@ Requirements:
 - Include supported industry implications or analysis without presenting speculation as fact.
 - End with the next known step. Do not invent a next step.
 - Use only <p> and <h2> tags, with no tag attributes.
-- Where the story has distinct parts, add up to 3 <h2> subheadings. Each is a short plain statement of what the next section covers, maximum 60 characters, never a question or a teaser. Never open or close the body with a subheading and never put two in a row. A short story with one thread needs none.
+- Where the story has distinct parts, add up to 3 <h2> subheadings. Each is a short factual statement with a verb, saying what the next section shows, maximum 60 characters, like "Government websites were a target". Never a topic label like "Background" or "Industry context", never a question or a teaser. Never open or close the body with a subheading and never put two in a row. A short story with one thread needs none.
 - Do not include the headline in the body.
 - Do not add a source or sources footer. Attribution is stored separately.
 
