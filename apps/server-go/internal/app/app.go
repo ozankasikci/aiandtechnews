@@ -215,6 +215,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			Store:       newsroomStore,
 			Fetcher:     collector.NewFetcher(),
 			Rewriter:    publisher.NewRewriter(geminiClient),
+			Subheadings: subheadingModel(cfg),
 			Illustrator: illustrator,
 			Articles:    publisher.NewSQLiteArticles(db, now),
 			Notifier:    newPublisherNotifier(cfg, logger),
@@ -361,4 +362,14 @@ func (a *App) run(ctx context.Context, serve func(context.Context) error) error 
 		drain()
 	}
 	return err
+}
+
+// subheadingModel is the Gemini text call for the subheading pass: Flash
+// (the vision model), which places headings better than the rewrite's model.
+func subheadingModel(cfg config.Config) *gemini.Client {
+	model := cfg.GeminiVisionModel
+	if model == "" {
+		model = gemini.DefaultVisionModel
+	}
+	return gemini.New(cfg.GeminiAPIKey, model)
 }

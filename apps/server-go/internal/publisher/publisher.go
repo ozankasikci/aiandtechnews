@@ -87,9 +87,12 @@ type NoopNotifier struct{}
 func (NoopNotifier) SubmitSlugs(context.Context, []string) error { return nil }
 
 type Deps struct {
-	Store       Store
-	Fetcher     SourceFetcher
-	Rewriter    ArticleRewriter
+	Store    Store
+	Fetcher  SourceFetcher
+	Rewriter ArticleRewriter
+	// Subheadings, when set, adds subheadings to a rewrite that came back
+	// without any (see addSubheadings).
+	Subheadings TextGenerator
 	Illustrator Illustrator
 	Articles    ArticleStore
 	Notifier    Notifier
@@ -224,6 +227,7 @@ func (p *Publisher) publish(ctx context.Context, candidate newsroom.Candidate) (
 	if err != nil {
 		return 0, "", err
 	}
+	article.Content = p.addSubheadings(ctx, article.Title, article.Content)
 	finalSlug := content.Slugify(article.Title)
 	if finalSlug == "" {
 		return 0, "", Permanent(errors.New("rewritten headline produces an empty slug"))
