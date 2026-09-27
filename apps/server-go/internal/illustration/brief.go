@@ -31,8 +31,11 @@ type Brief struct {
 	// their real logos are placed in the image. Optional in the answer.
 	Brands []string `json:"brands,omitempty"`
 	// CompositionReason says why people are or are not central to the news.
-	CompositionReason string        `json:"composition_reason,omitempty"`
-	PublicFigure      *PublicFigure `json:"public_figure"`
+	CompositionReason string `json:"composition_reason,omitempty"`
+	// Shot is the camera framing (see Shots). Optional in the answer; the
+	// pipeline picks one when it is missing or not allowed.
+	Shot         string        `json:"shot,omitempty"`
+	PublicFigure *PublicFigure `json:"public_figure"`
 }
 
 // PublicFigure is a clearly identifiable, newsworthy person named in the
@@ -84,6 +87,7 @@ func ParseBrief(raw string, allowedStyles []string) (Brief, error) {
 	brief.Palette = strings.ToLower(strings.TrimSpace(brief.Palette))
 	brief.Composition = strings.ToLower(strings.TrimSpace(brief.Composition))
 	brief.CompositionReason = strings.Join(strings.Fields(brief.CompositionReason), " ")
+	brief.Shot = strings.ToLower(strings.TrimSpace(brief.Shot))
 	for i, id := range brief.Brands {
 		brief.Brands[i] = strings.ToLower(strings.TrimSpace(id))
 	}
@@ -120,7 +124,11 @@ func (b *Brief) scrubName(name string) {
 
 // Text is the brief as prompt lines.
 func (b Brief) Text() string {
-	return fmt.Sprintf("Scene: %s Foreground: %s Background: %s Mood: %s", b.Scene, b.Foreground, b.Background, b.Mood)
+	text := fmt.Sprintf("Scene: %s Foreground: %s Background: %s Mood: %s", b.Scene, b.Foreground, b.Background, b.Mood)
+	if guide, ok := shotGuide[b.Shot]; ok {
+		text += " Framing: " + guide
+	}
+	return text
 }
 
 // WantsCollage reports whether the analyzer saw a named public figure in the
@@ -130,7 +138,7 @@ func (b Brief) WantsCollage() bool { return b.PublicFigure != nil && b.PublicFig
 // BuildAnalyzePrompt asks a vision model for a Brief. imageURL is the source
 // image's address: its file name often names the person pictured. palettes
 // are the colour schemes the analyzer may choose from (none: no palette key).
-func BuildAnalyzePrompt(title, excerpt, imageURL string, catalog styles.Catalog, hasImage bool, palettes []styles.Palette, compositions []string, prefer string, brandList []brands.Brand) string {
+func BuildAnalyzePrompt(title, excerpt, imageURL string, catalog styles.Catalog, hasImage bool, palettes []styles.Palette, compositions []string, prefer string, shots []string, brandList []brands.Brand) string {
 	var styleLines strings.Builder
 	for _, style := range catalog.All() {
 		fmt.Fprintf(&styleLines, "- %q: %s Look: %s\n", style.Name, style.Summary, style.Prompt)
@@ -162,6 +170,14 @@ func BuildAnalyzePrompt(title, excerpt, imageURL string, catalog styles.Catalog,
 			compositionKey += fmt.Sprintf("  For variety on the homepage, prefer %q this time, but only if the rule above allows it.\n", prefer)
 		}
 	}
+	shotKey := ""
+	if len(shots) > 0 {
+		var lines strings.Builder
+		for _, name := range shots {
+			fmt.Fprintf(&lines, "  - %q: %s\n", name, shotGuide[name])
+		}
+		shotKey = fmt.Sprintf("- \"shot\": the camera framing, exactly one of %s:\n%s  Pick the one that shows this story's action most clearly. Recent images used other framings, so these are the only ones offered; write scene, foreground and background for this framing.\n", quotedNames(shots), lines.String())
+	}
 	brandKey := ""
 	if len(brandList) > 0 {
 		var lines strings.Builder
@@ -188,14 +204,14 @@ Return only a JSON object with exactly these keys:
 - "mood": a few words, the emotional tone.
 - "style": exactly one of %s. Pick the style that fits this story best:
 %s- "style_reason": one short sentence on why that style fits.
-%s%s%s- "public_figure": null, or {"name": "...", "visible_in_source": true|false}. This field is separate from the illustration and is used to credit a real press photo. Set it when the headline or summary names a newsworthy public figure (such as a CEO, founder, prominent researcher or politician) who is part of the story, even if only quoted; use the most central one. Never set it for private individuals, anonymous people or crowds. "visible_in_source" is true when the attached image is a photo whose main subject is one clearly visible real person and the context (headline, summary, image file name) indicates that person is the named figure; you do not need to recognize the face. Otherwise false.
+%s%s%s%s- "public_figure": null, or {"name": "...", "visible_in_source": true|false}. This field is separate from the illustration and is used to credit a real press photo. Set it when the headline or summary names a newsworthy public figure (such as a CEO, founder, prominent researcher or politician) who is part of the story, even if only quoted; use the most central one. Never set it for private individuals, anonymous people or crowds. "visible_in_source" is true when the attached image is a photo whose main subject is one clearly visible real person and the context (headline, summary, image file name) indicates that person is the named figure; you do not need to recognize the face. Otherwise false.
 
 Rules for scene, foreground, background and mood:
 - Never ask for logos (except that the chosen brands' real logos will be added), readable text, letters, numbers, signs, screens with text, flags, national emblems or coats of arms. Do not write brand, product or company names; describe how a real product looks instead (shape, colours, materials).
 - Never ask for a real, recognizable person or a likeness; if people are needed, they are ordinary anonymous people (workers, engineers, judges, users) with natural expressions, never a specific real person.
 - No injury, violence or distress unless the summary states it.
 - Stay factual: depict only what the story supports.`,
-		title, excerpt, imageLine, quotedNames(catalog.Names()), styleLines.String(), paletteKey, compositionKey, brandKey)
+		title, excerpt, imageLine, quotedNames(catalog.Names()), styleLines.String(), paletteKey, compositionKey, shotKey, brandKey)
 }
 
 // MaxBrands is how many brand logos one image may carry.
@@ -213,6 +229,27 @@ var Compositions = []string{CompositionScene, CompositionSimple}
 var compositionGuide = map[string]string{
 	CompositionScene:  "people in a setting, built around a human moment. Required when people are central to the news.",
 	CompositionSimple: "no people; a clean, uncluttered image with a plain backdrop and lots of empty space, where the actor of the story (the AI drawn as a robot or agent, a machine, a product) performs the headline's action and its result is visible. Only when people are not central to the news.",
+}
+
+// Shots are camera framings, rotated so consecutive images are not all the
+// same eye-level group shot.
+const (
+	ShotWide      = "wide"
+	ShotSplit     = "split"
+	ShotIsometric = "isometric"
+	ShotInset     = "inset"
+	ShotFramed    = "framed"
+)
+
+// Shots lists every framing.
+var Shots = []string{ShotSplit, ShotWide, ShotIsometric, ShotInset, ShotFramed}
+
+var shotGuide = map[string]string{
+	ShotWide:      "a very wide establishing view: a vast space (a hall, a city, a landscape, a data centre) with small figures or machines, lots of empty space, the action readable from its scale.",
+	ShotSplit:     "a split frame: two halves side by side showing two sides of the story or before and after, one clear subject in each half.",
+	ShotIsometric: "an isometric cutaway, like an architectural diagram: a building, device or system cut open to show the action inside, tiny figures, no perspective vanishing point.",
+	ShotInset:     "a main view of the setting with one large circular inset, like a magnifying glass, showing a close-up of the key detail that makes the news.",
+	ShotFramed:    "a frame within a frame: the action seen through a doorway, window, glass wall or gap between objects, with dark foreground edges around it.",
 }
 
 // compositionRule is how the analyzer decides between a scene and a simple image.
@@ -245,7 +282,7 @@ func quotedNames(names []string) string {
 
 // briefGeminiSchema is the Gemini responseSchema for a Brief. With palette
 // names it also requires a palette from them.
-func briefGeminiSchema(styleNames, paletteNames, compositions, brandIDs []string) map[string]any {
+func briefGeminiSchema(styleNames, paletteNames, compositions, shots, brandIDs []string) map[string]any {
 	str := map[string]any{"type": "STRING"}
 	schema := map[string]any{
 		"type": "OBJECT",
@@ -268,6 +305,7 @@ func briefGeminiSchema(styleNames, paletteNames, compositions, brandIDs []string
 	addEnumProperty(schema, "palette", map[string]any{"type": "STRING", "enum": paletteNames}, paletteNames)
 	addEnumProperty(schema, "composition", map[string]any{"type": "STRING", "enum": compositions}, compositions)
 	addEnumProperty(schema, "composition_reason", str, compositions)
+	addEnumProperty(schema, "shot", map[string]any{"type": "STRING", "enum": shots}, shots)
 	addEnumProperty(schema, "brands", map[string]any{"type": "ARRAY", "items": map[string]any{"type": "STRING", "enum": brandIDs}}, brandIDs)
 	return schema
 }
@@ -282,7 +320,7 @@ func addEnumProperty(schema map[string]any, key string, property map[string]any,
 
 // briefJSONSchema is the JSON Schema passed to codex exec --output-schema.
 // With palette names it also requires a palette from them.
-func briefJSONSchema(styleNames, paletteNames, compositions, brandIDs []string) ([]byte, error) {
+func briefJSONSchema(styleNames, paletteNames, compositions, shots, brandIDs []string) ([]byte, error) {
 	str := map[string]any{"type": "string"}
 	schema := map[string]any{
 		"type":                 "object",
@@ -309,6 +347,7 @@ func briefJSONSchema(styleNames, paletteNames, compositions, brandIDs []string) 
 	addEnumProperty(schema, "palette", map[string]any{"type": "string", "enum": paletteNames}, paletteNames)
 	addEnumProperty(schema, "composition", map[string]any{"type": "string", "enum": compositions}, compositions)
 	addEnumProperty(schema, "composition_reason", str, compositions)
+	addEnumProperty(schema, "shot", map[string]any{"type": "string", "enum": shots}, shots)
 	addEnumProperty(schema, "brands", map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": brandIDs}}, brandIDs)
 	return json.Marshal(schema)
 }

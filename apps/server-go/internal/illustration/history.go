@@ -13,6 +13,7 @@ type Choice struct {
 	Style       string `json:"style"`
 	Palette     string `json:"palette"`
 	Composition string `json:"composition"`
+	Shot        string `json:"shot,omitempty"`
 }
 
 // History remembers the latest choices, so consecutive articles vary in
@@ -74,6 +75,7 @@ func (h *SettingsHistory) Record(ctx context.Context, choice Choice) error {
 const (
 	avoidRecentStyles   = 1
 	avoidRecentPalettes = 3
+	avoidRecentShots    = 3
 	balanceRun          = 2 // this many of one composition in a row nudges towards the other
 )
 
@@ -82,6 +84,7 @@ type Variety struct {
 	AvoidStyles       []string
 	AvoidPalettes     []string
 	PreferComposition string
+	AvoidShots        []string
 }
 
 func VarietyFrom(recent []Choice) Variety {
@@ -100,6 +103,11 @@ func VarietyFrom(recent []Choice) Variety {
 	for _, choice := range last(avoidRecentPalettes) {
 		if choice.Palette != "" {
 			v.AvoidPalettes = append(v.AvoidPalettes, choice.Palette)
+		}
+	}
+	for _, choice := range last(avoidRecentShots) {
+		if choice.Shot != "" {
+			v.AvoidShots = append(v.AvoidShots, choice.Shot)
 		}
 	}
 	if run := last(balanceRun); len(run) == balanceRun {

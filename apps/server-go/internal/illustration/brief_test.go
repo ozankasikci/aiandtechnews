@@ -87,14 +87,24 @@ func TestParseBriefNormalizesStyleCase(t *testing.T) {
 
 func TestAnalyzePromptOffersEveryStyleAndForbidsBrands(t *testing.T) {
 	catalog := styles.MustLoad()
-	prompt := illustration.BuildAnalyzePrompt("Headline X", "Summary Y", "https://cdn.test/ceo-jane-doe.png", catalog, true, nil, nil, "", nil)
+	prompt := illustration.BuildAnalyzePrompt("Headline X", "Summary Y", "https://cdn.test/ceo-jane-doe.png", catalog, true, nil, nil, "", nil, nil)
 	for _, want := range []string{"Headline: Headline X", "Summary: Summary Y", `"graphic"`, "public_figure", "visible_in_source",
 		"Never ask for logos", "flags, national emblems or coats of arms", "showing literally what happened", "Never replace the story with a visual metaphor", "Never set it for private individuals", "attached image", "ceo-jane-doe.png", "do not need to recognize the face"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("analyze prompt lacks %q", want)
 		}
 	}
-	if noImage := illustration.BuildAnalyzePrompt("H", "S", "", catalog, false, nil, nil, "", nil); !strings.Contains(noImage, "No source image is available") {
+	if noImage := illustration.BuildAnalyzePrompt("H", "S", "", catalog, false, nil, nil, "", nil, nil); !strings.Contains(noImage, "No source image is available") {
 		t.Error("text-only prompt should say there is no image")
+	}
+}
+
+func TestBriefTextAddsTheFraming(t *testing.T) {
+	brief := illustration.Brief{Scene: "s", Foreground: "f", Background: "b", Mood: "m", Shot: illustration.ShotWide}
+	if text := brief.Text(); !strings.Contains(text, "Framing: a very wide establishing view") {
+		t.Fatalf("text = %q", text)
+	}
+	if text := (illustration.Brief{Scene: "s", Shot: "dutch-angle"}).Text(); strings.Contains(text, "Framing") {
+		t.Fatalf("unknown shot framed: %q", text)
 	}
 }

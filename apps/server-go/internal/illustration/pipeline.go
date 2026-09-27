@@ -90,6 +90,7 @@ type Report struct {
 	Style       string    `json:"style,omitempty"`
 	Palette     string    `json:"palette,omitempty"`
 	Composition string    `json:"composition,omitempty"`
+	Shot        string    `json:"shot,omitempty"`
 	Brands      []string  `json:"brands,omitempty"`
 	LogoBadge   bool      `json:"logo_badge,omitempty"`
 	StyleReason string    `json:"style_reason,omitempty"`
@@ -133,7 +134,7 @@ func (p *Pipeline) Illustrate(ctx context.Context, request publisher.Illustratio
 // applyVariety fills the request's avoid and prefer fields from the latest
 // images, unless the caller set them. History errors only cost variety.
 func (p *Pipeline) applyVariety(ctx context.Context, request *publisher.IllustrationRequest) {
-	if p.deps.History == nil || len(request.AvoidStyles) > 0 || len(request.AvoidPalettes) > 0 || request.PreferComposition != "" {
+	if p.deps.History == nil || len(request.AvoidStyles) > 0 || len(request.AvoidPalettes) > 0 || request.PreferComposition != "" || len(request.AvoidShots) > 0 {
 		return
 	}
 	recent, err := p.deps.History.Recent(ctx)
@@ -142,7 +143,7 @@ func (p *Pipeline) applyVariety(ctx context.Context, request *publisher.Illustra
 		return
 	}
 	variety := VarietyFrom(recent)
-	request.AvoidStyles, request.AvoidPalettes, request.PreferComposition = variety.AvoidStyles, variety.AvoidPalettes, variety.PreferComposition
+	request.AvoidStyles, request.AvoidPalettes, request.PreferComposition, request.AvoidShots = variety.AvoidStyles, variety.AvoidPalettes, variety.PreferComposition, variety.AvoidShots
 }
 
 // recordChoice remembers a generated image's look; the source photo has none.
@@ -151,7 +152,7 @@ func (p *Pipeline) recordChoice(ctx context.Context, report Report) {
 		return
 	}
 	style := report.Brief.Style
-	if err := p.deps.History.Record(ctx, Choice{Style: style, Palette: report.Palette, Composition: report.Composition}); err != nil {
+	if err := p.deps.History.Record(ctx, Choice{Style: style, Palette: report.Palette, Composition: report.Composition, Shot: report.Shot}); err != nil {
 		p.deps.Logger.WarnContext(ctx, "could not record featured image history", "error", err)
 	}
 }
@@ -287,7 +288,7 @@ func (r *pipelineRun) analyze(ctx context.Context) *Brief {
 	}
 	allowedStyles := deps.Styles.WithoutStyles(avoid)
 	r.allowedStyles = allowedStyles
-	input := AnalyzeInput{Title: r.request.Title, Excerpt: r.request.Excerpt, Palettes: deps.Styles.PalettesExcept(r.request.AvoidPalettes), Styles: &allowedStyles, Compositions: allowedCompositions(r.request.Compositions), PreferComposition: r.request.PreferComposition, Brands: deps.Brands.All()}
+	input := AnalyzeInput{Title: r.request.Title, Excerpt: r.request.Excerpt, Palettes: deps.Styles.PalettesExcept(r.request.AvoidPalettes), Styles: &allowedStyles, Compositions: allowedCompositions(r.request.Compositions), PreferComposition: r.request.PreferComposition, Shots: shotsExcept(r.request.AvoidShots), Brands: deps.Brands.All()}
 	if r.source != nil {
 		input.ImageURL = r.request.ReferenceImageURL
 		if normalized, err := imaging.FitJPEG(r.source, analyzeMaxEdge, analyzeQuality); err == nil {
@@ -308,6 +309,8 @@ func (r *pipelineRun) analyze(ctx context.Context) *Brief {
 		r.report.Palette = brief.Palette
 		brief.Composition = chooseComposition(brief.Composition, input.Compositions)
 		r.report.Composition = brief.Composition
+		brief.Shot = chooseShot(brief.Shot, input.Shots, r.request.Slug)
+		r.report.Shot = brief.Shot
 		r.brands = deps.Brands.Resolve(brief.Brands, MaxBrands)
 		brief.Brands = nil
 		for _, brand := range r.brands {
@@ -368,6 +371,9 @@ func (r *pipelineRun) generate(ctx context.Context, provider Provider, brief Bri
 		logos = r.brands
 		for _, brand := range logos {
 			article.Brands = append(article.Brands, brand.Name)
+			if brand.Note != "" {
+				article.BrandNotes = append(article.BrandNotes, brand.Note)
+			}
 		}
 	}
 	correction := ""
@@ -539,6 +545,31 @@ func chooseComposition(chosen string, allowed []string) string {
 		return chosen
 	}
 	return allowed[0]
+}
+
+// shotsExcept offers every framing not used recently; if all were, all.
+func shotsExcept(avoid []string) []string {
+	var allowed []string
+	for _, name := range Shots {
+		if !slices.Contains(avoid, name) {
+			allowed = append(allowed, name)
+		}
+	}
+	if len(allowed) == 0 {
+		return slices.Clone(Shots)
+	}
+	return allowed
+}
+
+// chooseShot keeps the analyzer's framing when it is allowed, otherwise
+// picks one of the allowed framings from the slug.
+func chooseShot(chosen string, allowed []string, slug string) string {
+	if slices.Contains(allowed, chosen) {
+		return chosen
+	}
+	sum := fnv.New32a()
+	_, _ = sum.Write([]byte(slug))
+	return allowed[int(sum.Sum32()%uint32(len(allowed)))]
 }
 
 // prepareMixed gathers the real pieces for a collage-style image. With no

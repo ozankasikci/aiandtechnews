@@ -61,6 +61,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 	prefer := flags.String("prefer", "", "composition to lean towards for variety (scene or simple)")
 	compositions := flags.String("compositions", "", "comma-separated compositions allowed (scene,simple); default both")
 	avoidStyles := flags.String("avoid-styles", "", "comma-separated styles to avoid, as if the latest articles used them")
+	avoidShots := flags.String("avoid-shots", "", "comma-separated camera framings to avoid (as the history would after recent images)")
 	avoid := flags.String("avoid", "", "comma-separated palettes to avoid, as if the latest articles used them")
 	analyzeOnly := flags.Bool("analyze-only", false, "only run the analyzers and print the brief")
 	if err := flags.Parse(args); err != nil {
@@ -114,7 +115,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 		// No Store: Produce never uploads.
 	}))
 
-	request := publisher.IllustrationRequest{AvoidPalettes: splitList(*avoid), AvoidStyles: splitList(*avoidStyles), Compositions: splitList(*compositions), PreferComposition: *prefer, Slug: "imagegen-try-" + label, Title: *title, Excerpt: *excerpt, ReferenceImageURL: *imageURL}
+	request := publisher.IllustrationRequest{AvoidPalettes: splitList(*avoid), AvoidStyles: splitList(*avoidStyles), Compositions: splitList(*compositions), PreferComposition: *prefer, AvoidShots: splitList(*avoidShots), Slug: "imagegen-try-" + label, Title: *title, Excerpt: *excerpt, ReferenceImageURL: *imageURL}
 	if *analyzeOnly {
 		report, err := pipeline.AnalyzeOnly(ctx, request)
 		encoded, _ := json.MarshalIndent(report, "", "  ")

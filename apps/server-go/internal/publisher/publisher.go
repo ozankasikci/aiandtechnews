@@ -55,6 +55,8 @@ type IllustrationRequest struct {
 	// PreferComposition nudges towards "scene" or "simple" for variety
 	// (after two of the other in a row); it never overrides the story.
 	PreferComposition string
+	// AvoidShots names camera framings used by the latest articles.
+	AvoidShots []string
 }
 
 // Illustration is a stored featured image. Discard removes it when the

@@ -53,3 +53,11 @@ func TestVarietyFrom(t *testing.T) {
 		t.Fatalf("empty = %+v", empty)
 	}
 }
+
+func TestVarietyAvoidsTheLatestShots(t *testing.T) {
+	shot := func(name string) illustration.Choice { return illustration.Choice{Style: "graphic", Shot: name} }
+	v := illustration.VarietyFrom([]illustration.Choice{shot("wide"), shot("close-up"), {Style: "graphic"}, shot("split"), shot("inset")})
+	if !slices.Equal(v.AvoidShots, []string{"split", "inset"}) {
+		t.Fatalf("avoid shots = %v", v.AvoidShots)
+	}
+}
