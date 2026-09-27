@@ -57,12 +57,19 @@ func ParseVerdict(raw string) Verdict {
 // BrandLogoCorrection replaces LogoViolationCorrection when real logos were requested.
 const BrandLogoCorrection = "The previous attempt had a wrong, distorted or extra logo. Use the attached logo images exactly as given, without redrawing, recolouring or misspelling them, and remove every other brand mark."
 
-func brandException(names []string) string {
+func brandException(names, notes []string) string {
 	if len(names) == 0 {
 		return ""
 	}
 	list := strings.Join(names, " and ")
-	return fmt.Sprintf("Exception: the real logo of %s was placed on purpose. An accurate %s logo, including the words that are part of it, counts as neither readable text nor a logo. Still count any other logo or watermark, and any %s logo that is misspelled, distorted, recoloured or invented.\n\n", list, list, list)
+	return fmt.Sprintf("Exception: the real logo of %s was placed on purpose. An accurate %s logo, including the words that are part of it, counts as neither readable text nor a logo. Still count any other logo or watermark, and any %s logo that is misspelled, distorted, recoloured or invented.%s\n\n", list, list, list, prefixed(" ", strings.Join(notes, " ")))
+}
+
+func prefixed(prefix, text string) string {
+	if text == "" {
+		return ""
+	}
+	return prefix + text
 }
 
 const (
@@ -111,6 +118,8 @@ type Article struct {
 	Excerpt string
 	// Brands are the company names whose real logos were placed on purpose.
 	Brands []string
+	// BrandNotes describe real logos that could pass for a misspelling.
+	BrandNotes []string
 }
 
 // BuildCompliancePrompt asks the vision model to review a generated image.
@@ -134,5 +143,5 @@ Inspect the attached image and answer these questions.
 %sBe strict about readable text, logos, flags and emblems.
 
 Return only JSON with exactly this shape:
-{"has_readable_text":false,"has_logo_or_watermark":false,"has_flag_or_emblem":false,"has_recognizable_real_person":false,"depicts_unsupported_injury_or_violence":false,"notes":"clean"}`, article.Title, article.Excerpt, brandException(article.Brands))
+{"has_readable_text":false,"has_logo_or_watermark":false,"has_flag_or_emblem":false,"has_recognizable_real_person":false,"depicts_unsupported_injury_or_violence":false,"notes":"clean"}`, article.Title, article.Excerpt, brandException(article.Brands, article.BrandNotes))
 }

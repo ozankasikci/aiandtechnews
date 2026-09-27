@@ -1,6 +1,6 @@
 [
   {"id": "openai", "name": "OpenAI", "aliases": ["ChatGPT", "GPT", "Sora", "Codex"]},
-  {"id": "anthropic", "name": "Anthropic", "aliases": ["Claude"]},
+  {"id": "anthropic", "name": "Anthropic", "aliases": ["Claude"], "note": "The real Anthropic wordmark is the word ANTHROPIC in capitals with the I drawn as a slanted stroke, so it reads like ANTHROP\\C; that is the correct spelling, not a misspelling."},
   {"id": "google", "name": "Google", "aliases": ["Alphabet", "Gemini", "DeepMind", "Google Vids"]},
   {"id": "youtube", "name": "YouTube", "aliases": []},
   {"id": "meta", "name": "Meta", "aliases": ["Facebook", "Instagram", "WhatsApp", "Llama"]},

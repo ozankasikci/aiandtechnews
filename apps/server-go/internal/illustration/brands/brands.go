@@ -17,7 +17,10 @@ type Brand struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
 	Aliases []string `json:"aliases"`
-	Logo    []byte   `json:"-"`
+	// Note tells the image reviewer how the real logo looks when it could
+	// pass for a misspelling (Anthropic writes its I as a slash).
+	Note string `json:"note,omitempty"`
+	Logo []byte `json:"-"`
 }
 
 // Catalog is every brand, in file order.
