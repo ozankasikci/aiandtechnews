@@ -29,6 +29,8 @@ type Verdict struct {
 	TextHeavy       bool   `json:"text_heavy"`
 	MarketingBanner bool   `json:"marketing_banner"`
 	Misleading      bool   `json:"misleading"`
+	Prominent       bool   `json:"subject_prominent"`
+	OtherBranding   bool   `json:"other_branding"`
 	Quality         int    `json:"quality"`
 	Alt             string `json:"alt"`
 	Notes           string `json:"notes"`
@@ -49,6 +51,10 @@ func (v Verdict) usable(mode string) (bool, string) {
 		return false, "marketing banner"
 	case v.Misleading:
 		return false, "misleading"
+	case !v.Prominent:
+		return false, "subject too small or not the focus"
+	case v.OtherBranding:
+		return false, "other brands' signs or logos in view"
 	case v.Quality < MinQuality:
 		return false, fmt.Sprintf("quality %d below %d", v.Quality, MinQuality)
 	}
@@ -68,12 +74,14 @@ watermark: true if there is a visible watermark, stock-photo stamp or photograph
 text_heavy: true if text, logos, UI screenshots, captions or charts dominate the image.
 marketing_banner: true if it is an advert or banner: slogans, prices, buttons, "buy now" or large overlaid text.
 misleading: true if using it to illustrate this article would mislead a reader: the wrong thing, an unrelated or staged context, a person in an unrelated, embarrassing or sensitive situation, or an edited or fake-looking picture.
+subject_prominent: true only if the subject is the clear focus and fills a good part of the frame (roughly a quarter or more), not a small figure among other things.
+other_branding: true if signs, logos or names of companies, events or venues other than the subject's own maker are visible (a stage backdrop, a banner, a booth sign). The maker's own name on the product itself is fine.
 quality: 1-10, how good it would look full width: sharp, well lit, well composed, the subject clearly visible and large enough, not cluttered, survives a 16:9 crop. 10 is a professional press photo.
 alt: one plain sentence saying what the image shows, for alt text (do not start with "Image of" or "Photo of").
 notes: one short sentence.
 
 Return only JSON with exactly this shape:
-{"match":"exact","photographic":true,"watermark":false,"text_heavy":false,"marketing_banner":false,"misleading":false,"quality":7,"alt":"...","notes":"..."}`
+{"match":"exact","photographic":true,"watermark":false,"text_heavy":false,"marketing_banner":false,"misleading":false,"subject_prominent":true,"other_branding":false,"quality":8,"alt":"...","notes":"..."}`
 
 const (
 	commonsContext   = "The image is a freely licensed photo from Wikimedia Commons.\n"
@@ -85,17 +93,19 @@ const (
 var verdictSchema = map[string]any{
 	"type": "OBJECT",
 	"properties": map[string]any{
-		"match":            map[string]any{"type": "STRING", "enum": []string{MatchExact, MatchSameLine, MatchDifferent}},
-		"photographic":     map[string]any{"type": "BOOLEAN"},
-		"watermark":        map[string]any{"type": "BOOLEAN"},
-		"text_heavy":       map[string]any{"type": "BOOLEAN"},
-		"marketing_banner": map[string]any{"type": "BOOLEAN"},
-		"misleading":       map[string]any{"type": "BOOLEAN"},
-		"quality":          map[string]any{"type": "INTEGER"},
-		"alt":              map[string]any{"type": "STRING"},
-		"notes":            map[string]any{"type": "STRING"},
+		"match":             map[string]any{"type": "STRING", "enum": []string{MatchExact, MatchSameLine, MatchDifferent}},
+		"photographic":      map[string]any{"type": "BOOLEAN"},
+		"watermark":         map[string]any{"type": "BOOLEAN"},
+		"text_heavy":        map[string]any{"type": "BOOLEAN"},
+		"marketing_banner":  map[string]any{"type": "BOOLEAN"},
+		"misleading":        map[string]any{"type": "BOOLEAN"},
+		"subject_prominent": map[string]any{"type": "BOOLEAN"},
+		"other_branding":    map[string]any{"type": "BOOLEAN"},
+		"quality":           map[string]any{"type": "INTEGER"},
+		"alt":               map[string]any{"type": "STRING"},
+		"notes":             map[string]any{"type": "STRING"},
 	},
-	"required": []string{"match", "photographic", "watermark", "text_heavy", "marketing_banner", "misleading", "quality", "alt", "notes"},
+	"required": []string{"match", "photographic", "watermark", "text_heavy", "marketing_banner", "misleading", "subject_prominent", "other_branding", "quality", "alt", "notes"},
 }
 
 // VerifyPrompt is the vision prompt for one candidate in the given mode.

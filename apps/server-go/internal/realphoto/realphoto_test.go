@@ -109,11 +109,11 @@ func (f *fakeVision) ReviewImage(_ context.Context, _ string, data []byte, _ map
 	if verdict, ok := f.verdicts[name]; ok {
 		return verdict, nil
 	}
-	return `{"match":"different","photographic":true,"watermark":false,"text_heavy":false,"marketing_banner":false,"misleading":false,"quality":5,"alt":"x","notes":"x"}`, nil
+	return `{"match":"different","photographic":true,"watermark":false,"text_heavy":false,"marketing_banner":false,"misleading":false,"subject_prominent":true,"other_branding":false,"quality":5,"alt":"x","notes":"x"}`, nil
 }
 
 func verdict(quality int, alt string) string {
-	return fmt.Sprintf(`{"match":"exact","photographic":true,"watermark":false,"text_heavy":false,"marketing_banner":false,"misleading":false,"quality":%d,"alt":%q,"notes":"ok"}`, quality, alt)
+	return fmt.Sprintf(`{"match":"exact","photographic":true,"watermark":false,"text_heavy":false,"marketing_banner":false,"misleading":false,"subject_prominent":true,"other_branding":false,"quality":%d,"alt":%q,"notes":"ok"}`, quality, alt)
 }
 
 type commonsFile struct {
@@ -238,7 +238,7 @@ func TestFindFallsBackToTheMakersOfficialImage(t *testing.T) {
 		"nvidia.com": serveBytes([]byte("<title>NVIDIA Inception</title>"), "text/html"),
 	}
 	vision := &fakeVision{verdicts: map[string]string{
-		"red":   `{"match":"exact","photographic":true,"watermark":false,"text_heavy":true,"marketing_banner":true,"misleading":false,"quality":8,"alt":"x","notes":"banner"}`,
+		"red":   `{"match":"exact","photographic":true,"watermark":false,"text_heavy":true,"marketing_banner":true,"misleading":false,"subject_prominent":true,"other_branding":false,"quality":8,"alt":"x","notes":"banner"}`,
 		"green": verdict(8, "The WiCi One robot sitting on a wooden ledge."),
 	}}
 	text := &fakeText{plan: robotPlan, official: `{"index":0,"maker":"WiCi","reason":"The maker's product page."}`}

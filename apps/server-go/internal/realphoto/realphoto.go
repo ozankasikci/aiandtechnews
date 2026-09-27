@@ -28,12 +28,12 @@ const (
 // Size and shape a photo needs for the full-width 16:9 slot.
 const (
 	MinWidth  = 1200
-	MinAspect = 1.25
+	MinAspect = 1.5
 	MaxAspect = 2.1
 	// MaxVerified caps the vision checks per source.
 	MaxVerified = 8
 	// MinQuality is the lowest vision quality score a photo may have.
-	MinQuality = 6
+	MinQuality = 7
 )
 
 // TextModel is the Gemini text call (JSON output).
