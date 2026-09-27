@@ -1,6 +1,7 @@
 import type { Article } from "../data/articles";
 import { parseApiDate, toIsoDate } from "./dates";
 import { readingTimeLabel } from "./reading-time";
+import { usableInlineImages } from "./inline-images";
 
 function getApiUrl() {
   const configured = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL)?.trim();
@@ -32,6 +33,7 @@ export interface ApiArticle {
   meta_description?: string | null;
   tldr?: string[];
   why_it_matters?: string;
+  inlineImages?: { url: string; alt: string; afterParagraph: number }[];
   category: { id: number; name: string; slug: string; description: string; color: string };
   author: { id: number; name: string; email: string; avatar: string; bio: string; role: string };
 }
@@ -105,6 +107,7 @@ export function mapArticle(a: ApiArticle): Article {
     image: a.featured_image || "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=500&fit=crop",
     tldr: a.tldr?.length ? a.tldr : undefined,
     whyItMatters: a.why_it_matters || undefined,
+    inlineImages: usableInlineImages(a.inlineImages),
     metaTitle: a.meta_title || undefined,
     metaDescription: a.meta_description || undefined,
     body: a.content,

@@ -1,3 +1,6 @@
+// An illustration inside the body, after paragraph afterParagraph (from 1).
+export type InlineImage = { url: string; alt: string; afterParagraph: number };
+
 export type Article = {
   id: number;
   slug: string;
@@ -15,6 +18,7 @@ export type Article = {
   image: string;
   tldr?: string[];
   whyItMatters?: string;
+  inlineImages?: InlineImage[];
   metaTitle?: string;
   metaDescription?: string;
   body?: string;

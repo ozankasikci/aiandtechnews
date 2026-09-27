@@ -11,6 +11,7 @@ import { NewsletterBanner } from "../../components/Newsletter";
 import { getArticleLookup, getArticles, mapArticle } from "../../lib/api";
 import { toAbsoluteUrl } from "../../lib/dates";
 import { pickReadNext, splitAfterParagraph } from "../../lib/read-next";
+import { insertInlineImages } from "../../lib/inline-images";
 import { glossaryTerm, linkGlossaryTerms } from "../../lib/glossary";
 import { GlossaryPopover } from "../../components/GlossaryPopover";
 
@@ -70,7 +71,7 @@ export default async function ArticlePage({ params }: Props) {
   const article = mapArticle(lookup.article);
 
   const glossary = linkGlossaryTerms(article.body || "<p>Article content unavailable.</p>");
-  const body = glossary.html;
+  const body = insertInlineImages(glossary.html, article.inlineImages);
   const glossaryTerms = glossary.slugs.map((s) => glossaryTerm(s)!).map(({ slug, term, definition }) => ({ slug, term, definition }));
   const articleUrl = `${BASE_URL}/article/${article.slug}`;
   const imageUrl = toAbsoluteUrl(article.image, BASE_URL);
