@@ -9,6 +9,7 @@ import (
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/realphoto"
 )
 
 const (
@@ -27,7 +28,9 @@ const (
 // Store is the worker's view of the database.
 type Store interface {
 	Pending(ctx context.Context, since time.Time, maxAttempts int) ([]Article, error)
-	MarkReady(ctx context.Context, articleID int64, url, alt string, afterParagraph, attempts int) error
+	// MarkReady records the image; credit is nil for a generated
+	// illustration and set for a real photo.
+	MarkReady(ctx context.Context, articleID int64, url, alt string, afterParagraph, attempts int, credit *realphoto.Credit) error
 	MarkFailed(ctx context.Context, articleID int64, message string, attempts int) error
 }
 
@@ -36,10 +39,24 @@ type Illustrator interface {
 	IllustrateInline(ctx context.Context, request illustration.InlineRequest) (illustration.InlineIllustration, error)
 }
 
-// Worker gives recent long articles a second illustration, one per run.
+// PhotoFinder looks for a real photo of the article's subject
+// (realphoto.Finder). It never fails; Result.Found says whether it found one.
+type PhotoFinder interface {
+	Find(ctx context.Context, request realphoto.Request) realphoto.Result
+}
+
+// PhotoStore stores a found photo as the inline image (illustration.Pipeline).
+type PhotoStore interface {
+	StoreInlinePhoto(ctx context.Context, slug string, photo []byte) (illustration.InlineIllustration, error)
+}
+
+// Worker gives recent long articles a second image, one per run: a real
+// photo when one is found, otherwise a generated illustration.
 type Worker struct {
 	store       Store
 	illustrator Illustrator
+	photos      PhotoFinder
+	photoStore  PhotoStore
 	now         func() time.Time
 	logger      *slog.Logger
 	// ownPrefix is where our featured images live (public S3 URL and
@@ -55,6 +72,19 @@ func NewWorker(store Store, illustrator Illustrator, now func() time.Time, logge
 		logger = slog.Default()
 	}
 	return &Worker{store: store, illustrator: illustrator, now: now, logger: logger, ownPrefix: ownPrefix}
+}
+
+// WithPhotos makes the worker look for a real photo (Wikimedia Commons, then
+// the maker's official image) before drawing an illustration.
+func (w *Worker) WithPhotos(finder PhotoFinder, store PhotoStore) *Worker {
+	w.photos, w.photoStore = finder, store
+	return w
+}
+
+// PhotoRequest is what the photo finder is told about an article. The
+// source URL is only read, never credited.
+func PhotoRequest(article Article) realphoto.Request {
+	return realphoto.Request{Slug: article.Slug, Title: article.Title, Text: strings.Join(Paragraphs(article.Content), "\n\n"), SourceURL: article.SourceURL}
 }
 
 // OwnImagePrefix is the URL prefix of the featured images the pipeline
@@ -112,6 +142,9 @@ func (w *Worker) RunOnce(ctx context.Context) (bool, error) {
 
 func (w *Worker) illustrate(ctx context.Context, article Article, slot int) error {
 	logger := w.logger.With("article", article.ID, "slug", article.Slug, "after_paragraph", slot)
+	if done, err := w.tryPhoto(ctx, logger, article, slot); done || err != nil {
+		return err
+	}
 	result, err := w.illustrator.IllustrateInline(ctx, illustration.InlineRequest{
 		Slug: article.Slug, Title: article.Title, Section: SectionText(article.Content, slot),
 		FeaturedImageURL: article.FeaturedImage, SourceImageURL: article.SourceImage,
@@ -133,14 +166,49 @@ func (w *Worker) illustrate(ctx context.Context, article Article, slot int) erro
 	}
 	bookkeeping, cancel := context.WithTimeout(context.WithoutCancel(ctx), bookkeepingTimeout)
 	defer cancel()
-	if err := w.store.MarkReady(bookkeeping, article.ID, result.URL, result.Alt, slot, article.Attempts+1); err != nil {
+	if err := w.store.MarkReady(bookkeeping, article.ID, result.URL, result.Alt, slot, article.Attempts+1, nil); err != nil {
 		if result.Discard != nil {
 			result.Discard(bookkeeping)
 		}
 		return err
 	}
-	logger.InfoContext(ctx, "inline image added", "url", result.URL)
+	logger.InfoContext(ctx, "inline image added", "path", "generated", "url", result.URL)
 	return nil
+}
+
+// tryPhoto looks for and stores a real photo. done is true when the article
+// got one; every failure short of a cancelled context or a failed database
+// write falls through to drawing an illustration.
+func (w *Worker) tryPhoto(ctx context.Context, logger *slog.Logger, article Article, slot int) (bool, error) {
+	if w.photos == nil || w.photoStore == nil {
+		return false, nil
+	}
+	found := w.photos.Find(ctx, PhotoRequest(article))
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if !found.Found || found.Credit == nil || len(found.Image) == 0 {
+		logger.InfoContext(ctx, "inline image path", "path", "generated", "reason", found.Reason)
+		return false, nil
+	}
+	stored, err := w.photoStore.StoreInlinePhoto(ctx, article.Slug, found.Image)
+	if err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		logger.WarnContext(ctx, "inline photo not stored, drawing instead", "kind", found.Credit.Kind, "error", err)
+		return false, nil
+	}
+	bookkeeping, cancel := context.WithTimeout(context.WithoutCancel(ctx), bookkeepingTimeout)
+	defer cancel()
+	if err := w.store.MarkReady(bookkeeping, article.ID, stored.URL, found.Alt, slot, article.Attempts+1, found.Credit); err != nil {
+		if stored.Discard != nil {
+			stored.Discard(bookkeeping)
+		}
+		return false, err
+	}
+	logger.InfoContext(ctx, "inline image added", "path", found.Credit.Kind, "reason", found.Reason, "credit", found.Credit.Text, "url", stored.URL)
+	return true, nil
 }
 
 func (w *Worker) fail(ctx context.Context, article Article, message string, attempts int) error {

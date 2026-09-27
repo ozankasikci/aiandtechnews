@@ -315,3 +315,24 @@ func TestGeminiProviderSendsTheStyleReference(t *testing.T) {
 		t.Fatalf("reference = %+v", model.reference)
 	}
 }
+
+func TestStoreInlinePhotoStoresAScaledWebPWithoutDrawing(t *testing.T) {
+	fixture := newInlineFixture(t)
+	result, err := illustration.NewPipeline(fixture.deps).StoreInlinePhoto(context.Background(), "big-news", solidPNG(t, 3200, 1800))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.URL != "https://img.test/features/big-news-inline.webp" || result.Discard == nil {
+		t.Fatalf("result = %+v", result)
+	}
+	decoded, err := imaging.Decode(fixture.store.stored)
+	if err != nil || imaging.SniffMIME(fixture.store.stored) != "image/webp" {
+		t.Fatalf("stored = %v", err)
+	}
+	if bounds := decoded.Bounds(); bounds.Dx() != 1600 || bounds.Dy() != 900 {
+		t.Fatalf("stored %dx%d, want 1600x900", bounds.Dx(), bounds.Dy())
+	}
+	if len(fixture.provider.requests) != 0 || fixture.vision.calls != 0 {
+		t.Fatal("storing a photo generated or checked an image")
+	}
+}

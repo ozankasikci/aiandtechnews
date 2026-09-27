@@ -11,6 +11,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/app"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/database/migrate"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/inlineimage"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/realphoto"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/testutil"
 )
 
@@ -34,6 +35,7 @@ func openStore(t *testing.T) (*sql.DB, *inlineimage.SQLiteStore) {
 (6,'Ready','ready','e','<p>x</p>','https://img.test/features/f.webp',1,1,'published','2026-09-26 11:00:00','x','x'),
 (7,'Failed twice','failed-twice','e','<p>x</p>','https://img.test/features/g.webp',1,1,'published','2026-09-26 12:00:00','x','x'),
 (8,'Failed once','failed-once','e','<p>x</p>','https://img.test/features/h.webp',1,1,'published','2026-09-25 12:00:00','x','x')`,
+		`UPDATE articles SET source_url = 'https://news.example/1' WHERE id = 1`,
 		`INSERT INTO candidates(id,source_url,source_name,feed_url,title,source_image_url,discovered_at,status,article_id,updated_at)
 			VALUES (1,'https://news.example/1','Wire','https://news.example/feed','t','https://news.example/og.jpg','x','published',1,'x')`,
 	} {
@@ -43,7 +45,7 @@ func openStore(t *testing.T) (*sql.DB, *inlineimage.SQLiteStore) {
 	}
 	store := inlineimage.NewSQLiteStore(db, func() time.Time { return storeNow })
 	ctx := context.Background()
-	if err := store.MarkReady(ctx, 6, "https://img.test/features/f-inline.webp", "Alt.", 4, 1); err != nil {
+	if err := store.MarkReady(ctx, 6, "https://img.test/features/f-inline.webp", "Alt.", 4, 1, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.MarkFailed(ctx, 7, "boom", 2); err != nil {
@@ -69,7 +71,7 @@ func TestSQLiteStorePendingPicksRecentUnillustratedArticlesNewestFirst(t *testin
 		t.Fatalf("pending = %v", ids)
 	}
 	first := articles[0]
-	if first.Slug != "newest" || first.Title != "Newest" || first.FeaturedImage != "https://img.test/features/a.webp" || first.SourceImage != "https://news.example/og.jpg" || first.Attempts != 0 || !strings.Contains(first.Content, "Paragraph 6") {
+	if first.Slug != "newest" || first.Title != "Newest" || first.FeaturedImage != "https://img.test/features/a.webp" || first.SourceImage != "https://news.example/og.jpg" || first.SourceURL != "https://news.example/1" || first.Attempts != 0 || !strings.Contains(first.Content, "Paragraph 6") {
 		t.Fatalf("first = %+v", first)
 	}
 	if articles[1].Attempts != 1 || articles[2].SourceImage != "" {
@@ -79,7 +81,7 @@ func TestSQLiteStorePendingPicksRecentUnillustratedArticlesNewestFirst(t *testin
 
 func TestSQLiteStoreMarkReadyReplacesAFailure(t *testing.T) {
 	db, store := openStore(t)
-	if err := store.MarkReady(context.Background(), 8, "https://img.test/x.webp", "An alt.", 5, 2); err != nil {
+	if err := store.MarkReady(context.Background(), 8, "https://img.test/x.webp", "An alt.", 5, 2, nil); err != nil {
 		t.Fatal(err)
 	}
 	var url, alt, status string
@@ -109,5 +111,48 @@ func TestSQLiteStoreBySlug(t *testing.T) {
 	}
 	if _, err := store.BySlug(context.Background(), "draft"); !errors.Is(err, inlineimage.ErrNotFound) {
 		t.Fatalf("draft err = %v", err)
+	}
+}
+
+func TestSQLiteStoreMarkReadyRecordsAndClearsThePhotoCredit(t *testing.T) {
+	db, store := openStore(t)
+	ctx := context.Background()
+	credit := &realphoto.Credit{Kind: "commons", Text: "Photo: Jane Doe / CC BY-SA 4.0, via Wikimedia Commons",
+		URL: "https://commons.wikimedia.org/wiki/File:X.jpg", License: "CC BY-SA 4.0", LicenseURL: "https://creativecommons.org/licenses/by-sa/4.0"}
+	if err := store.MarkReady(ctx, 8, "https://img.test/p.webp", "A robot.", 5, 2, credit); err != nil {
+		t.Fatal(err)
+	}
+	var kind, text, url, license, licenseURL string
+	if err := db.QueryRow(`SELECT c.kind, c.credit, c.credit_url, c.license, c.license_url FROM article_image_credits c
+		JOIN article_images i ON i.id = c.article_image_id WHERE i.article_id = 8`).Scan(&kind, &text, &url, &license, &licenseURL); err != nil {
+		t.Fatal(err)
+	}
+	if kind != credit.Kind || text != credit.Text || url != credit.URL || license != credit.License || licenseURL != credit.LicenseURL {
+		t.Fatalf("credit row = %s %s %s %s %s", kind, text, url, license, licenseURL)
+	}
+	// A later generated illustration drops the credit.
+	if err := store.MarkReady(ctx, 8, "https://img.test/g.webp", "A drawing.", 5, 3, nil); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM article_image_credits`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("credits = %d, %v", count, err)
+	}
+	if err := store.MarkReady(ctx, 8, "https://img.test/p.webp", "A robot.", 5, 4, credit); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM articles WHERE id = 8`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM article_image_credits`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("credits after article delete = %d, %v", count, err)
+	}
+}
+
+func TestSQLiteStoreLatest(t *testing.T) {
+	_, store := openStore(t)
+	articles, err := store.Latest(context.Background(), 3)
+	if err != nil || len(articles) != 3 || articles[0].ID != 1 || articles[1].ID != 7 || articles[2].ID != 6 {
+		t.Fatalf("latest = %+v, %v", articles, err)
 	}
 }

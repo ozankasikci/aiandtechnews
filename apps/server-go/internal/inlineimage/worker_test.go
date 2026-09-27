@@ -10,6 +10,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/inlineimage"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/realphoto"
 )
 
 type mark struct {
@@ -20,6 +21,7 @@ type mark struct {
 	after    int
 	attempts int
 	message  string
+	credit   *realphoto.Credit
 }
 
 type fakeStore struct {
@@ -34,11 +36,11 @@ func (f *fakeStore) Pending(_ context.Context, since time.Time, maxAttempts int)
 	return f.articles, nil
 }
 
-func (f *fakeStore) MarkReady(_ context.Context, id int64, url, alt string, after, attempts int) error {
+func (f *fakeStore) MarkReady(_ context.Context, id int64, url, alt string, after, attempts int, credit *realphoto.Credit) error {
 	if f.readyErr != nil {
 		return f.readyErr
 	}
-	f.marks = append(f.marks, mark{id: id, ready: true, url: url, alt: alt, after: after, attempts: attempts})
+	f.marks = append(f.marks, mark{id: id, ready: true, url: url, alt: alt, after: after, attempts: attempts, credit: credit})
 	return nil
 }
 
@@ -168,5 +170,86 @@ func TestOwnImagePrefix(t *testing.T) {
 		if got := inlineimage.OwnImagePrefix(test.base, test.prefix); got != test.want {
 			t.Errorf("OwnImagePrefix(%q, %q) = %q, want %q", test.base, test.prefix, got, test.want)
 		}
+	}
+}
+
+type fakeFinder struct {
+	result   realphoto.Result
+	requests []realphoto.Request
+}
+
+func (f *fakeFinder) Find(_ context.Context, request realphoto.Request) realphoto.Result {
+	f.requests = append(f.requests, request)
+	return f.result
+}
+
+type fakePhotoStore struct {
+	stored    []byte
+	err       error
+	discarded bool
+}
+
+func (f *fakePhotoStore) StoreInlinePhoto(_ context.Context, slug string, photo []byte) (illustration.InlineIllustration, error) {
+	if f.err != nil {
+		return illustration.InlineIllustration{}, f.err
+	}
+	f.stored = photo
+	return illustration.InlineIllustration{URL: "https://img.test/features/" + slug + "-inline.webp", Discard: func(context.Context) { f.discarded = true }}, nil
+}
+
+var photoCredit = &realphoto.Credit{Kind: "official", Text: "Image: WiCi", URL: "https://wici.ai/wici-one"}
+
+func photoArticle() inlineimage.Article {
+	return inlineimage.Article{ID: 4, Slug: "wici", Title: "WiCi One", Content: body("p p p p p p"), FeaturedImage: ours + "a.webp", SourceURL: "https://www.engadget.com/wici", Attempts: 1}
+}
+
+func TestWorkerPrefersAFoundPhoto(t *testing.T) {
+	store := &fakeStore{articles: []inlineimage.Article{photoArticle()}}
+	illustrator := &fakeIllustrator{}
+	finder := &fakeFinder{result: realphoto.Result{Found: true, Image: []byte("photo"), Alt: "The WiCi One robot.", Credit: photoCredit, Reason: "official"}}
+	photos := &fakePhotoStore{}
+	if _, err := newWorker(store, illustrator).WithPhotos(finder, photos).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(illustrator.requests) != 0 {
+		t.Fatal("drew an illustration although a photo was found")
+	}
+	if len(finder.requests) != 1 || finder.requests[0].SourceURL != "https://www.engadget.com/wici" || finder.requests[0].Title != "WiCi One" || !strings.Contains(finder.requests[0].Text, "Paragraph 6.") {
+		t.Fatalf("finder requests = %+v", finder.requests)
+	}
+	if string(photos.stored) != "photo" || len(store.marks) != 1 ||
+		store.marks[0] != (mark{id: 4, ready: true, url: "https://img.test/features/wici-inline.webp", alt: "The WiCi One robot.", after: 4, attempts: 2, credit: photoCredit}) {
+		t.Fatalf("marks = %+v", store.marks)
+	}
+}
+
+func TestWorkerDrawsWhenNoPhotoIsFoundOrStored(t *testing.T) {
+	for name, test := range map[string]struct {
+		result realphoto.Result
+		err    error
+	}{
+		"no photo":         {result: realphoto.Result{Reason: "no photographable subject"}},
+		"photo not stored": {result: realphoto.Result{Found: true, Image: []byte("photo"), Credit: photoCredit}, err: errors.New("s3 down")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := &fakeStore{articles: []inlineimage.Article{photoArticle()}}
+			illustrator := &fakeIllustrator{}
+			worker := newWorker(store, illustrator).WithPhotos(&fakeFinder{result: test.result}, &fakePhotoStore{err: test.err})
+			if _, err := worker.RunOnce(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if len(illustrator.requests) != 1 || len(store.marks) != 1 || store.marks[0].credit != nil || store.marks[0].url != "https://img.test/features/x-inline.webp" {
+				t.Fatalf("requests %d marks %+v", len(illustrator.requests), store.marks)
+			}
+		})
+	}
+}
+
+func TestWorkerDiscardsThePhotoWhenItCannotBeRecorded(t *testing.T) {
+	store := &fakeStore{articles: []inlineimage.Article{photoArticle()}, readyErr: errors.New("disk full")}
+	photos := &fakePhotoStore{}
+	finder := &fakeFinder{result: realphoto.Result{Found: true, Image: []byte("photo"), Credit: photoCredit}}
+	if _, err := newWorker(store, &fakeIllustrator{}).WithPhotos(finder, photos).RunOnce(context.Background()); err == nil || !photos.discarded {
+		t.Fatalf("err %v discarded %t", err, photos.discarded)
 	}
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsroom"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/quiz"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/realphoto"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/relevance"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/settings"
 )
@@ -229,8 +230,11 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		})
 		if cfg.InlineImagesEnabled {
 			// Shares the publisher's pipeline, which makes one image at a time.
+			// A real photo (Wikimedia Commons, then the maker's official
+			// image) is preferred; the illustration is the fallback.
+			photos := realphoto.NewFinder(geminiClient, geminiClient, illustration.NewReferenceClient(), logger)
 			inlineImages := inlineimage.NewWorker(inlineimage.NewSQLiteStore(db, now), illustrator, now, logger,
-				inlineimage.OwnImagePrefix(cfg.S3PublicURL, cfg.S3Prefix))
+				inlineimage.OwnImagePrefix(cfg.S3PublicURL, cfg.S3Prefix)).WithPhotos(photos, illustrator)
 			logger.Info("inline images", "interval", cfg.InlineImagesInterval)
 			application.background = append(application.background, func(ctx context.Context) {
 				inlineImages.Loop(ctx, cfg.InlineImagesInterval)

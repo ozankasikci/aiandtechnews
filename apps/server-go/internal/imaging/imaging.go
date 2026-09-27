@@ -97,13 +97,27 @@ func EncodeWebP(data []byte, quality int) ([]byte, int, int, error) {
 // minWidth to exactly minWidth, keeping its aspect ratio. Wider images are
 // left at their own size.
 func EncodeWebPMinWidth(data []byte, quality, minWidth int) ([]byte, int, int, error) {
+	return EncodeWebPWidth(data, quality, minWidth, 0)
+}
+
+// EncodeWebPWidth is EncodeWebP, but first scales an image narrower than
+// minWidth up to minWidth, or one wider than maxWidth (when maxWidth > 0)
+// down to maxWidth, keeping its aspect ratio.
+func EncodeWebPWidth(data []byte, quality, minWidth, maxWidth int) ([]byte, int, int, error) {
 	src, err := decode(data)
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	if bounds := src.Bounds(); bounds.Dx() < minWidth {
-		height := max(1, bounds.Dy()*minWidth/bounds.Dx())
-		scaled := image.NewRGBA(image.Rect(0, 0, minWidth, height))
+	bounds := src.Bounds()
+	target := bounds.Dx()
+	if target < minWidth {
+		target = minWidth
+	} else if maxWidth > 0 && target > maxWidth {
+		target = maxWidth
+	}
+	if target != bounds.Dx() {
+		height := max(1, bounds.Dy()*target/bounds.Dx())
+		scaled := image.NewRGBA(image.Rect(0, 0, target, height))
 		xdraw.CatmullRom.Scale(scaled, scaled.Bounds(), src, bounds, draw.Src, nil)
 		src = scaled
 	}

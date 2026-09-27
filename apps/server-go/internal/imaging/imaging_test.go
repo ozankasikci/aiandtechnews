@@ -149,3 +149,13 @@ func TestDecodeRejectsOversizedDimensions(t *testing.T) {
 		})
 	}
 }
+
+func TestEncodeWebPWidthDownscalesWideImages(t *testing.T) {
+	_, width, height, err := imaging.EncodeWebPWidth(pngImage(t, 3200, 1800, false), 82, 1200, 1600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if width != 1600 || height != 900 {
+		t.Fatalf("got %dx%d, want 1600x900", width, height)
+	}
+}

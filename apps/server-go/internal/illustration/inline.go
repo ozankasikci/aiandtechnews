@@ -75,6 +75,28 @@ func (p *Pipeline) IllustrateInline(ctx context.Context, request InlineRequest) 
 	return InlineIllustration{URL: stored.URL, Alt: result.Alt, Discard: stored.Discard}, nil
 }
 
+// inlinePhotoMaxWidth is the widest stored inline photo; bigger photos are
+// scaled down (the article column is narrower).
+const inlinePhotoMaxWidth = 1600
+
+// StoreInlinePhoto stores a found real photo as an article's inline image:
+// re-encoded as WebP (1200 to 1600 px wide) under "<slug>-inline", never
+// hotlinked. It does not take the pipeline's one-image-at-a-time slot.
+func (p *Pipeline) StoreInlinePhoto(ctx context.Context, slug string, photo []byte) (InlineIllustration, error) {
+	if p.deps.Store == nil {
+		return InlineIllustration{}, errors.New("store inline photo: no image store")
+	}
+	webp, _, _, err := imaging.EncodeWebPWidth(photo, webpQuality, minFeatureWidth, inlinePhotoMaxWidth)
+	if err != nil {
+		return InlineIllustration{}, publisher.Permanent(fmt.Errorf("encode inline photo: %w", err))
+	}
+	stored, err := storeWebP(ctx, p.deps.Store, InlineSlug(slug), webp, p.deps.Logger)
+	if err != nil {
+		return InlineIllustration{}, fmt.Errorf("store inline photo: %w", err)
+	}
+	return InlineIllustration{URL: stored.URL, Discard: stored.Discard}, nil
+}
+
 // InlineSlug is the storage name of an article's inline image: the slug,
 // shortened so the "-inline" marker survives media.SanitizeSlug's limit.
 func InlineSlug(slug string) string {
