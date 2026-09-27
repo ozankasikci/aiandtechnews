@@ -535,7 +535,10 @@ components:
         tldr: {type: array, items: {type: string}}
         why_it_matters: {type: string}
         # Public single-article reads only, when the article has a ready
-        # illustration inside its body. afterParagraph counts <p> blocks from 1.
+        # image inside its body. afterParagraph counts <p> blocks from 1. A
+        # real photo carries its credit (linked to creditUrl: the Wikimedia
+        # Commons file page or the maker's page) and, for Commons, its licence;
+        # a generated illustration has none of these.
         inlineImages:
           type: array
           items:
@@ -545,6 +548,10 @@ components:
               url: {type: string}
               alt: {type: string}
               afterParagraph: {type: integer}
+              credit: {type: string}
+              creditUrl: {type: string}
+              license: {type: string}
+              licenseUrl: {type: string}
         created_at: {type: string}
         updated_at: {type: string}
         category:

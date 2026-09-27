@@ -204,3 +204,26 @@ func TestPublicArticleBySlugIncludesReadyInlineImages(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicArticleBySlugIncludesAnInlinePhotoCredit(t *testing.T) {
+	handler, closer := newArticleHandler(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	db := closer.(*sql.DB)
+	for _, statement := range []string{
+		`INSERT INTO article_images(id, article_id, url, alt, after_paragraph, status, attempts, created_at, updated_at)
+			VALUES (7, 301, 'https://img.test/features/x-inline.webp', 'A robot on a desk.', 5, 'ready', 1, 'x', 'x')`,
+		`INSERT INTO article_image_credits(article_image_id, kind, credit, credit_url, license, license_url, created_at)
+			VALUES (7, 'commons', 'Photo: Jane Doe / CC BY-SA 4.0, via Wikimedia Commons', 'https://commons.wikimedia.org/wiki/File:X.jpg',
+				'CC BY-SA 4.0', 'https://creativecommons.org/licenses/by-sa/4.0', 'x')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := request(t, handler, "/api/articles/synthetic-published-newer").Body.String()
+	want := `"inlineImages":[{"url":"https://img.test/features/x-inline.webp","alt":"A robot on a desk.","afterParagraph":5,` +
+		`"credit":"Photo: Jane Doe / CC BY-SA 4.0, via Wikimedia Commons","creditUrl":"https://commons.wikimedia.org/wiki/File:X.jpg",` +
+		`"license":"CC BY-SA 4.0","licenseUrl":"https://creativecommons.org/licenses/by-sa/4.0"}]`
+	if !strings.Contains(body, want) {
+		t.Fatalf("by slug = %s", body)
+	}
+}

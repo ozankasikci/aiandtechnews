@@ -253,17 +253,20 @@ func loadSummary(ctx context.Context, tx *sql.Tx, article *Article) error {
 	return nil
 }
 
-// loadInlineImages reads the article's ready inline illustrations, in body order.
+// loadInlineImages reads the article's ready inline images and their
+// credits, in body order.
 func loadInlineImages(ctx context.Context, tx *sql.Tx, article *Article) error {
-	rows, err := tx.QueryContext(ctx, `SELECT url, alt, after_paragraph FROM article_images
-		WHERE article_id = ? AND status = 'ready' AND url <> '' ORDER BY after_paragraph, id`, article.ID)
+	rows, err := tx.QueryContext(ctx, `SELECT i.url, i.alt, i.after_paragraph,
+		COALESCE(c.credit, ''), COALESCE(c.credit_url, ''), COALESCE(c.license, ''), COALESCE(c.license_url, '')
+		FROM article_images i LEFT JOIN article_image_credits c ON c.article_image_id = i.id
+		WHERE i.article_id = ? AND i.status = 'ready' AND i.url <> '' ORDER BY i.after_paragraph, i.id`, article.ID)
 	if err != nil {
 		return fmt.Errorf("read inline images: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var image InlineImage
-		if err := rows.Scan(&image.URL, &image.Alt, &image.AfterParagraph); err != nil {
+		if err := rows.Scan(&image.URL, &image.Alt, &image.AfterParagraph, &image.Credit, &image.CreditURL, &image.License, &image.LicenseURL); err != nil {
 			return fmt.Errorf("scan inline image: %w", err)
 		}
 		article.InlineImages = append(article.InlineImages, image)

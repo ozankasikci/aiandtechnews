@@ -37,6 +37,14 @@ type InlineImage struct {
 	URL            string `json:"url"`
 	Alt            string `json:"alt"`
 	AfterParagraph int    `json:"afterParagraph"`
+	// Credit is set for a real photo ("Photo: Jane Doe / CC BY-SA 4.0, via
+	// Wikimedia Commons", "Image: WiCi") and links to CreditURL (the Commons
+	// file page or the maker's page); License and LicenseURL are for Commons
+	// photos. A generated illustration has none of them.
+	Credit     string `json:"credit,omitempty"`
+	CreditURL  string `json:"creditUrl,omitempty"`
+	License    string `json:"license,omitempty"`
+	LicenseURL string `json:"licenseUrl,omitempty"`
 }
 
 type Category struct {
