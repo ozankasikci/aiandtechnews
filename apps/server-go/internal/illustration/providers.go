@@ -45,6 +45,13 @@ const CollageRules = "This is the background for a photo collage: a photo of a p
 
 const anchorRules = "The attached style-reference images are style references only: match their technique, linework, shading and finish, but not their colours, and do not copy their subjects or composition."
 
+// ReferenceStyleRules replace the style and palette for an inline image: it
+// is drawn like the article's featured image, attached as a reference.
+const ReferenceStyleRules = "Style: the attached reference image is this article's featured illustration. Draw this new scene in exactly the same illustration style, so the two images clearly belong together: the same technique, linework, shading, texture, colour palette and lighting. It is a style reference only: do not copy its subject, characters, setting or composition, and use a different camera framing from it. A single drawn illustration: no photographs, photo cut-outs or collage."
+
+// referenceFileName is the style reference's attachment name for Codex.
+const referenceFileName = "style-reference-featured.jpg"
+
 // GenerateRequest is one generation attempt.
 type GenerateRequest struct {
 	Brief   Brief
@@ -54,6 +61,10 @@ type GenerateRequest struct {
 	Logos      []brands.Brand
 	Collage    bool
 	Correction string
+	// StyleReference is a JPEG whose look the image must match (an inline
+	// image's featured image). It replaces Style, Palette and the style's
+	// anchor images.
+	StyleReference []byte
 }
 
 // Provider generates one candidate image per call. The pipeline reviews it.
@@ -71,9 +82,13 @@ func BuildImagePrompt(request GenerateRequest) string {
 		prompt.WriteString(CollageRules + " ")
 	}
 	prompt.WriteString(request.Brief.Text())
-	prompt.WriteString(" Style: " + request.Style.Prompt)
-	if request.Palette.Colors != "" {
-		prompt.WriteString(" Colour palette: " + request.Palette.Colors + ".")
+	if request.StyleReference != nil {
+		prompt.WriteString(" " + ReferenceStyleRules)
+	} else {
+		prompt.WriteString(" Style: " + request.Style.Prompt)
+		if request.Palette.Colors != "" {
+			prompt.WriteString(" Colour palette: " + request.Palette.Colors + ".")
+		}
 	}
 	if request.Brief.Composition == CompositionSimple {
 		prompt.WriteString(" " + SimpleRules)
@@ -126,7 +141,14 @@ func (p *CodexProvider) Generate(ctx context.Context, request GenerateRequest) (
 	}
 	defer os.RemoveAll(dir)
 	var images []string
-	if p.anchors {
+	withAnchors := false
+	if request.StyleReference != nil {
+		path := filepath.Join(dir, referenceFileName)
+		if err := os.WriteFile(path, request.StyleReference, 0o600); err != nil {
+			return nil, err
+		}
+		images = append(images, path)
+	} else if p.anchors {
 		for i, anchor := range request.Style.Anchors {
 			path := filepath.Join(dir, fmt.Sprintf("style-reference-%d.jpg", i+1))
 			if err := os.WriteFile(path, anchor.Data, 0o600); err != nil {
@@ -142,12 +164,16 @@ func (p *CodexProvider) Generate(ctx context.Context, request GenerateRequest) (
 		}
 		images = append(images, path)
 	}
+	if request.StyleReference == nil {
+		// The anchor rules also cover the logo attachments.
+		withAnchors = len(images) > 0
+	}
 	outputPath := filepath.Join(dir, "featured.png")
 	output, err := p.runner.Run(ctx, CodexRun{
 		Dir:     dir,
 		Sandbox: "workspace-write",
 		Images:  images,
-		Prompt:  BuildCodexPrompt(request, len(images) > 0, outputPath),
+		Prompt:  BuildCodexPrompt(request, withAnchors, outputPath),
 	})
 	if err != nil {
 		return nil, err
@@ -186,5 +212,9 @@ func (p *GeminiProvider) Name() string  { return ProviderGemini }
 func (p *GeminiProvider) Attempts() int { return MaxGeminiAttempts }
 
 func (p *GeminiProvider) Generate(ctx context.Context, request GenerateRequest) ([]byte, error) {
-	return p.model.GenerateImage(ctx, "Create one original editorial illustration for an AI and technology news story. "+BuildImagePrompt(request), nil)
+	var reference *gemini.InlineImage
+	if request.StyleReference != nil {
+		reference = &gemini.InlineImage{MIMEType: "image/jpeg", Data: request.StyleReference}
+	}
+	return p.model.GenerateImage(ctx, "Create one original editorial illustration for an AI and technology news story. "+BuildImagePrompt(request), reference)
 }

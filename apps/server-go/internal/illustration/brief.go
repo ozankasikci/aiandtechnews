@@ -36,6 +36,9 @@ type Brief struct {
 	// pipeline picks one when it is missing or not allowed.
 	Shot         string        `json:"shot,omitempty"`
 	PublicFigure *PublicFigure `json:"public_figure"`
+	// Alt is one plain sentence describing the image, asked for only by
+	// the inline (in-article) brief.
+	Alt string `json:"alt,omitempty"`
 }
 
 // PublicFigure is a clearly identifiable, newsworthy person named in the
@@ -88,6 +91,10 @@ func ParseBrief(raw string, allowedStyles []string) (Brief, error) {
 	brief.Composition = strings.ToLower(strings.TrimSpace(brief.Composition))
 	brief.CompositionReason = strings.Join(strings.Fields(brief.CompositionReason), " ")
 	brief.Shot = strings.ToLower(strings.TrimSpace(brief.Shot))
+	brief.Alt = strings.Join(strings.Fields(brief.Alt), " ")
+	if len(brief.Alt) > maxBriefField {
+		return Brief{}, fmt.Errorf("%w: \"alt\" is longer than %d characters", ErrInvalidBrief, maxBriefField)
+	}
 	for i, id := range brief.Brands {
 		brief.Brands[i] = strings.ToLower(strings.TrimSpace(id))
 	}
@@ -139,16 +146,55 @@ func (b Brief) WantsCollage() bool { return b.PublicFigure != nil && b.PublicFig
 // image's address: its file name often names the person pictured. palettes
 // are the colour schemes the analyzer may choose from (none: no palette key).
 func BuildAnalyzePrompt(title, excerpt, imageURL string, catalog styles.Catalog, hasImage bool, palettes []styles.Palette, compositions []string, prefer string, shots []string, brandList []brands.Brand) string {
-	var styleLines strings.Builder
-	for _, style := range catalog.All() {
-		fmt.Fprintf(&styleLines, "- %q: %s Look: %s\n", style.Name, style.Summary, style.Prompt)
-	}
 	imageLine := "No source image is available; work from the headline and summary."
 	if hasImage {
 		imageLine = "The attached image is the news source's own image. Use it to understand the story, but do not describe it for copying: the new illustration must be original."
 		if imageURL != "" {
 			imageLine += fmt.Sprintf("\nSource image address (its file name may say who is pictured): %s", imageURL)
 		}
+	}
+	return fmt.Sprintf(`You are the art director of an AI and technology news site. Write the brief for an ORIGINAL featured illustration of this story.
+
+Headline: %s
+Summary: %s
+
+%s
+
+`, title, excerpt, imageLine) + analyzeKeys(catalog, palettes, compositions, prefer, shots, brandList, "")
+}
+
+// BuildInlineAnalyzePrompt asks for the brief of a second illustration that
+// sits inside the article body, next to section (the paragraphs around its
+// place). The headline is context only: the scene comes from the section, so
+// it differs from the featured image. hasImage says the featured image is
+// attached, so the analyzer can avoid repeating it. The image is drawn in the
+// featured image's style, so the style the brief names is not used.
+func BuildInlineAnalyzePrompt(title, section string, catalog styles.Catalog, hasImage bool, compositions, shots []string) string {
+	imageLine := "The article's featured illustration is not available."
+	if hasImage {
+		imageLine = "The attached image is the article's featured illustration, shown above the headline. The new image will be drawn in the same style, so do not describe its style; but it must show something different: do not repeat its subject, setting, characters or composition, and choose a different camera framing."
+	}
+	return fmt.Sprintf(`You are the art director of an AI and technology news site. The article below already has a featured illustration of its headline. Write the brief for a SECOND, ORIGINAL illustration placed inside the article body, next to the passage quoted below.
+
+Headline (context only): %s
+Passage:
+%s
+
+%s
+Build the scene on what this passage describes (a concrete detail, a consequence, the next step, the people or machines involved), not on the headline. Wherever the keys below say "the story", "the news" or "the headline", read "this passage". There will be no photo collage and no logos in this image.
+
+`, title, section, imageLine) + analyzeKeys(catalog, nil, compositions, "", shots, nil, inlineAltKey)
+}
+
+// inlineAltKey asks the inline brief for the image's alt text.
+const inlineAltKey = "- \"alt\": one plain sentence of at most 25 words saying what the image shows, for readers who cannot see it. No style, colour or camera words, no names of real people or companies.\n"
+
+// analyzeKeys is the part of an analyzer prompt that lists the answer's
+// keys and the rules for them. extraKeys are more key lines, in the same form.
+func analyzeKeys(catalog styles.Catalog, palettes []styles.Palette, compositions []string, prefer string, shots []string, brandList []brands.Brand, extraKeys string) string {
+	var styleLines strings.Builder
+	for _, style := range catalog.All() {
+		fmt.Fprintf(&styleLines, "- %q: %s Look: %s\n", style.Name, style.Summary, style.Prompt)
 	}
 	paletteKey := ""
 	if len(palettes) > 0 {
@@ -190,28 +236,21 @@ func BuildAnalyzePrompt(title, excerpt, imageURL string, catalog styles.Catalog,
 		}
 		brandKey = fmt.Sprintf("- \"brands\": a list of up to %d ids of the companies this story is centrally about, whose real logos will be placed in the image, chosen from: %s. Use [] when none of them is central.\n", MaxBrands, strings.TrimSuffix(lines.String(), ", "))
 	}
-	return fmt.Sprintf(`You are the art director of an AI and technology news site. Write the brief for an ORIGINAL featured illustration of this story.
-
-Headline: %s
-Summary: %s
-
-%s
-
-Return only a JSON object with exactly these keys:
+	return fmt.Sprintf(`Return only a JSON object with exactly these keys:
 - "scene": one or two sentences showing literally what happened in the story, as an action in progress with a visible result: the actual kinds of people, machines, products and places involved, and what they are doing. A reader must understand the news from the image alone. Never replace the story with a visual metaphor or symbol (no puzzles, bridges, ribbons, chess pieces or similar).
 - "foreground": one sentence, the main subject. For a "scene", the people and the action or reaction that carries the story: who is affected or acting, and their visible reaction (a gesture, a posture, an expression). For a "simple" image, the one object or machine the story is about.
 - "background": one sentence, the setting (for a "simple" image, a plain backdrop and at most two small supporting elements).
 - "mood": a few words, the emotional tone.
 - "style": exactly one of %s. Pick the style that fits this story best:
 %s- "style_reason": one short sentence on why that style fits.
-%s%s%s%s- "public_figure": null, or {"name": "...", "visible_in_source": true|false}. This field is separate from the illustration and is used to credit a real press photo. Set it when the headline or summary names a newsworthy public figure (such as a CEO, founder, prominent researcher or politician) who is part of the story, even if only quoted; use the most central one. Never set it for private individuals, anonymous people or crowds. "visible_in_source" is true when the attached image is a photo whose main subject is one clearly visible real person and the context (headline, summary, image file name) indicates that person is the named figure; you do not need to recognize the face. Otherwise false.
+%s%s%s%s%s- "public_figure": null, or {"name": "...", "visible_in_source": true|false}. This field is separate from the illustration and is used to credit a real press photo. Set it when the headline or summary names a newsworthy public figure (such as a CEO, founder, prominent researcher or politician) who is part of the story, even if only quoted; use the most central one. Never set it for private individuals, anonymous people or crowds. "visible_in_source" is true when the attached image is a photo whose main subject is one clearly visible real person and the context (headline, summary, image file name) indicates that person is the named figure; you do not need to recognize the face. Otherwise false.
 
 Rules for scene, foreground, background and mood:
 - Never ask for logos (except that the chosen brands' real logos will be added), readable text, letters, numbers, signs, screens with text, flags, national emblems or coats of arms. Do not write brand, product or company names; describe how a real product looks instead (shape, colours, materials).
 - Never ask for a real, recognizable person or a likeness; if people are needed, they are ordinary anonymous people (workers, engineers, judges, users) with natural expressions, never a specific real person.
 - No injury, violence or distress unless the summary states it.
 - Stay factual: depict only what the story supports.`,
-		title, excerpt, imageLine, quotedNames(catalog.Names()), styleLines.String(), paletteKey, compositionKey, shotKey, brandKey)
+		quotedNames(catalog.Names()), styleLines.String(), paletteKey, compositionKey, shotKey, brandKey, extraKeys)
 }
 
 // MaxBrands is how many brand logos one image may carry.
@@ -282,7 +321,7 @@ func quotedNames(names []string) string {
 
 // briefGeminiSchema is the Gemini responseSchema for a Brief. With palette
 // names it also requires a palette from them.
-func briefGeminiSchema(styleNames, paletteNames, compositions, shots, brandIDs []string) map[string]any {
+func briefGeminiSchema(styleNames, paletteNames, compositions, shots, brandIDs []string, withAlt bool) map[string]any {
 	str := map[string]any{"type": "STRING"}
 	schema := map[string]any{
 		"type": "OBJECT",
@@ -307,6 +346,9 @@ func briefGeminiSchema(styleNames, paletteNames, compositions, shots, brandIDs [
 	addEnumProperty(schema, "composition_reason", str, compositions)
 	addEnumProperty(schema, "shot", map[string]any{"type": "STRING", "enum": shots}, shots)
 	addEnumProperty(schema, "brands", map[string]any{"type": "ARRAY", "items": map[string]any{"type": "STRING", "enum": brandIDs}}, brandIDs)
+	if withAlt {
+		addEnumProperty(schema, "alt", str, []string{"alt"})
+	}
 	return schema
 }
 
@@ -320,7 +362,7 @@ func addEnumProperty(schema map[string]any, key string, property map[string]any,
 
 // briefJSONSchema is the JSON Schema passed to codex exec --output-schema.
 // With palette names it also requires a palette from them.
-func briefJSONSchema(styleNames, paletteNames, compositions, shots, brandIDs []string) ([]byte, error) {
+func briefJSONSchema(styleNames, paletteNames, compositions, shots, brandIDs []string, withAlt bool) ([]byte, error) {
 	str := map[string]any{"type": "string"}
 	schema := map[string]any{
 		"type":                 "object",
@@ -349,5 +391,8 @@ func briefJSONSchema(styleNames, paletteNames, compositions, shots, brandIDs []s
 	addEnumProperty(schema, "composition_reason", str, compositions)
 	addEnumProperty(schema, "shot", map[string]any{"type": "string", "enum": shots}, shots)
 	addEnumProperty(schema, "brands", map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": brandIDs}}, brandIDs)
+	if withAlt {
+		addEnumProperty(schema, "alt", str, []string{"alt"})
+	}
 	return json.Marshal(schema)
 }

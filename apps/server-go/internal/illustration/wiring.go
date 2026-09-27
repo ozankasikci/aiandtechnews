@@ -39,6 +39,7 @@ func BuildPipelineDeps(cfg PipelineConfig) PipelineDeps {
 	runner := &CodexRunner{Bin: cfg.CodexBin, NodeDir: cfg.CodexNodeDir, Timeout: cfg.CodexTimeout}
 	deps := PipelineDeps{
 		Reviewer: NewGeminiReviewer(cfg.Gemini),
+		Vision:   cfg.Gemini,
 		Styles:   catalog,
 		Brands:   brands.MustLoad(),
 		Store:    cfg.Store,

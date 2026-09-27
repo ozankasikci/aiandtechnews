@@ -34,6 +34,18 @@ type AnalyzeInput struct {
 	Brands []brands.Brand
 	// Styles, when set, limits the styles the brief may choose.
 	Styles *styles.Catalog
+	// Section, when set, asks for an inline (in-article) brief of this
+	// passage instead of a featured one; Excerpt is then unused and Source
+	// is the article's featured image.
+	Section string
+}
+
+// prompt is the analyzer prompt for this input.
+func (input AnalyzeInput) prompt(catalog styles.Catalog) string {
+	if input.Section != "" {
+		return BuildInlineAnalyzePrompt(input.Title, input.Section, catalog, input.Source != nil, input.Compositions, input.Shots)
+	}
+	return BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition, input.Shots, input.Brands)
 }
 
 func (input AnalyzeInput) catalog(fallback styles.Catalog) styles.Catalog {
@@ -72,11 +84,11 @@ func (a *GeminiAnalyzer) Analyze(ctx context.Context, input AnalyzeInput) (Brief
 	ctx, cancel := context.WithTimeout(ctx, analyzeTimeout)
 	defer cancel()
 	catalog := input.catalog(a.catalog)
-	prompt := BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition, input.Shots, input.Brands)
+	prompt := input.prompt(catalog)
 	var raw string
 	var err error
 	if input.Source != nil {
-		raw, err = a.model.ReviewImage(ctx, prompt, input.Source, briefGeminiSchema(catalog.Names(), paletteNames(input.Palettes), input.Compositions, input.Shots, brandIDs(input.Brands)))
+		raw, err = a.model.ReviewImage(ctx, prompt, input.Source, briefGeminiSchema(catalog.Names(), paletteNames(input.Palettes), input.Compositions, input.Shots, brandIDs(input.Brands), input.Section != ""))
 	} else {
 		raw, err = a.model.GenerateJSON(ctx, prompt)
 	}
@@ -107,7 +119,7 @@ func (a *CodexAnalyzer) Analyze(ctx context.Context, input AnalyzeInput) (Brief,
 	}
 	defer os.RemoveAll(dir)
 	catalog := input.catalog(a.catalog)
-	schema, err := briefJSONSchema(catalog.Names(), paletteNames(input.Palettes), input.Compositions, input.Shots, brandIDs(input.Brands))
+	schema, err := briefJSONSchema(catalog.Names(), paletteNames(input.Palettes), input.Compositions, input.Shots, brandIDs(input.Brands), input.Section != "")
 	if err != nil {
 		return Brief{}, err
 	}
@@ -120,7 +132,7 @@ func (a *CodexAnalyzer) Analyze(ctx context.Context, input AnalyzeInput) (Brief,
 		Dir:     dir,
 		Sandbox: "read-only",
 		Extra:   []string{"--output-schema", schemaPath, "-o", answerPath},
-		Prompt:  BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition, input.Shots, input.Brands) + "\n\nDo not run any commands. Answer with the JSON object only.",
+		Prompt:  input.prompt(catalog) + "\n\nDo not run any commands. Answer with the JSON object only.",
 	}
 	if input.Source != nil {
 		sourcePath := filepath.Join(dir, "source.jpg")

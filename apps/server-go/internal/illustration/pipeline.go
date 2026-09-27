@@ -57,14 +57,23 @@ type PipelineDeps struct {
 	Brands    brands.Catalog // logos the brief may ask for; empty disables logos
 	Store     ImageStore     // only Illustrate uses it
 	History   History        // only Illustrate uses it; nil disables variety
-	HTTP      *http.Client
-	Logger    *slog.Logger
-	Now       func() time.Time
+	// Vision checks that an inline image's style reference is one of our
+	// drawn illustrations; nil makes every inline image fail that check.
+	Vision VisionModel
+	HTTP   *http.Client
+	Logger *slog.Logger
+	Now    func() time.Time
 }
 
 // Pipeline implements publisher.Illustrator: analyze the story, then try
 // each provider of the chain in order until one yields a compliant image.
-type Pipeline struct{ deps PipelineDeps }
+type Pipeline struct {
+	deps PipelineDeps
+	// busy lets one image (featured or inline) be made at a time, so the
+	// background inline worker never runs Codex image generations alongside
+	// the publisher's.
+	busy chan struct{}
+}
 
 func NewPipeline(deps PipelineDeps) *Pipeline {
 	if deps.Now == nil {
@@ -73,8 +82,20 @@ func NewPipeline(deps PipelineDeps) *Pipeline {
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	return &Pipeline{deps: deps}
+	return &Pipeline{deps: deps, busy: make(chan struct{}, 1)}
 }
+
+// acquire waits for the pipeline to be free; release frees it.
+func (p *Pipeline) acquire(ctx context.Context) error {
+	select {
+	case p.busy <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (p *Pipeline) release() { <-p.busy }
 
 // Attempt records one generation or step outcome for logs and reports.
 type Attempt struct {
@@ -159,6 +180,10 @@ func (p *Pipeline) recordChoice(ctx context.Context, report Report) {
 
 // Produce runs the pipeline without storing anything.
 func (p *Pipeline) Produce(ctx context.Context, request publisher.IllustrationRequest) (Result, error) {
+	if err := p.acquire(ctx); err != nil {
+		return Result{}, err
+	}
+	defer p.release()
 	started := p.deps.Now()
 	run := &pipelineRun{p: p, request: request, report: &Report{}}
 	image, err := run.produce(ctx)
@@ -202,6 +227,8 @@ type pipelineRun struct {
 	brands  []brands.Brand
 	// allowedStyles are the styles offered to the analyzer (for fallbacks).
 	allowedStyles styles.Catalog
+	// styleReference is the featured image an inline image is drawn like.
+	styleReference []byte
 }
 
 func (r *pipelineRun) fail(provider string, attempt int, started time.Time, err error) {
@@ -295,6 +322,13 @@ func (r *pipelineRun) analyze(ctx context.Context) *Brief {
 			input.Source = normalized
 		}
 	}
+	return r.runAnalyzers(ctx, input)
+}
+
+// runAnalyzers tries each analyzer in order and returns the first valid
+// brief, with its palette, composition, framing and brands settled.
+func (r *pipelineRun) runAnalyzers(ctx context.Context, input AnalyzeInput) *Brief {
+	deps := r.p.deps
 	for _, analyzer := range deps.Analyzers {
 		started := deps.Now()
 		brief, err := analyzer.Analyze(ctx, input)
@@ -381,7 +415,7 @@ func (r *pipelineRun) generate(ctx context.Context, provider Provider, brief Bri
 	for attempt := 1; attempt <= provider.Attempts(); attempt++ {
 		started := deps.Now()
 		palette, _ := deps.Styles.Palette(brief.Palette)
-		raw, err := provider.Generate(ctx, GenerateRequest{Brief: brief, Style: style, Palette: palette, Logos: logos, Collage: person != nil || parts != nil, Correction: correction})
+		raw, err := provider.Generate(ctx, GenerateRequest{Brief: brief, Style: style, Palette: palette, Logos: logos, Collage: person != nil || parts != nil, Correction: correction, StyleReference: r.styleReference})
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, false
