@@ -108,7 +108,7 @@ export default function SearchPage() {
             type="text"
             value={query}
             onChange={handleChange}
-            placeholder="Search TechNews..."
+            placeholder="Search AI & Tech News..."
             autoFocus
             className="w-full bg-bg-card border border-border rounded-sm py-4 pl-12 pr-4 text-lg text-white placeholder:text-text-muted focus:outline-none focus:border-accent-purple transition-colors"
           />

@@ -51,7 +51,7 @@ test("the figure is a lazy full-width 16:9 image with its alt and a grey credit"
     assert.ok(figure.includes(token), token);
   }
   assert.match(figure, new RegExp(`<figcaption[^>]*>${INLINE_IMAGE_CAPTION}</figcaption>`));
-  assert.equal(INLINE_IMAGE_CAPTION, "Illustration: TechNews");
+  assert.equal(INLINE_IMAGE_CAPTION, "Illustration: AI & Tech News");
 });
 
 test("only well-formed API images are kept", () => {

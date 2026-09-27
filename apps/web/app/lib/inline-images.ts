@@ -5,7 +5,7 @@ import type { InlineImage } from "../data/articles";
 // an image after paragraph 5 ends up below the read-next card that
 // splitAfterParagraph(body, 3) puts after paragraph 3.
 
-export const INLINE_IMAGE_CAPTION = "Illustration: TechNews";
+export const INLINE_IMAGE_CAPTION = "Illustration: AI & Tech News";
 
 function escapeAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
