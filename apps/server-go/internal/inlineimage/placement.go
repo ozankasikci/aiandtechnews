@@ -12,8 +12,13 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
 )
 
-// MinParagraphs is the shortest body, in <p> blocks, that gets an inline image.
-const MinParagraphs = 6
+// MinParagraphs is the shortest body, in <p> blocks, that gets a generated
+// inline illustration; MinPhotoParagraphs is the shortest that gets a real
+// photo, which is worth showing even in a short story.
+const (
+	MinParagraphs      = 6
+	MinPhotoParagraphs = 4
+)
 
 // minSlot keeps the image below the read-next card the website shows after
 // paragraph 3.
@@ -71,6 +76,20 @@ func Slot(body string) (slot int, ok bool) {
 		slot = beforeSecondHeading
 	}
 	return min(max(slot, minSlot), paragraphs-2), true
+}
+
+// PhotoSlot is Slot for a real photo: the same place in a body of
+// MinParagraphs or more, and in a shorter one (MinPhotoParagraphs or more)
+// two paragraphs before the end, never above paragraph 2.
+func PhotoSlot(body string) (slot int, ok bool) {
+	if slot, ok := Slot(body); ok {
+		return slot, true
+	}
+	paragraphs := len(Paragraphs(body))
+	if paragraphs < MinPhotoParagraphs {
+		return 0, false
+	}
+	return max(paragraphs-2, 2), true
 }
 
 // SectionText is the passage the image illustrates: the stripped text of

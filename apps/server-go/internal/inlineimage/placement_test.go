@@ -87,3 +87,20 @@ func TestParagraphsSkipHeadings(t *testing.T) {
 		t.Fatalf("Paragraphs = %q", got)
 	}
 }
+
+func TestPhotoSlotReachesShorterArticles(t *testing.T) {
+	body := func(n int) string { return strings.Repeat("<p>x</p>", n) }
+	for n, want := range map[int]int{3: 0, 4: 2, 5: 3} {
+		slot, ok := inlineimage.PhotoSlot(body(n))
+		if slot != want || ok != (want > 0) {
+			t.Errorf("%d paragraphs: slot %d, %v; want %d", n, slot, ok, want)
+		}
+		if _, ok := inlineimage.Slot(body(n)); ok {
+			t.Errorf("%d paragraphs must stay too short for an illustration", n)
+		}
+	}
+	long, _ := inlineimage.Slot(body(8))
+	if slot, ok := inlineimage.PhotoSlot(body(8)); !ok || slot != long {
+		t.Errorf("long body: photo slot %d, want the illustration slot %d", slot, long)
+	}
+}

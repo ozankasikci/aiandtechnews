@@ -125,26 +125,45 @@ func (w *Worker) RunOnce(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	for _, article := range articles {
-		slot, ok := Slot(article.Content)
+		photoSlot, ok := PhotoSlot(article.Content)
 		if !ok {
 			continue
 		}
-		if w.ownPrefix != "" && !strings.HasPrefix(article.FeaturedImage, w.ownPrefix) {
-			if err := w.fail(ctx, article, "featured image is not one of ours: "+article.FeaturedImage, MaxAttempts); err != nil {
-				return false, err
+		if !w.searchesPhotos() {
+			// Without a photo search only an illustration is possible:
+			// pass over what can't get one without spending this run.
+			if _, long := Slot(article.Content); !long {
+				continue
 			}
-			continue
+			if !w.ours(article) {
+				if err := w.fail(ctx, article, "featured image is not one of ours: "+article.FeaturedImage, MaxAttempts); err != nil {
+					return false, err
+				}
+				continue
+			}
 		}
-		return true, w.illustrate(ctx, article, slot)
+		return true, w.illustrate(ctx, article, photoSlot)
 	}
 	return false, nil
 }
 
-func (w *Worker) illustrate(ctx context.Context, article Article, slot int) error {
-	logger := w.logger.With("article", article.ID, "slug", article.Slug, "after_paragraph", slot)
-	if done, err := w.tryPhoto(ctx, logger, article, slot); done || err != nil {
+// illustrate tries a real photo first. Without one, a body long enough for a
+// generated illustration whose featured image is ours gets one; any other
+// article is marked done, so it is not searched again.
+func (w *Worker) illustrate(ctx context.Context, article Article, photoSlot int) error {
+	logger := w.logger.With("article", article.ID, "slug", article.Slug, "after_paragraph", photoSlot)
+	if done, err := w.tryPhoto(ctx, logger, article, photoSlot); done || err != nil {
 		return err
 	}
+	slot, ok := Slot(article.Content)
+	if !ok {
+		logger.InfoContext(ctx, "inline image skipped", "reason", "no real photo and too short for an illustration")
+		return w.fail(ctx, article, "no real photo, and too short for a generated illustration", MaxAttempts)
+	}
+	if !w.ours(article) {
+		return w.fail(ctx, article, "featured image is not one of ours: "+article.FeaturedImage, MaxAttempts)
+	}
+	logger = w.logger.With("article", article.ID, "slug", article.Slug, "after_paragraph", slot)
 	result, err := w.illustrator.IllustrateInline(ctx, illustration.InlineRequest{
 		Slug: article.Slug, Title: article.Title, Section: SectionText(article.Content, slot),
 		FeaturedImageURL: article.FeaturedImage, SourceImageURL: article.SourceImage,
@@ -174,6 +193,14 @@ func (w *Worker) illustrate(ctx context.Context, article Article, slot int) erro
 	}
 	logger.InfoContext(ctx, "inline image added", "path", "generated", "url", result.URL)
 	return nil
+}
+
+func (w *Worker) searchesPhotos() bool { return w.photos != nil && w.photoStore != nil }
+
+// ours reports whether the article's featured image is one of our own
+// illustrations, the only kind an inline illustration may copy the style of.
+func (w *Worker) ours(article Article) bool {
+	return w.ownPrefix == "" || strings.HasPrefix(article.FeaturedImage, w.ownPrefix)
 }
 
 // tryPhoto looks for and stores a real photo. done is true when the article

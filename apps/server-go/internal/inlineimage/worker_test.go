@@ -253,3 +253,27 @@ func TestWorkerDiscardsThePhotoWhenItCannotBeRecorded(t *testing.T) {
 		t.Fatalf("err %v discarded %t", err, photos.discarded)
 	}
 }
+
+// A five-paragraph story is too short for an illustration but still gets a
+// real photo, two paragraphs before the end; without one it is marked done.
+func TestWorkerGivesShortArticlesOnlyRealPhotos(t *testing.T) {
+	short := photoArticle()
+	short.Content = body("p p p p p")
+	store := &fakeStore{articles: []inlineimage.Article{short}}
+	illustrator := &fakeIllustrator{}
+	finder := &fakeFinder{result: realphoto.Result{Found: true, Image: []byte("photo"), Alt: "The WiCi One.", Credit: photoCredit}}
+	if _, err := newWorker(store, illustrator).WithPhotos(finder, &fakePhotoStore{}).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(illustrator.requests) != 0 || len(store.marks) != 1 || !store.marks[0].ready || store.marks[0].after != 3 {
+		t.Fatalf("marks = %+v, drawings = %d", store.marks, len(illustrator.requests))
+	}
+
+	store = &fakeStore{articles: []inlineimage.Article{short}}
+	if _, err := newWorker(store, illustrator).WithPhotos(&fakeFinder{}, &fakePhotoStore{}).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(illustrator.requests) != 0 || len(store.marks) != 1 || store.marks[0].ready || store.marks[0].attempts != inlineimage.MaxAttempts {
+		t.Fatalf("no photo: marks = %+v, drawings = %d", store.marks, len(illustrator.requests))
+	}
+}
