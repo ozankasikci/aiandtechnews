@@ -5,7 +5,8 @@
 //	go run ./cmd/subhead-backfill -db /path/technews.db            # dry run
 //	go run ./cmd/subhead-backfill -db /path/technews.db -write     # update
 //
-// It reads GEMINI_API_KEY and GEMINI_TEXT_MODEL from the environment. Back up
+// It reads GEMINI_API_KEY and GEMINI_TEXT_MODEL (default: the API's text
+// model) from the environment. Back up
 // the database before running with -write.
 package main
 
@@ -39,8 +40,8 @@ func main() {
 	slug := flags.String("slug", "", "only this article")
 	minParagraphs := flags.Int("min-paragraphs", 5, "skip articles with fewer paragraphs")
 	_ = flags.Parse(os.Args[1:])
-	if getenv("GEMINI_API_KEY") == "" || getenv("GEMINI_TEXT_MODEL") == "" {
-		fail(errors.New("GEMINI_API_KEY and GEMINI_TEXT_MODEL are required"))
+	if getenv("GEMINI_API_KEY") == "" {
+		fail(errors.New("GEMINI_API_KEY is required"))
 	}
 	ctx := context.Background()
 	db, err := database.OpenExisting(ctx, *dbPath, !*write)
