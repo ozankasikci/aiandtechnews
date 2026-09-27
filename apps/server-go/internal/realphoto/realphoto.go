@@ -41,6 +41,13 @@ type TextModel interface {
 	GenerateJSON(ctx context.Context, prompt string) (string, error)
 }
 
+// Searcher answers a prompt using a web search (Gemini's Google Search
+// grounding). It finds the maker's real product page when the source does
+// not link to it.
+type Searcher interface {
+	SearchText(ctx context.Context, prompt string) (string, error)
+}
+
 // VisionModel is the Gemini vision call (JSON output constrained by schema).
 type VisionModel interface {
 	ReviewImage(ctx context.Context, prompt string, jpeg []byte, schema map[string]any) (string, error)
@@ -104,6 +111,7 @@ type Finder struct {
 	vision VisionModel
 	http   *http.Client
 	logger *slog.Logger
+	search Searcher // nil: no product-page lookup
 	// commonsAPI is the MediaWiki API endpoint (overridable in tests).
 	commonsAPI string
 	now        func() time.Time
@@ -122,6 +130,12 @@ func NewFinder(text TextModel, vision VisionModel, client *http.Client, logger *
 }
 
 // WithCommonsAPI points the Finder at another MediaWiki API (for tests).
+// WithSearch lets the official step look up the maker's product page.
+func (f *Finder) WithSearch(searcher Searcher) *Finder {
+	f.search = searcher
+	return f
+}
+
 func (f *Finder) WithCommonsAPI(endpoint string) *Finder {
 	f.commonsAPI = endpoint
 	return f

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,12 +43,13 @@ type Link struct {
 // page URL and the maker's name for the credit.
 func (f *Finder) official(ctx context.Context, request Request, plan Plan) ([]Candidate, string, string, error) {
 	candidates, pageURL, maker, err := f.officialFromSource(ctx, request, plan)
-	if err == nil || len(plan.OfficialPages) == 0 || ctx.Err() != nil {
+	if err == nil || ctx.Err() != nil {
 		return candidates, pageURL, maker, err
 	}
-	// The source links to no maker site: try the maker's own pages the
-	// planner named, kept only if they stay on the maker's domain.
-	for _, page := range plan.OfficialPages {
+	// The source links to no maker site: try the maker's own pages, found by
+	// a web search and then the planner's suggestions, kept only while they
+	// stay on the maker's domain.
+	for _, page := range f.makerPages(ctx, plan) {
 		fetched, fetchErr := f.getPage(ctx, page)
 		if fetchErr != nil || !onMakerDomain(fetched.FinalURL, plan.MakerDomain) {
 			continue
@@ -63,6 +65,44 @@ func (f *Finder) official(ctx context.Context, request Request, plan Plan) ([]Ca
 		err = fmt.Errorf("%w; maker page %s: %v", err, fetched.FinalURL, imagesErr)
 	}
 	return nil, "", "", err
+}
+
+// makerPagePrompt asks a grounded search for the maker's own pages.
+const makerPagePrompt = `Use Google Search to find the official page on %s for %s: its product page, or %s's own announcement of it. Reply with up to 2 full URLs on %s, one per line, and nothing else. If there is none, reply NONE.`
+
+var bareURL = regexp.MustCompile(`https://[^\s<>()"'\]\[]+`)
+
+// makerPages is where to look for an official image when the source links
+// to no maker site: pages a web search finds on the maker's domain, then the
+// planner's suggestions, at most 3, each on the maker's own domain.
+func (f *Finder) makerPages(ctx context.Context, plan Plan) []string {
+	if plan.MakerDomain == "" || plan.Kind == "person" {
+		return nil
+	}
+	var pages []string
+	add := func(page string) {
+		page = strings.TrimRight(page, ".,;:!?")
+		if len(pages) < 3 && onMakerDomain(page, plan.MakerDomain) && !slices.Contains(pages, page) {
+			pages = append(pages, page)
+		}
+	}
+	if f.search != nil {
+		maker := plan.Maker
+		if maker == "" {
+			maker = plan.MakerDomain
+		}
+		answer, err := f.search.SearchText(ctx, fmt.Sprintf(makerPagePrompt, plan.MakerDomain, plan.Subject, maker, plan.MakerDomain))
+		if err != nil {
+			f.logger.WarnContext(ctx, "maker page search failed", "subject", plan.Subject, "error", err)
+		}
+		for _, page := range bareURL.FindAllString(answer, -1) {
+			add(page)
+		}
+	}
+	for _, page := range plan.OfficialPages {
+		add(page)
+	}
+	return pages
 }
 
 // officialFromSource follows the source page's link to the maker's site.

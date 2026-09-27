@@ -198,6 +198,34 @@ func (c *Client) GenerateJSON(ctx context.Context, prompt string) (string, error
 	return strings.TrimSpace(text.String()), nil
 }
 
+// SearchText answers a text prompt with Google Search grounding, using the
+// vision model (Flash), and returns the joined text. Grounding cannot be
+// combined with JSON output, so callers parse plain text.
+func (c *Client) SearchText(ctx context.Context, prompt string) (string, error) {
+	payload := map[string]any{
+		"contents":         []map[string]any{{"parts": []part{{Text: prompt}}}},
+		"tools":            []map[string]any{{"google_search": map[string]any{}}},
+		"generationConfig": map[string]any{"maxOutputTokens": 1024, "temperature": 0.2},
+	}
+	ctx, cancel := context.WithTimeout(ctx, textTimeout)
+	defer cancel()
+	var response generateResponse
+	if err := c.generate(ctx, c.visionModel, payload, &response); err != nil {
+		return "", err
+	}
+	if len(response.Candidates) == 0 {
+		return "", ErrEmptyResponse
+	}
+	var text strings.Builder
+	for _, p := range response.Candidates[0].Content.Parts {
+		text.WriteString(p.Text)
+	}
+	if strings.TrimSpace(text.String()) == "" {
+		return "", ErrEmptyResponse
+	}
+	return strings.TrimSpace(text.String()), nil
+}
+
 // GenerateImage ports requestIllustration: 16:9, c.imageSize (default 2K), text+image modalities,
 // optional inline reference. Returns the first inline image's bytes.
 func (c *Client) GenerateImage(ctx context.Context, prompt string, reference *InlineImage) ([]byte, error) {

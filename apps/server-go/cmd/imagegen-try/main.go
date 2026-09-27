@@ -152,7 +152,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 
 	var photos *realphoto.Finder
 	if !*noPhotos {
-		photos = realphoto.NewFinder(geminiClient, geminiClient, illustration.NewReferenceClient(), logger)
+		photos = realphoto.NewFinder(geminiClient, geminiClient, illustration.NewReferenceClient(), logger).WithSearch(geminiClient)
 	}
 	if *latest > 0 {
 		return runInlineLatest(ctx, photos, *latest, *dbPath, *outDir, getenv)

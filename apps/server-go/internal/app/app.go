@@ -232,7 +232,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			// Shares the publisher's pipeline, which makes one image at a time.
 			// A real photo (Wikimedia Commons, then the maker's official
 			// image) is preferred; the illustration is the fallback.
-			photos := realphoto.NewFinder(geminiClient, geminiClient, illustration.NewReferenceClient(), logger)
+			photos := realphoto.NewFinder(geminiClient, geminiClient, illustration.NewReferenceClient(), logger).WithSearch(geminiClient)
 			inlineImages := inlineimage.NewWorker(inlineimage.NewSQLiteStore(db, now), illustrator, now, logger,
 				inlineimage.OwnImagePrefix(cfg.S3PublicURL, cfg.S3Prefix)).WithPhotos(photos, illustrator)
 			logger.Info("inline images", "interval", cfg.InlineImagesInterval)

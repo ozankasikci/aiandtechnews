@@ -1,6 +1,10 @@
 package realphoto
 
-import "testing"
+import (
+	"context"
+	"slices"
+	"testing"
+)
 
 func TestVerdictRejectsSmallSubjectsAndOtherBranding(t *testing.T) {
 	good := Verdict{Match: MatchExact, Photographic: true, Prominent: true, Quality: MinQuality}
@@ -36,5 +40,23 @@ func TestParsePlanKeepsOnlyMakerPagesOnTheMakersDomain(t *testing.T) {
 	}
 	if onMakerDomain("https://engadget.com/x", "engadget.com") {
 		t.Fatal("a news site can never be a maker's site")
+	}
+}
+
+type fixedSearch struct{ answer string }
+
+func (s fixedSearch) SearchText(context.Context, string) (string, error) { return s.answer, nil }
+
+func TestMakerPagesComeFromSearchOnTheMakersDomain(t *testing.T) {
+	f := NewFinder(nil, nil, nil, nil).WithSearch(fixedSearch{"Here you go:\nhttps://www.nvidia.com/en-us/products/rtx-pro-6000/.\nhttps://www.engadget.com/nvidia\nhttps://nvidianews.nvidia.com/news/rtx-pro"})
+	plan := Plan{Subject: "RTX PRO 6000", Maker: "NVIDIA", MakerDomain: "nvidia.com", OfficialPages: []string{"https://www.nvidia.com/guess/"}}
+	got := f.makerPages(context.Background(), plan)
+	want := []string{"https://www.nvidia.com/en-us/products/rtx-pro-6000/", "https://nvidianews.nvidia.com/news/rtx-pro", "https://www.nvidia.com/guess/"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("pages = %v", got)
+	}
+	plan.Kind = "person"
+	if pages := f.makerPages(context.Background(), plan); len(pages) != 0 {
+		t.Fatalf("a person's story must not look up maker pages: %v", pages)
 	}
 }
