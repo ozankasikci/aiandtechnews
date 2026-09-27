@@ -70,11 +70,14 @@ export function unseenFirst<T extends { slug: string }>(picks: T[], visited: str
 }
 
 // Where the mid-article read-next card goes: after paragraph n (0: nowhere).
-// It sits at a section break (just before a subheading) when one is free,
-// otherwise as close to paragraph 3 as it can. It never goes after a
-// section's first paragraph, which would cut the heading off from its text,
-// and it keeps at least two paragraphs between itself and an illustration.
-// Two paragraphs must follow it, like splitAfterParagraph requires.
+// It sits just before the last section (above the last subheading, or two
+// paragraphs from the end without one), so the story's opening reads
+// uninterrupted and readers still meet it before they finish. It never goes
+// above paragraph 3, never after a section's first paragraph (which would cut
+// the heading off from its text), keeps at least two paragraphs between itself
+// and an illustration, and needs two paragraphs after it, like
+// splitAfterParagraph requires. When the ideal spot breaks a rule it takes the
+// nearest one that doesn't.
 export function readNextSlot(html: string): number {
   const blocks = html.match(/<p>|<h2>|<figure/g) ?? [];
   const paragraphs: { prev: string; next: string }[] = [];
@@ -83,12 +86,20 @@ export function readNextSlot(html: string): number {
     if (block === "<p>") paragraphs.push({ prev: blocks[i - 1] ?? "", next: blocks[i + 1] ?? "" });
     if (block === "<figure") figuresAfter.push(paragraphs.length);
   });
+  const last = paragraphs.length - 2;
+  let target = last;
+  for (let n = last; n >= 1; n--) {
+    if (paragraphs[n - 1]?.next === "<h2>") {
+      target = n;
+      break;
+    }
+  }
   let best = 0;
   let bestScore = Infinity;
-  for (let n = 2; n <= paragraphs.length - 2; n++) {
+  for (let n = 3; n <= last; n++) {
     const { prev, next } = paragraphs[n - 1];
     if (prev === "<h2>" || figuresAfter.some((f) => Math.abs(f - n) < 2)) continue;
-    const score = next === "<h2>" ? 0 : Math.abs(n - 3) + 1;
+    const score = Math.abs(n - target) + (next === "<h2>" ? 0 : 0.5);
     if (score < bestScore) {
       best = n;
       bestScore = score;

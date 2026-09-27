@@ -74,16 +74,19 @@ test("the article page hands its picks to the read-next component for the card a
   assert.match(component, /Keep reading/);
 });
 
-test("the read-next card sits at a section break, never splits a section's first paragraph off, and keeps clear of illustrations", () => {
+test("the read-next card sits before the last section, never splits a section's first paragraph off, and keeps clear of illustrations", () => {
   const fig = '<figure class="my-8"><img src="x"></figure>';
-  // WiCi: the card used to land after "Hardware"'s first paragraph, one paragraph above the image.
-  assert.equal(readNextSlot(`<p>1</p><p>2</p><h2>A</h2><p>3</p><p>4</p>${fig}<h2>B</h2><p>5</p><p>6</p><h2>C</h2><p>7</p><p>8</p><p>9</p>`), 2);
-  // No subheadings: after paragraph 3, as before.
-  assert.equal(readNextSlot("<p>1</p><p>2</p><p>3</p><p>4</p><p>5</p><p>6</p>"), 3);
-  // No subheadings, image after 4: 3 and 5 are too close, 2 is the nearest clear spot.
-  assert.equal(readNextSlot(`<p>1</p><p>2</p><p>3</p><p>4</p>${fig}<p>5</p><p>6</p><p>7</p><p>8</p>`), 2);
-  // A break before a later heading wins over the middle of the first section.
+  // WiCi: right above the last subheading.
+  assert.equal(readNextSlot(`<p>1</p><p>2</p><h2>A</h2><p>3</p><p>4</p>${fig}<h2>B</h2><p>5</p><p>6</p><h2>C</h2><p>7</p><p>8</p><p>9</p>`), 6);
+  // No subheadings: two paragraphs before the end.
+  assert.equal(readNextSlot("<p>1</p><p>2</p><p>3</p><p>4</p><p>5</p><p>6</p>"), 4);
+  assert.equal(readNextSlot(`<p>1</p><p>2</p><p>3</p><p>4</p>${fig}<p>5</p><p>6</p><p>7</p><p>8</p>`), 6);
+  // One subheading: the break above it.
   assert.equal(readNextSlot("<p>1</p><p>2</p><p>3</p><p>4</p><h2>A</h2><p>5</p><p>6</p><p>7</p>"), 4);
-  // Too short for a card with two paragraphs after it.
-  assert.equal(readNextSlot("<p>1</p><p>2</p><p>3</p>"), 0);
+  // The last break is next to the image, and the paragraph after it opens a section: the nearest clear spot.
+  assert.equal(readNextSlot(`<p>1</p><p>2</p><p>3</p><p>4</p><p>5</p>${fig}<h2>A</h2><p>6</p><p>7</p><p>8</p>`), 3);
+  // Never above paragraph 3, and two paragraphs must follow it.
+  assert.equal(readNextSlot("<p>1</p><p>2</p><p>3</p><h2>A</h2><p>4</p><p>5</p>"), 3);
+  assert.equal(readNextSlot("<p>1</p><p>2</p><h2>A</h2><p>3</p><p>4</p><p>5</p>"), 0);
+  assert.equal(readNextSlot("<p>1</p><p>2</p><p>3</p><p>4</p>"), 0);
 });
