@@ -41,6 +41,32 @@ type Link struct {
 // verifies the big images on it. It returns the candidates, the official
 // page URL and the maker's name for the credit.
 func (f *Finder) official(ctx context.Context, request Request, plan Plan) ([]Candidate, string, string, error) {
+	candidates, pageURL, maker, err := f.officialFromSource(ctx, request, plan)
+	if err == nil || len(plan.OfficialPages) == 0 || ctx.Err() != nil {
+		return candidates, pageURL, maker, err
+	}
+	// The source links to no maker site: try the maker's own pages the
+	// planner named, kept only if they stay on the maker's domain.
+	for _, page := range plan.OfficialPages {
+		fetched, fetchErr := f.getPage(ctx, page)
+		if fetchErr != nil || !onMakerDomain(fetched.FinalURL, plan.MakerDomain) {
+			continue
+		}
+		name := plan.Maker
+		if name == "" {
+			name = plan.MakerDomain
+		}
+		found, imagesErr := f.officialImages(ctx, request, plan, fetched.Body, fetched.FinalURL)
+		if imagesErr == nil {
+			return found, fetched.FinalURL, name, nil
+		}
+		err = fmt.Errorf("%w; maker page %s: %v", err, fetched.FinalURL, imagesErr)
+	}
+	return nil, "", "", err
+}
+
+// officialFromSource follows the source page's link to the maker's site.
+func (f *Finder) officialFromSource(ctx context.Context, request Request, plan Plan) ([]Candidate, string, string, error) {
 	if strings.TrimSpace(request.SourceURL) == "" {
 		return nil, "", "", errors.New("the article has no source page")
 	}
@@ -76,12 +102,19 @@ func (f *Finder) official(ctx context.Context, request Request, plan Plan) ([]Ca
 	if sameSite(pageURL, request.SourceURL) || blockedSite(pageURL) {
 		return nil, pageURL, maker, errors.New("official link redirected to a news, social or shop site")
 	}
+	candidates, err := f.officialImages(ctx, request, plan, page.Body, pageURL)
+	return candidates, pageURL, maker, err
+}
+
+// officialImages downloads, measures and verifies the big images on an
+// official page.
+func (f *Finder) officialImages(ctx context.Context, request Request, plan Plan, body []byte, pageURL string) ([]Candidate, error) {
 	var candidates []Candidate
-	for _, imageURL := range PageImages(page.Body, pageURL) {
+	for _, imageURL := range PageImages(body, pageURL) {
 		candidates = append(candidates, Candidate{Source: KindOfficial, ImageURL: imageURL, PageURL: pageURL})
 	}
 	if len(candidates) == 0 {
-		return nil, pageURL, maker, errors.New("the official page has no usable image")
+		return nil, errors.New("the official page has no usable image")
 	}
 	// Download to measure; drop the small or wrongly shaped ones before any
 	// vision check.
@@ -112,7 +145,7 @@ func (f *Finder) official(ctx context.Context, request Request, plan Plan) ([]Ca
 		fitting++
 	}
 	f.verifyAll(ctx, plan, request, KindOfficial, candidates)
-	return candidates, pageURL, maker, nil
+	return candidates, nil
 }
 
 // readTitles fills in the linked pages' titles, a few at a time; a page

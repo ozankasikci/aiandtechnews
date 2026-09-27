@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -20,7 +21,12 @@ type Plan struct {
 	Kind           string   `json:"kind,omitempty"`
 	Queries        []string `json:"queries"`
 	Maker          string   `json:"maker"`
-	Reason         string   `json:"reason,omitempty"`
+	// MakerDomain and OfficialPages point at the maker's own site when the
+	// source page does not link to it: used only after checks (see
+	// ParsePlan and Finder.official).
+	MakerDomain   string   `json:"maker_domain,omitempty"`
+	OfficialPages []string `json:"official_pages,omitempty"`
+	Reason        string   `json:"reason,omitempty"`
 }
 
 const planPrompt = `You pick the in-article photo for a technology news article. Decide whether the story has ONE concrete, photographable subject that a real photo could show.
@@ -29,11 +35,13 @@ Photographable: a specific physical product or device (including brand-new hardw
 Not photographable: software, apps, AI models, websites, features, policies, laws, lawsuits, studies, reports, funding rounds, earnings, prices, market trends, abstract topics, or stories about many different things.
 
 Return only JSON with exactly this shape:
-{"photographable":true,"subject":"...","kind":"product|device|robot|vehicle|building|place|event|person|none","queries":["...","..."],"maker":"...","reason":"..."}
+{"photographable":true,"subject":"...","kind":"product|device|robot|vehicle|building|place|event|person|none","queries":["...","..."],"maker":"...","maker_domain":"...","official_pages":["..."],"reason":"..."}
 
 subject: the exact subject, as specific as possible (maker, product name and model, e.g. "WiCi One desk robot"); empty when not photographable.
 queries: two short Wikimedia Commons search queries for a photo of that exact subject, the most specific first (e.g. "WiCi One robot", "WiCi robot"). Plain words, no quotes or operators.
 maker: the company or organisation that makes or owns the subject (for a person, their organisation); empty if unknown.
+maker_domain: the maker's official website domain (e.g. "nvidia.com"), only if you are sure; empty otherwise.
+official_pages: up to 2 full https URLs on maker_domain for this exact subject: its product page or the maker's own announcement. Only URLs you are confident exist; [] otherwise, and always [] for a person.
 reason: one short sentence.
 
 Headline: %s
@@ -88,6 +96,14 @@ func ParsePlan(raw string) (Plan, error) {
 		}
 	}
 	plan.Queries = queries
+	plan.MakerDomain = strings.TrimPrefix(strings.ToLower(oneLine(plan.MakerDomain, 80)), "www.")
+	var pages []string
+	for _, page := range plan.OfficialPages {
+		if len(pages) < 2 && onMakerDomain(page, plan.MakerDomain) {
+			pages = append(pages, page)
+		}
+	}
+	plan.OfficialPages = pages
 	if plan.Photographable && plan.Subject == "" {
 		return Plan{}, errors.New("photographable plan without a subject")
 	}
@@ -95,6 +111,17 @@ func ParsePlan(raw string) (Plan, error) {
 		plan.Queries = []string{plan.Subject}
 	}
 	return plan, nil
+}
+
+// onMakerDomain reports whether page is an https URL on the maker's own
+// registrable domain, and that domain can be a maker's official site.
+func onMakerDomain(page, makerDomain string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(page))
+	if err != nil || parsed.Scheme != "https" || makerDomain == "" {
+		return false
+	}
+	domain := registrableDomain("https://" + makerDomain)
+	return domain != "" && registrableDomain(page) == domain && !blockedSite(page)
 }
 
 // oneLine collapses whitespace and cuts to at most limit bytes on a word

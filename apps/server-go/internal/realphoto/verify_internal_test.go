@@ -23,3 +23,18 @@ func TestVerdictRejectsSmallSubjectsAndOtherBranding(t *testing.T) {
 		t.Fatal("quality below the minimum must be rejected")
 	}
 }
+
+func TestParsePlanKeepsOnlyMakerPagesOnTheMakersDomain(t *testing.T) {
+	plan, err := ParsePlan(`{"photographable":true,"subject":"NVIDIA RTX PRO 6000","queries":["RTX PRO 6000"],"maker":"NVIDIA","maker_domain":"www.nvidia.com",
+		"official_pages":["https://www.nvidia.com/en-us/products/rtx-pro-6000/","https://www.engadget.com/nvidia-rtx","http://nvidia.com/insecure","https://nvidia.com.evil.test/x","https://nvidianews.nvidia.com/news/rtx"]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"https://www.nvidia.com/en-us/products/rtx-pro-6000/", "https://nvidianews.nvidia.com/news/rtx"}
+	if plan.MakerDomain != "nvidia.com" || len(plan.OfficialPages) != 2 || plan.OfficialPages[0] != want[0] || plan.OfficialPages[1] != want[1] {
+		t.Fatalf("plan = %+v", plan)
+	}
+	if onMakerDomain("https://engadget.com/x", "engadget.com") {
+		t.Fatal("a news site can never be a maker's site")
+	}
+}
