@@ -77,6 +77,7 @@ export default async function Home() {
       <div className="max-w-[1280px] mx-auto px-4 py-16 text-center">
         <h1 className="text-3xl font-black mb-4">No articles yet</h1>
         <p className="text-text-secondary">Check back soon for the latest tech news.</p>
+        <Link href="/archive" className="inline-block mt-4 text-accent-purple hover:text-white">Browse the archive</Link>
       </div>
     );
   }
@@ -108,6 +109,7 @@ export default async function Home() {
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xs font-bold uppercase tracking-widest text-text-muted">Latest</span>
               <div className="flex-1 h-px bg-border" />
+              <Link href="/archive" className="text-xs font-bold text-accent-purple hover:text-white transition-colors whitespace-nowrap">Browse all stories</Link>
             </div>
             <ArticleFeed initialArticles={initialFeedArticles} initialTotal={total - 1} />
           </div>
