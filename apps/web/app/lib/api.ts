@@ -168,6 +168,62 @@ export async function getArticlesUpTo(
   return articles.slice(0, maxCount);
 }
 
+// A sitemap must not silently omit older articles when the public API has
+// more than one page. Keep room for non-article URLs under the 50,000-URL
+// sitemap limit; a larger archive will need partitioned sitemaps.
+const MAX_ARTICLES_IN_SITEMAP = 49_000;
+
+export async function getAllArticlesForSitemap(
+  getPage: typeof getArticles = getArticles,
+): Promise<ApiArticle[] | null> {
+  const pageSize = 50;
+  const articles: ApiArticle[] = [];
+  const seenSlugs = new Set<string>();
+  let expectedTotal: number | null = null;
+  let expectedPages: number | null = null;
+
+  for (let page = 1; expectedPages === null || page <= expectedPages; page++) {
+    let data: Awaited<ReturnType<typeof getArticles>>;
+    try {
+      data = await getPage({ page, limit: pageSize });
+    } catch {
+      return null;
+    }
+
+    if (
+      !data ||
+      !Array.isArray(data.articles) ||
+      !Number.isSafeInteger(data.total) ||
+      !Number.isSafeInteger(data.page) ||
+      !Number.isSafeInteger(data.totalPages) ||
+      data.total < 0 ||
+      data.total > MAX_ARTICLES_IN_SITEMAP ||
+      data.page !== page ||
+      data.totalPages !== Math.ceil(data.total / pageSize) ||
+      (expectedTotal !== null && data.total !== expectedTotal) ||
+      (expectedPages !== null && data.totalPages !== expectedPages)
+    ) {
+      return null;
+    }
+
+    expectedTotal = data.total;
+    expectedPages = data.totalPages;
+
+    const expectedCount = Math.min(pageSize, expectedTotal - articles.length);
+    if (data.articles.length !== expectedCount) return null;
+
+    for (const article of data.articles) {
+      if (!article || typeof article.slug !== "string" || !article.slug || seenSlugs.has(article.slug)) {
+        return null;
+      }
+      seenSlugs.add(article.slug);
+      articles.push(article);
+    }
+  }
+
+  return articles.length === expectedTotal ? articles : null;
+}
+
 // "24h" and "7d" rank by reads in that window, topped up with the newest
 // stories; no window ranks by all-time views.
 export type TrendingWindow = "24h" | "7d";
