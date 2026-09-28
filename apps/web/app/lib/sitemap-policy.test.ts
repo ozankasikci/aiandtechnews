@@ -11,6 +11,10 @@ test("the noindex search page is excluded from the sitemap", () => {
   assert.doesNotMatch(sitemapSource, /\$\{BASE_URL\}\/search/);
 });
 
+test("the crawlable article archive is in the sitemap", () => {
+  assert.match(sitemapSource, /\$\{BASE_URL\}\/archive`/);
+});
+
 test("the sitemap keeps known article URLs during an API outage", () => {
   assert.match(sitemapSource, /function snapshotArticlePages/);
   assert.match(sitemapSource, /article_pages = snapshotArticlePages\(\)/);
