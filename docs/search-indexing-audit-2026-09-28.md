@@ -33,3 +33,5 @@ The code at the start of this sprint offers two plausible discovery improvements
 4. Review article quality and internal links for specific URLs that remain unindexed after Google crawls them. Some historical slugs in the discovered list appear outside the repository's current AI-only editorial policy; handle any editorial changes through `NEWS_PUBLISHING_POLICY.md`, not through a blanket SEO rewrite.
 
 Do not start GSC's “Validate fix” workflow for the two Google-selected unindexed groups until a specific, testable site issue has been fixed. Their status alone does not identify such an issue.
+
+The sitemap and archive changes in this sprint address follow-ups 1 and 2 in code. They still require production deployment and live verification; this audit does not claim that Google has recrawled or indexed the affected URLs.
