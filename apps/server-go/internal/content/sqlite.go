@@ -141,26 +141,18 @@ func (s *SQLiteStore) Trending(ctx context.Context, limit int, since time.Time) 
 	return articles, nil
 }
 
-func (s *SQLiteStore) PublishedBySlugAndIncrement(ctx context.Context, slug string) (article Article, err error) {
+// PublishedBySlug reads a published article with its summary and inline
+// images. It does not count a view: the website caches article pages, so
+// readers' browsers report views through RecordView instead.
+func (s *SQLiteStore) PublishedBySlug(ctx context.Context, slug string) (article Article, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Article{}, fmt.Errorf("begin article view transaction: %w", err)
+		return Article{}, fmt.Errorf("begin article read transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	article, err = queryArticle(ctx, tx, ` WHERE a.slug = ? AND a.status = 'published'`, slug)
 	if err != nil {
 		return Article{}, err
-	}
-	if _, err = tx.ExecContext(ctx, `UPDATE articles SET view_count = view_count + 1 WHERE id = ?`, article.ID); err != nil {
-		return Article{}, fmt.Errorf("increment article view count: %w", err)
-	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO article_views(article_id, day, count) VALUES (?, date('now'), 1)
-		ON CONFLICT(article_id, day) DO UPDATE SET count = count + 1`, article.ID); err != nil {
-		return Article{}, fmt.Errorf("record article view for today: %w", err)
-	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO article_views_hourly(article_id, hour, count) VALUES (?, strftime('%Y-%m-%d %H', 'now'), 1)
-		ON CONFLICT(article_id, hour) DO UPDATE SET count = count + 1`, article.ID); err != nil {
-		return Article{}, fmt.Errorf("record article view for this hour: %w", err)
 	}
 	if err = loadSummary(ctx, tx, &article); err != nil {
 		return Article{}, err
@@ -169,9 +161,43 @@ func (s *SQLiteStore) PublishedBySlugAndIncrement(ctx context.Context, slug stri
 		return Article{}, err
 	}
 	if err = tx.Commit(); err != nil {
-		return Article{}, fmt.Errorf("commit article view transaction: %w", err)
+		return Article{}, fmt.Errorf("commit article read transaction: %w", err)
 	}
 	return article, nil
+}
+
+// RecordView counts one read of a published article: its all-time
+// view_count and today's and this hour's rows, which drive Trending. An
+// unknown or unpublished slug is ErrNotFound.
+func (s *SQLiteStore) RecordView(ctx context.Context, slug string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin article view transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var id int64
+	err = tx.QueryRowContext(ctx, `SELECT id FROM articles WHERE slug = ? AND status = 'published'`, slug).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("find article for view: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE articles SET view_count = view_count + 1 WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("increment article view count: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO article_views(article_id, day, count) VALUES (?, date('now'), 1)
+		ON CONFLICT(article_id, day) DO UPDATE SET count = count + 1`, id); err != nil {
+		return fmt.Errorf("record article view for today: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO article_views_hourly(article_id, hour, count) VALUES (?, strftime('%Y-%m-%d %H', 'now'), 1)
+		ON CONFLICT(article_id, hour) DO UPDATE SET count = count + 1`, id); err != nil {
+		return fmt.Errorf("record article view for this hour: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit article view transaction: %w", err)
+	}
+	return nil
 }
 
 func (s *SQLiteStore) ByID(ctx context.Context, id string) (Article, error) {

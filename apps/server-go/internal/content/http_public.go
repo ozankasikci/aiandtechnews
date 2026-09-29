@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -18,15 +20,18 @@ type publicArticleService interface {
 	Trending(context.Context, int, string) ([]Article, error)
 	BySlug(context.Context, string) (Article, error)
 	ByID(context.Context, string) (Article, error)
+	RecordView(context.Context, string) error
 }
 
 type PublicHandler struct {
 	service publicArticleService
 	logger  *slog.Logger
+	views   *viewLimiter
+	now     func() time.Time
 }
 
 func NewPublicHandler(service publicArticleService, logger *slog.Logger) *PublicHandler {
-	return &PublicHandler{service: service, logger: logger}
+	return &PublicHandler{service: service, logger: logger, views: newViewLimiter(maxViewClients, viewWindow), now: time.Now}
 }
 
 // MountPublic registers the auditable public article route manifest. The ID
@@ -36,6 +41,33 @@ func (h *PublicHandler) MountPublic(router chi.Router) {
 	router.Get("/articles/trending", h.trending)
 	router.Get("/articles/id/{id}", h.byID)
 	router.Get("/articles/{slug}", h.bySlug)
+	router.Post("/articles/{slug}/view", h.recordView)
+}
+
+// maxViewBody bounds what a view beacon may send; its body is ignored.
+const maxViewBody = 4 << 10
+
+// recordView counts a reader's view, reported by the article page in the
+// browser (navigator.sendBeacon, so a CORS "simple" request with no or a
+// text/plain body). Bots and repeat views from the same client within
+// viewWindow answer 204 without counting.
+func (h *PublicHandler) recordView(w http.ResponseWriter, r *http.Request) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, maxViewBody))
+	slug := chi.URLParam(r, "slug")
+	if isBotUserAgent(r.UserAgent()) || !h.views.allow(viewClient(r), slug, h.now()) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	err := h.service.RecordView(r.Context(), slug)
+	if errors.Is(err, ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Article not found"})
+		return
+	}
+	if err != nil {
+		h.internalError(w, r, "record article view", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // publicArticle is an article as the website sees it. Its source and

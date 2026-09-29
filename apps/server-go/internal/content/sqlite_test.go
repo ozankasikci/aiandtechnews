@@ -39,12 +39,23 @@ func TestSQLiteStoreArticleReadSemantics(t *testing.T) {
 		t.Fatalf("timestamp not preserved: %#v", filtered.Articles[0].PublishedAt)
 	}
 
-	article, err := store.PublishedBySlugAndIncrement(context.Background(), "synthetic-published-newer")
+	article, err := store.PublishedBySlug(context.Background(), "synthetic-published-newer")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if article.ViewCount != 42 || article.Category.Name != "Synthetic AI" || article.Author.Email != "editorial@example.invalid" {
 		t.Fatalf("article = %#v", article)
+	}
+	// Reading an article no longer counts a view; RecordView does.
+	unchanged, err := store.ByID(context.Background(), "301")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.ViewCount != 42 {
+		t.Fatalf("view count after read = %d, want 42", unchanged.ViewCount)
+	}
+	if err := store.RecordView(context.Background(), "synthetic-published-newer"); err != nil {
+		t.Fatal(err)
 	}
 	after, err := store.ByID(context.Background(), "301")
 	if err != nil {
@@ -53,8 +64,14 @@ func TestSQLiteStoreArticleReadSemantics(t *testing.T) {
 	if after.ViewCount != 43 {
 		t.Fatalf("view count = %d", after.ViewCount)
 	}
-	if _, err := store.PublishedBySlugAndIncrement(context.Background(), "synthetic-draft"); err != content.ErrNotFound {
+	if _, err := store.PublishedBySlug(context.Background(), "synthetic-draft"); err != content.ErrNotFound {
 		t.Fatalf("draft slug error = %v", err)
+	}
+	if err := store.RecordView(context.Background(), "synthetic-draft"); err != content.ErrNotFound {
+		t.Fatalf("draft view error = %v", err)
+	}
+	if err := store.RecordView(context.Background(), "missing"); err != content.ErrNotFound {
+		t.Fatalf("missing view error = %v", err)
 	}
 	draft, err := store.ByID(context.Background(), "303")
 	if err != nil || draft.Status != "draft" {
@@ -93,7 +110,7 @@ func TestSQLiteStoreTrendingWindowRanksRecentReads(t *testing.T) {
 	}
 	store := content.NewSQLiteStore(db)
 	for range 2 {
-		if _, err := store.PublishedBySlugAndIncrement(context.Background(), "synthetic-published-null-options"); err != nil {
+		if err := store.RecordView(context.Background(), "synthetic-published-null-options"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -139,14 +156,14 @@ func TestSQLiteStoreReturnsSummaryWithArticleBySlug(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := content.NewSQLiteStore(db)
-	with, err := store.PublishedBySlugAndIncrement(context.Background(), "synthetic-published-newer")
+	with, err := store.PublishedBySlug(context.Background(), "synthetic-published-newer")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(with.TLDR) != 3 || with.TLDR[2] != "Three." || with.WhyItMatters != "It matters." {
 		t.Fatalf("summary = %q / %q", with.TLDR, with.WhyItMatters)
 	}
-	without, err := store.PublishedBySlugAndIncrement(context.Background(), "synthetic-published-null-options")
+	without, err := store.PublishedBySlug(context.Background(), "synthetic-published-null-options")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,8 +183,11 @@ func TestSQLiteStoreHonorsCanceledContext(t *testing.T) {
 	if _, err := store.List(ctx, content.ListQuery{Page: 1, Limit: 12}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("List error = %v", err)
 	}
-	if _, err := store.PublishedBySlugAndIncrement(ctx, "anything"); !errors.Is(err, context.Canceled) {
+	if _, err := store.PublishedBySlug(ctx, "anything"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("BySlug error = %v", err)
+	}
+	if err := store.RecordView(ctx, "anything"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("RecordView error = %v", err)
 	}
 }
 
@@ -196,7 +216,7 @@ func TestSQLiteStoreTrendingTodayCountsHoursNotCalendarDays(t *testing.T) {
 	}
 	seed(t, db)
 	store := content.NewSQLiteStore(db)
-	if _, err := store.PublishedBySlugAndIncrement(context.Background(), "synthetic-published-null-options"); err != nil {
+	if err := store.RecordView(context.Background(), "synthetic-published-null-options"); err != nil {
 		t.Fatal(err)
 	}
 	var hourly int

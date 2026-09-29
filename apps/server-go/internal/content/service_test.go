@@ -22,9 +22,10 @@ func (s *stubStore) Trending(_ context.Context, limit int, since time.Time) ([]A
 	s.limit, s.since = limit, since
 	return []Article{}, s.err
 }
-func (s *stubStore) PublishedBySlugAndIncrement(context.Context, string) (Article, error) {
+func (s *stubStore) PublishedBySlug(context.Context, string) (Article, error) {
 	return Article{}, s.err
 }
+func (s *stubStore) RecordView(context.Context, string) error      { return s.err }
 func (s *stubStore) ByID(context.Context, string) (Article, error) { return Article{}, s.err }
 
 func TestServiceClampsQueriesAndCalculatesPages(t *testing.T) {
@@ -48,6 +49,9 @@ func TestServicePreservesNotFoundAndInternalCauses(t *testing.T) {
 		_, err := service.BySlug(context.Background(), "slug")
 		if !errors.Is(err, cause) {
 			t.Errorf("BySlug error = %v, want cause %v", err, cause)
+		}
+		if err := service.RecordView(context.Background(), "slug"); !errors.Is(err, cause) {
+			t.Errorf("RecordView error = %v, want cause %v", err, cause)
 		}
 	}
 }
