@@ -9,7 +9,7 @@ type Props = { params: Promise<{ category: string }> };
 
 const BASE_URL = "https://www.aiandtech.news";
 
-export const revalidate = 60;
+export const revalidate = 300;
 
 export function generateStaticParams() {
   return Object.keys(CATEGORIES).map((category) => ({ category }));

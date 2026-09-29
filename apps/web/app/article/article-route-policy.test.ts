@@ -7,9 +7,32 @@ const pageSource = readFileSync(
   "utf8",
 );
 
-test("article routes render dynamically so newly published slugs cannot cache a 404", () => {
-  assert.match(pageSource, /export const dynamic\s*=\s*["']force-dynamic["']/);
-  assert.doesNotMatch(pageSource, /generateStaticParams/);
+const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
+const revalidateSource = readFileSync(new URL("../lib/revalidate.ts", import.meta.url), "utf8");
+
+// Article pages used to be force-dynamic because a cached 404 could hide a
+// newly published slug. They are now cached for an hour (ISR) to save
+// server CPU, and that 404 is cleared on demand: publishing revalidates
+// /article/<slug> and its article:<slug> fetch tag via POST /api/revalidate.
+test("article routes are cached for an hour and render unknown slugs on demand", () => {
+  assert.match(pageSource, /export const revalidate\s*=\s*3600\b/);
+  assert.doesNotMatch(pageSource, /force-dynamic/);
+  // An empty generateStaticParams is what makes Next 15 cache a dynamic
+  // segment at all; it prebuilds nothing, and dynamicParams stays true so
+  // new slugs render on first request.
+  assert.match(pageSource, /export function generateStaticParams\(\)(?::[^\n]*)?\{\s*return \[\];\s*\}/);
+  assert.match(pageSource, /export const dynamicParams\s*=\s*true/);
+});
+
+test("the article fetch is tagged per slug so a publish can clear a cached 404", () => {
+  assert.match(apiSource, /revalidate:\s*ARTICLE_REVALIDATE_SECONDS,\s*tags:\s*\[articleTag\(slug\)\]/);
+  assert.match(apiSource, /ARTICLE_REVALIDATE_SECONDS\s*=\s*3600/);
+  assert.match(revalidateSource, /path:\s*`\/article\/\$\{slug\}`/);
+  assert.match(revalidateSource, /slugs\.map\(articleTag\)/);
+});
+
+test("article pages count views from the browser, not from the cached render", () => {
+  assert.match(pageSource, /<ArticleViewBeacon apiBase=\{getPublicApiUrl\(\)\} slug=\{article\.slug\} \/>/);
 });
 
 test("article routes distinguish missing stories from a temporary API outage", () => {

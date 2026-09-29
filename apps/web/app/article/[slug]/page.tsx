@@ -7,8 +7,9 @@ import { ShareButtons } from "../../components/ShareButtons";
 import { ArticleSummary } from "../../components/ArticleSummary";
 import { ReadNext } from "../../components/ReadNext";
 import { ArticleReadTracker } from "../../components/ArticleReadTracker";
+import { ArticleViewBeacon } from "../../components/ArticleViewBeacon";
 import { NewsletterBanner } from "../../components/Newsletter";
-import { getArticleLookup, getArticles, mapArticle } from "../../lib/api";
+import { getArticleLookup, getArticles, getPublicApiUrl, mapArticle } from "../../lib/api";
 import { toAbsoluteUrl } from "../../lib/dates";
 import { pickReadNext, readNextSlot, splitAfterParagraph } from "../../lib/read-next";
 import { insertInlineImages } from "../../lib/inline-images";
@@ -19,7 +20,23 @@ type Props = { params: Promise<{ slug: string }> };
 
 const BASE_URL = "https://www.aiandtech.news";
 
-export const dynamic = "force-dynamic";
+// Article pages are cached (ISR) for an hour and regenerated on demand: the
+// API calls POST /api/revalidate when an article is published, illustrated,
+// edited, or deleted. A slug requested before it is published renders (and
+// caches) a 404; the publish revalidates /article/<slug>, so the story
+// appears at once instead of after the hour. An API outage throws, which is
+// never cached: a stale page keeps being served while regeneration fails.
+// Views are counted by ArticleViewBeacon in the browser, not by this render.
+export const revalidate = 3600;
+
+// No article is prebuilt at deploy time; each one renders on its first
+// request and is then cached. Next 15 needs generateStaticParams (even an
+// empty one) for a dynamic segment to be cached at all: without it the
+// route renders on every request, as it did before this cache policy.
+export const dynamicParams = true;
+export function generateStaticParams(): { slug: string }[] {
+  return [];
+}
 
 export async function generateMetadata({ params }: Props) {
   const { slug } = await params;
@@ -155,6 +172,7 @@ export default async function ArticlePage({ params }: Props) {
             </div>
             <GlossaryPopover terms={glossaryTerms} />
             <ArticleReadTracker bodyId="article-body" slug={article.slug} category={article.tag} />
+            <ArticleViewBeacon apiBase={getPublicApiUrl()} slug={article.slug} />
 
             <NewsletterBanner placement="article_footer" />
 

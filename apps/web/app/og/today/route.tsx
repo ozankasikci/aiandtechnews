@@ -4,7 +4,8 @@ import { ImageResponse } from "next/og";
 import { getArticles } from "../../lib/api";
 import { SHARE_CARD_SIZE, shareCardDateLabel, shareCardMoreHeadlines } from "../../lib/share-card";
 
-// The article fetch revalidates every minute, so the card follows the lead story.
+// The article fetch revalidates every five minutes, and on demand when the API
+// publishes (POST /api/revalidate), so the card follows the lead story.
 
 export async function GET() {
   const [black, bold, data] = await Promise.all([
