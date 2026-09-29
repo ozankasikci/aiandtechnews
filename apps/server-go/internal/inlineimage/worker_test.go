@@ -277,3 +277,44 @@ func TestWorkerGivesShortArticlesOnlyRealPhotos(t *testing.T) {
 		t.Fatalf("no photo: marks = %+v, drawings = %d", store.marks, len(illustrator.requests))
 	}
 }
+
+type recordingRevalidator struct{ slugs [][]string }
+
+func (r *recordingRevalidator) Notify(slugs []string) { r.slugs = append(r.slugs, slugs) }
+
+func TestWorkerAsksTheSiteToRefreshAnIllustratedArticle(t *testing.T) {
+	store := &fakeStore{articles: []inlineimage.Article{
+		{ID: 2, Slug: "long", Title: "Long", Content: body("p p h p p p h p p p"), FeaturedImage: ours + "b.webp"},
+	}}
+	revalidator := &recordingRevalidator{}
+	if _, err := newWorker(store, &fakeIllustrator{}).WithRevalidator(revalidator).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(revalidator.slugs) != 1 || len(revalidator.slugs[0]) != 1 || revalidator.slugs[0][0] != "long" {
+		t.Fatalf("revalidated = %v", revalidator.slugs)
+	}
+}
+
+func TestWorkerAsksTheSiteToRefreshAnArticleWithAFoundPhoto(t *testing.T) {
+	store := &fakeStore{articles: []inlineimage.Article{photoArticle()}}
+	finder := &fakeFinder{result: realphoto.Result{Found: true, Image: []byte("photo"), Alt: "The WiCi One robot.", Credit: photoCredit, Reason: "official"}}
+	revalidator := &recordingRevalidator{}
+	if _, err := newWorker(store, &fakeIllustrator{}).WithPhotos(finder, &fakePhotoStore{}).WithRevalidator(revalidator).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(revalidator.slugs) != 1 || revalidator.slugs[0][0] != "wici" {
+		t.Fatalf("revalidated = %v", revalidator.slugs)
+	}
+}
+
+func TestWorkerDoesNotRefreshTheSiteWhenTheImageFails(t *testing.T) {
+	failing := &fakeStore{articles: []inlineimage.Article{
+		{ID: 2, Slug: "long", Content: body("p p h p p p h p p p"), FeaturedImage: ours + "b.webp"},
+	}, readyErr: errors.New("disk full")}
+	revalidator := &recordingRevalidator{}
+	_, _ = newWorker(failing, &fakeIllustrator{}).WithRevalidator(revalidator).RunOnce(context.Background())
+	_, _ = newWorker(&fakeStore{articles: failing.articles}, &fakeIllustrator{err: errors.New("model down")}).WithRevalidator(revalidator).RunOnce(context.Background())
+	if len(revalidator.slugs) != 0 {
+		t.Fatalf("revalidated = %v", revalidator.slugs)
+	}
+}

@@ -33,6 +33,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/realphoto"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/relevance"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/settings"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/siterevalidate"
 )
 
 type App struct {
@@ -114,7 +115,14 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		logger.Info("IndexNow disabled; published and dashboard-changed URLs will not be submitted")
 	}
 	dashboardIndexNow, drainIndexNow := newDashboardIndexNow(cfg, logger)
-	dashboardContent := content.NewAdminHandler(content.NewAdminService(contentStore, now), dashboardIndexNow, logger)
+	siteRevalidate, drainSiteRevalidate := siterevalidate.New(cfg.SiteRevalidateURL, cfg.NewsletterCronSecret, logger)
+	if cfg.SiteRevalidateURL == "" {
+		logger.Info("site revalidation disabled (SITE_REVALIDATE_URL unset); cached site pages refresh only on their timers")
+	}
+	// Dashboard article changes refresh the site's cached pages and, when
+	// enabled, ping IndexNow for the same public slugs.
+	dashboardContent := content.NewAdminHandler(content.NewAdminService(contentStore, now),
+		siterevalidate.Multi{siteRevalidate, dashboardIndexNow}, logger)
 	dashboardSettings := settings.NewHandler(settings.NewService(settings.NewSQLiteStore(db)), logger)
 	// The publisher and S3 media storage share one checked S3 client.
 	var objectAPI media.ObjectAPI
@@ -187,7 +195,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		})
 	}, uploads.MountStatic)
 	server := httpserver.NewServer(cfg.Address, handler, logger)
-	application := &App{address: cfg.Address, handler: handler, server: server, newsletter: newsletterService, logger: logger, drains: []func(){drainIndexNow}}
+	application := &App{address: cfg.Address, handler: handler, server: server, newsletter: newsletterService, logger: logger, drains: []func(){drainIndexNow, drainSiteRevalidate}}
 	if feedCollector != nil {
 		application.feedCollector = feedCollector
 		application.background = append(application.background, func(ctx context.Context) {
@@ -218,7 +226,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			Subheadings: subheadingModel(cfg),
 			Illustrator: illustrator,
 			Articles:    publisher.NewSQLiteArticles(db, now),
-			Notifier:    newPublisherNotifier(cfg, logger),
+			Notifier:    revalidatingNotifier{site: siteRevalidate, next: newPublisherNotifier(cfg, logger)},
 			Now:         now,
 			Logger:      logger,
 			Wake:        newsroomService.Wakeups(),
@@ -235,7 +243,8 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			// image) is preferred; the illustration is the fallback.
 			photos := realphoto.NewFinder(geminiClient, geminiClient, illustration.NewReferenceClient(), logger).WithSearch(geminiClient)
 			inlineImages := inlineimage.NewWorker(inlineimage.NewSQLiteStore(db, now), illustrator, now, logger,
-				inlineimage.OwnImagePrefix(cfg.S3PublicURL, cfg.S3Prefix)).WithPhotos(photos, illustrator)
+				inlineimage.OwnImagePrefix(cfg.S3PublicURL, cfg.S3Prefix)).WithPhotos(photos, illustrator).
+				WithRevalidator(siteRevalidate)
 			logger.Info("inline images", "interval", cfg.InlineImagesInterval)
 			application.background = append(application.background, func(ctx context.Context) {
 				inlineImages.Loop(ctx, cfg.InlineImagesInterval)
@@ -277,6 +286,20 @@ func newPublisherNotifier(cfg config.Config, logger *slog.Logger) publisher.Noti
 		return indexnow.New()
 	}
 	return publisher.NoopNotifier{}
+}
+
+// revalidatingNotifier asks the site to refresh its cached pages for a
+// newly published article, then passes the slugs on to IndexNow (or its
+// no-op). The site request is queued in the background and never fails
+// the publish.
+type revalidatingNotifier struct {
+	site siterevalidate.Notifier
+	next publisher.Notifier
+}
+
+func (n revalidatingNotifier) SubmitSlugs(ctx context.Context, slugs []string) error {
+	n.site.Notify(slugs)
+	return n.next.SubmitSlugs(ctx, slugs)
 }
 
 // CheckSchema is the read-only startup check for production: the database

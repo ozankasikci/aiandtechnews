@@ -160,6 +160,13 @@ type Config struct {
 	// false (the default), published URLs are not submitted to IndexNow.
 	IndexNowEnabled bool
 
+	// SiteRevalidateURL (SITE_REVALIDATE_URL, e.g.
+	// https://www.aiandtech.news/api/revalidate) is where the API asks the
+	// website to refresh cached pages after an article is published,
+	// illustrated, edited, or deleted. It is authorized with the site's
+	// CRON_SECRET (NewsletterCronSecret). Empty disables it.
+	SiteRevalidateURL string
+
 	// InlineImagesEnabled (INLINE_IMAGES_ENABLED, default off) runs the
 	// worker that gives articles of the last 7 days a second illustration
 	// inside the body, one article every InlineImagesInterval
@@ -183,11 +190,11 @@ type Config struct {
 func (c Config) String() string {
 	return fmt.Sprintf("Config{Mode:%q Address:%q TimeZone:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
 		"PublisherEnabled:%t PublisherInterval:%s InlineImagesEnabled:%t InlineImagesInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q FeaturedImageChain:%q FeaturedImageAnalyzers:%q CodexBin:%q CodexNodeDir:%q CodexTimeout:%s CutoutBin:%q GeminiVisionModel:%q "+
-		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t "+
+		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t SiteRevalidateURL:%q "+
 		"NewsletterSiteURL:%q NewsletterTokenSecret:[REDACTED] NewsletterCronSecret:[REDACTED] ResendAPIKey:[REDACTED] NewsletterFrom:%q NewsletterReplyTo:%q}",
 		c.Mode, c.Address, c.TimeZone, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
 		c.PublisherEnabled, c.PublisherInterval, c.InlineImagesEnabled, c.InlineImagesInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.FeaturedImageChain, c.FeaturedImageAnalyzers, c.CodexBin, c.CodexNodeDir, c.CodexTimeout, c.CutoutBin, c.GeminiVisionModel,
-		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled,
+		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled, c.SiteRevalidateURL,
 		c.NewsletterSiteURL, c.NewsletterFrom, c.NewsletterReplyTo)
 }
 
@@ -357,6 +364,7 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.IndexNowEnabled = indexNowEnabled
+	cfg.SiteRevalidateURL = strings.TrimSpace(lookup("SITE_REVALIDATE_URL"))
 
 	cfg.NewsletterSiteURL = lookup("NEWSLETTER_SITE_URL")
 	cfg.NewsletterTokenSecret = lookup("NEWSLETTER_TOKEN_SECRET")
@@ -413,6 +421,15 @@ func (c Config) Validate() error {
 	if c.MediaStorage == MediaStorageS3 {
 		if err := c.validateMediaS3(); err != nil {
 			return err
+		}
+	}
+	if c.SiteRevalidateURL != "" {
+		parsed, err := url.Parse(c.SiteRevalidateURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return fmt.Errorf("SITE_REVALIDATE_URL must be an absolute http(s) URL, got %q", c.SiteRevalidateURL)
+		}
+		if strings.TrimSpace(c.NewsletterCronSecret) == "" {
+			return errors.New("SITE_REVALIDATE_URL needs NEWSLETTER_CRON_SECRET or CRON_SECRET (the site's CRON_SECRET)")
 		}
 	}
 

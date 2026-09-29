@@ -62,6 +62,28 @@ type Worker struct {
 	// ownPrefix is where our featured images live (public S3 URL and
 	// prefix); a featured image elsewhere is not ours. Empty skips the check.
 	ownPrefix string
+	// revalidator, when set, asks the site to refresh an article's cached
+	// page once its inline image is ready.
+	revalidator Revalidator
+}
+
+// Revalidator queues article slugs whose site pages must be refreshed
+// (siterevalidate.Notifier). Notify returns at once and never fails.
+type Revalidator interface {
+	Notify(slugs []string)
+}
+
+// WithRevalidator makes the worker ask the site to refresh an article's
+// cached page after its inline image is recorded.
+func (w *Worker) WithRevalidator(revalidator Revalidator) *Worker {
+	w.revalidator = revalidator
+	return w
+}
+
+func (w *Worker) revalidate(slug string) {
+	if w.revalidator != nil && slug != "" {
+		w.revalidator.Notify([]string{slug})
+	}
 }
 
 func NewWorker(store Store, illustrator Illustrator, now func() time.Time, logger *slog.Logger, ownPrefix string) *Worker {
@@ -192,6 +214,7 @@ func (w *Worker) illustrate(ctx context.Context, article Article, photoSlot int)
 		return err
 	}
 	logger.InfoContext(ctx, "inline image added", "path", "generated", "url", result.URL)
+	w.revalidate(article.Slug)
 	return nil
 }
 
@@ -235,6 +258,7 @@ func (w *Worker) tryPhoto(ctx context.Context, logger *slog.Logger, article Arti
 		return false, err
 	}
 	logger.InfoContext(ctx, "inline image added", "path", found.Credit.Kind, "reason", found.Reason, "credit", found.Credit.Text, "url", stored.URL)
+	w.revalidate(article.Slug)
 	return true, nil
 }
 
