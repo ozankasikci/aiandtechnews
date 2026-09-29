@@ -55,6 +55,9 @@ const (
 	// DefaultInlineImagesInterval is how often the inline image worker picks
 	// an article when INLINE_IMAGES_INTERVAL is unset.
 	DefaultInlineImagesInterval = 5 * time.Minute
+	// DefaultAutopickInterval is how often the automatic editor runs when
+	// AUTOPICK_INTERVAL is unset.
+	DefaultAutopickInterval = 6 * time.Hour
 	// minPublisherInterval is the smallest interval Validate accepts when the
 	// publisher is enabled.
 	minPublisherInterval = 10 * time.Second
@@ -147,6 +150,13 @@ type Config struct {
 	RelevanceMode   string
 	RelevanceModel  string // NEWSROOM_RELEVANCE_MODEL, default gpt-6-sol
 	RelevanceEffort string // NEWSROOM_RELEVANCE_EFFORT, default medium
+	// AutopickEnabled (AUTOPICK_ENABLED, needs CODEX_BIN) lets Codex go
+	// through the pending candidates every AutopickInterval (AUTOPICK_INTERVAL,
+	// default 6h), queue the ones worth publishing and reject the rest.
+	AutopickEnabled  bool
+	AutopickInterval time.Duration
+	AutopickModel    string // AUTOPICK_MODEL, default gpt-6-sol
+	AutopickEffort   string // AUTOPICK_EFFORT, default medium
 	// CutoutBin (CUTOUT_BIN) is tools/cutout; empty disables the
 	// public-figure collage.
 	CutoutBin         string
@@ -319,6 +329,24 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	if cfg.RelevanceMode == "ai" && cfg.CodexBin == "" {
 		return Config{}, errors.New("NEWSROOM_RELEVANCE=ai needs CODEX_BIN")
 	}
+	autopickEnabled, err := parseOnOff("AUTOPICK_ENABLED", lookup("AUTOPICK_ENABLED"))
+	if err != nil {
+		return Config{}, err
+	}
+	if autopickEnabled && cfg.CodexBin == "" {
+		return Config{}, errors.New("AUTOPICK_ENABLED needs CODEX_BIN")
+	}
+	cfg.AutopickEnabled = autopickEnabled
+	cfg.AutopickInterval = DefaultAutopickInterval
+	if value := lookup("AUTOPICK_INTERVAL"); value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil || interval < 10*time.Minute {
+			return Config{}, fmt.Errorf("AUTOPICK_INTERVAL must be a duration of at least 10m, got %q", value)
+		}
+		cfg.AutopickInterval = interval
+	}
+	cfg.AutopickModel = lookup("AUTOPICK_MODEL")
+	cfg.AutopickEffort = lookup("AUTOPICK_EFFORT")
 	cfg.RelevanceModel = lookup("NEWSROOM_RELEVANCE_MODEL")
 	cfg.RelevanceEffort = lookup("NEWSROOM_RELEVANCE_EFFORT")
 	cfg.CodexTimeout = DefaultCodexTimeout

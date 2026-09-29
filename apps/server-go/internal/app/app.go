@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/autopick"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/collector"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/config"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
@@ -111,6 +112,14 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		newsroomCollector = feedCollector
 	}
 	newsroomHandler := newsroom.NewHandler(newsroomService, newsroomCollector, logger)
+	var editorLoop *autopick.Picker
+	if cfg.AutopickEnabled {
+		runner := &illustration.CodexRunner{Bin: cfg.CodexBin, NodeDir: cfg.CodexNodeDir, Timeout: autopick.DefaultTimeout}
+		editor := autopick.NewCodexEditor(runner, cfg.AutopickModel, cfg.AutopickEffort)
+		editorLoop = &autopick.Picker{Store: autopick.NewSQLiteStore(db), Queue: newsroomService, Editor: editor,
+			Interval: cfg.AutopickInterval, Now: now, Logger: logger}
+		logger.Info("newsroom autopick", "interval", cfg.AutopickInterval, "model", editor.Model, "effort", editor.Effort)
+	}
 	if !cfg.IndexNowEnabled {
 		logger.Info("IndexNow disabled; published and dashboard-changed URLs will not be submitted")
 	}
@@ -201,6 +210,9 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		application.background = append(application.background, func(ctx context.Context) {
 			feedCollector.Loop(ctx, cfg.CollectorInterval)
 		})
+	}
+	if editorLoop != nil {
+		application.background = append(application.background, editorLoop.Loop)
 	}
 	if cfg.PublisherEnabled {
 		imageStore := media.NewStore(media.Config{Region: cfg.AWSRegion, Bucket: cfg.S3Bucket, Prefix: cfg.S3Prefix, PublicBaseURL: cfg.S3PublicURL},
