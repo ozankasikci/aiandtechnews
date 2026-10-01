@@ -14,6 +14,7 @@ import { toAbsoluteUrl } from "../../lib/dates";
 import { pickReadNext, readNextSlot, splitAfterParagraph } from "../../lib/read-next";
 import { insertInlineImages } from "../../lib/inline-images";
 import { glossaryTerm, linkGlossaryTerms } from "../../lib/glossary";
+import { linkTopicMentions } from "../../lib/topics";
 import { GlossaryPopover } from "../../components/GlossaryPopover";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -88,7 +89,8 @@ export default async function ArticlePage({ params }: Props) {
   const article = mapArticle(lookup.article);
 
   const glossary = linkGlossaryTerms(article.body || "<p>Article content unavailable.</p>");
-  const body = insertInlineImages(glossary.html, article.inlineImages);
+  const topicLinked = linkTopicMentions(glossary.html, article.topics || []);
+  const body = insertInlineImages(topicLinked.html, article.inlineImages);
   const glossaryTerms = glossary.slugs.map((s) => glossaryTerm(s)!).map(({ slug, term, definition }) => ({ slug, term, definition }));
   const articleUrl = `${BASE_URL}/article/${article.slug}`;
   const imageUrl = toAbsoluteUrl(article.image, BASE_URL);
@@ -113,6 +115,9 @@ export default async function ArticlePage({ params }: Props) {
     datePublished: article.publishedAt,
     dateModified: article.updatedAt || article.publishedAt,
     articleSection: article.tag,
+    about: article.topics?.length
+      ? article.topics.map((t) => ({ "@type": "Thing", name: t.name, url: `${BASE_URL}/topics/${t.slug}` }))
+      : undefined,
     inLanguage: "en",
     isAccessibleForFree: true,
     author: [{ "@type": "Organization", name: "TechNews Editorial", url: `${BASE_URL}/about` }],
@@ -154,6 +159,17 @@ export default async function ArticlePage({ params }: Props) {
                 <span className="text-text-muted text-xs">{article.date} · {article.readTime}</span>
               </div>
             </div>
+
+            {article.topics && article.topics.length > 0 && (
+              <nav aria-label="Topics" className="flex flex-wrap items-center gap-2 mb-6">
+                <span className="text-xs font-bold uppercase tracking-widest text-text-muted mr-1">Topics</span>
+                {article.topics.map((t) => (
+                  <Link key={t.slug} href={`/topics/${t.slug}`} className="inline-block px-3 py-1 text-xs font-semibold border border-border rounded-sm text-text-secondary hover:text-white hover:border-accent-purple transition-colors">
+                    {t.name}
+                  </Link>
+                ))}
+              </nav>
+            )}
 
             <ShareButtons title={article.headline} />
 
