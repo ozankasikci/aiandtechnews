@@ -21,7 +21,7 @@ interface ArticleRecord {
   slug: string;
   title: string;
   excerpt: string;
-  featured_image: string;
+  featured_image: string | null;
   published_at: string;
   category: { name: string; slug: string; color: string };
   author: { name: string; avatar: string };
