@@ -899,3 +899,13 @@ func isJavaScriptWhitespace(value rune) bool {
 	}
 	return value >= '\u2000' && value <= '\u200a'
 }
+
+// SourceNames returns every approved news source's name and domain, for
+// code that must keep them off the site (topic hubs never name a source).
+func SourceNames() []string {
+	names := make([]string, 0, 2*len(sourceHosts))
+	for _, candidate := range sourceHosts {
+		names = append(names, candidate.source, candidate.domain)
+	}
+	return names
+}

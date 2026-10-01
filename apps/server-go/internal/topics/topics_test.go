@@ -220,3 +220,18 @@ func TestParseSummaryRejectsShortAndMarkdown(t *testing.T) {
 		t.Fatal("markdown accepted")
 	}
 }
+
+func TestParseEntitiesDropsNewsSourcesAndGenericThemes(t *testing.T) {
+	raw := `{"entities":[{"name":"TechCrunch","kind":"company"},{"name":"TechCrunch Disrupt","kind":"product"},{"name":"The Verge","kind":"company"},{"name":"Artificial intelligence","kind":"theme"},{"name":"Stripe","kind":"company"},{"name":"AI agents","kind":"theme"}]}`
+	got, err := topics.ParseEntities(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range got {
+		names = append(names, e.Name)
+	}
+	if strings.Join(names, ",") != "Stripe,AI agents" {
+		t.Fatalf("kept %v", names)
+	}
+}

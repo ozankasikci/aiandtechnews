@@ -86,7 +86,8 @@ Title: `)
 }
 
 // ParseEntities reads the model's answer and keeps only valid entities:
-// a known kind, a usable name, at most MaxEntities, no two with the same key.
+// a known kind, a usable name, not a news source or a too-generic theme,
+// at most MaxEntities, no two with the same key.
 func ParseEntities(raw string) ([]Entity, error) {
 	start, end := strings.Index(raw, "{"), strings.LastIndex(raw, "}")
 	if start < 0 || end < start {
@@ -104,7 +105,7 @@ func ParseEntities(raw string) ([]Entity, error) {
 		entity.Name = strings.Join(strings.Fields(entity.Name), " ")
 		entity.Kind = strings.ToLower(strings.TrimSpace(entity.Kind))
 		key := Key(entity.Name)
-		if len(key) < 2 || len(entity.Name) > maxNameLen || !Kinds[entity.Kind] || seen[key] || content.Slugify(entity.Name) == "" {
+		if len(key) < 2 || len(entity.Name) > maxNameLen || !Kinds[entity.Kind] || seen[key] || content.Slugify(entity.Name) == "" || excluded(entity.Name) {
 			continue
 		}
 		seen[key] = true
