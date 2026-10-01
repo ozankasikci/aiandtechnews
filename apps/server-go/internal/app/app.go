@@ -91,6 +91,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	}
 	contentStore := content.NewSQLiteStore(db)
 	articles := content.NewPublicHandler(content.NewService(contentStore), logger)
+	topicsPublic := content.NewTopicPublicHandler(contentStore, logger)
 	categories := content.NewCategoryPublicHandler(content.NewCategoryService(contentStore), logger)
 	editorialStore := editorial.NewSQLiteStore(db)
 	authors := editorial.NewPublicHandler(editorial.NewService(editorialStore), logger)
@@ -189,6 +190,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		articles.MountPublic(router)
 		quizHandler.MountPublic(router)
 		categories.MountPublic(router)
+		topicsPublic.MountPublic(router)
 		authors.MountPublic(router)
 		auth.Mount(router)
 		newsletterHandler.Mount(router)

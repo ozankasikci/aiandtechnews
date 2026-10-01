@@ -71,6 +71,10 @@ func (s *SQLiteStore) List(ctx context.Context, query ListQuery) (ListResult, er
 	if err := rows.Err(); err != nil {
 		return ListResult{}, fmt.Errorf("iterate published articles: %w", err)
 	}
+	rows.Close()
+	if err := loadTopics(ctx, s.db, result.Articles); err != nil {
+		return ListResult{}, err
+	}
 	return result, nil
 }
 
@@ -138,6 +142,10 @@ func (s *SQLiteStore) Trending(ctx context.Context, limit int, since time.Time) 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate trending articles: %w", err)
 	}
+	rows.Close()
+	if err := loadTopics(ctx, s.db, articles); err != nil {
+		return nil, err
+	}
 	return articles, nil
 }
 
@@ -158,6 +166,9 @@ func (s *SQLiteStore) PublishedBySlug(ctx context.Context, slug string) (article
 		return Article{}, err
 	}
 	if err = loadInlineImages(ctx, tx, &article); err != nil {
+		return Article{}, err
+	}
+	if err = loadArticleTopics(ctx, tx, &article); err != nil {
 		return Article{}, err
 	}
 	if err = tx.Commit(); err != nil {
@@ -201,7 +212,23 @@ func (s *SQLiteStore) RecordView(ctx context.Context, slug string) error {
 }
 
 func (s *SQLiteStore) ByID(ctx context.Context, id string) (Article, error) {
-	return queryArticle(ctx, s.db, ` WHERE a.id = ?`, id)
+	article, err := queryArticle(ctx, s.db, ` WHERE a.id = ?`, id)
+	if err != nil {
+		return Article{}, err
+	}
+	if err := loadArticleTopics(ctx, s.db, &article); err != nil {
+		return Article{}, err
+	}
+	return article, nil
+}
+
+func loadArticleTopics(ctx context.Context, q queryer, article *Article) error {
+	one := []Article{*article}
+	if err := loadTopics(ctx, q, one); err != nil {
+		return err
+	}
+	article.Topics = one[0].Topics
+	return nil
 }
 
 type rowQueryer interface {
