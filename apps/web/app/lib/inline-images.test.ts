@@ -65,8 +65,8 @@ test("only well-formed API images are kept", () => {
 test("the article page inserts inline images before splitting for the read-next card", () => {
   const page = readFileSync(new URL("../article/[slug]/page.tsx", import.meta.url), "utf8");
   const api = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
-  assert.match(page, /const body = insertInlineImages\(glossary\.html, article\.inlineImages\);/);
-  assert.ok(page.indexOf("insertInlineImages(glossary.html") < page.indexOf("readNextSlot(body)"));
+  assert.match(page, /const body = insertInlineImages\(topicLinked\.html, article\.inlineImages\);/);
+  assert.ok(page.indexOf("insertInlineImages(topicLinked.html") < page.indexOf("readNextSlot(body)"));
   assert.match(api, /inlineImages: usableInlineImages\(a\.inlineImages\),/);
 });
 

@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { getAllArticlesForSitemap, getNewsletterEditions, type ApiArticle } from "./lib/api";
+import { getAllArticlesForSitemap, getNewsletterEditions, getTopics, type ApiArticle } from "./lib/api";
 import { parseApiDate } from "./lib/dates";
 import { fallbackArticles } from "./lib/fallback";
 import { CATEGORIES } from "./data/articles";
@@ -71,5 +71,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     })),
   ];
 
-  return [...static_pages, ...category_pages, ...glossary_pages, ...edition_pages, ...article_pages];
+  // Topic hubs: the index plus every live topic. A failing topics call (or an
+  // API without the endpoint) leaves the rest of the sitemap unchanged.
+  let topic_pages: MetadataRoute.Sitemap = [];
+  try {
+    const topics = await getTopics();
+    if (topics && topics.length > 0) {
+      topic_pages = [
+        { url: `${BASE_URL}/topics` },
+        ...topics.map((t) => ({
+          url: `${BASE_URL}/topics/${t.slug}`,
+          lastModified: parseApiDate(t.updatedAt) || undefined,
+        })),
+      ];
+    }
+  } catch {
+    // fall through with no topic pages
+  }
+
+  return [...static_pages, ...category_pages, ...glossary_pages, ...topic_pages, ...edition_pages, ...article_pages];
 }

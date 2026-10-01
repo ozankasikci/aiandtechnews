@@ -45,6 +45,9 @@ export default async function ArchivePage({ searchParams }: Props) {
         <p className="text-text-secondary text-lg">
           Browse the latest AI and technology news, then follow the pages back through our earlier coverage.
         </p>
+        <p className="text-text-secondary text-sm mt-3">
+          Looking for a company or product? <Link href="/topics" className="text-accent-purple hover:underline">Browse our topics</Link>.
+        </p>
         {total > 0 && (
           <p className="text-text-muted text-sm mt-4">
             {total.toLocaleString("en-US")} stories · Page {page} of {totalPages}

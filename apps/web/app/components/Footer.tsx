@@ -28,6 +28,7 @@ export function Footer() {
               {NAV_ITEMS.map((item) => (
                 <Link key={item} href={`/${item.toLowerCase()}`} className="hover:text-white transition-colors">{item}</Link>
               ))}
+              <Link href="/topics" className="hover:text-white transition-colors">Topics</Link>
               <Link href="/archive" className="hover:text-white transition-colors">Article archive</Link>
             </nav>
           </div>
