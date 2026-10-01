@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { ownImageOr } from "../lib/own-image";
 import Link from "next/link";
 import Image from "next/image";
 import { sanitizeSearchTerm, trackEvent } from "../lib/analytics";
@@ -150,7 +151,7 @@ export default function SearchPage() {
                 </div>
                 {a.featured_image && (
                   <div className="w-[140px] h-[90px] md:w-[180px] md:h-[110px] relative rounded-sm overflow-hidden shrink-0">
-                    <Image src={a.featured_image} alt="" fill className="object-cover" sizes="180px" />
+                    <Image src={ownImageOr(a.featured_image)} alt="" fill className="object-cover" sizes="180px" />
                   </div>
                 )}
               </article>

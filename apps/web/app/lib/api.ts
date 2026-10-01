@@ -1,4 +1,5 @@
 import type { Article } from "../data/articles";
+import { ownImageOr } from "./own-image";
 import { parseApiDate, toIsoDate } from "./dates";
 import { readingTimeLabel } from "./reading-time";
 import { usableInlineImages } from "./inline-images";
@@ -138,7 +139,7 @@ export function mapArticle(a: ApiArticle): Article {
     publishedAt: toIsoDate(a.published_at || a.created_at),
     updatedAt: toIsoDate(a.updated_at || a.published_at || a.created_at),
     readTime: readingTimeLabel(a.content),
-    image: a.featured_image || "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=500&fit=crop",
+    image: ownImageOr(a.featured_image),
     tldr: a.tldr?.length ? a.tldr : undefined,
     whyItMatters: a.why_it_matters || undefined,
     inlineImages: usableInlineImages(a.inlineImages),
