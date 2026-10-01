@@ -57,6 +57,8 @@ Review contract changes in this order:
 | `PUBLISHER_INTERVAL` | `1m` | How often the publisher loop runs when enabled (minimum `10s`) |
 | `INLINE_IMAGES_ENABLED` | off | Runs the worker that adds a second illustration inside articles of 6+ paragraphs published in the last 7 days (so turning it on also backfills that week). Needs `PUBLISHER_ENABLED=1` |
 | `INLINE_IMAGES_INTERVAL` | `5m` | How often the inline image worker picks one article (minimum `1m`) |
+| `TOPICS_ENABLED` | off | Tags each published article with 1-4 topics (company, product, person, theme) and runs the loop that refreshes live topics' summaries and key facts (at most daily per topic, only when new articles arrived, verified by a second model call). A topic is live (public at `/api/topics`) once it has 3 published articles. Needs `PUBLISHER_ENABLED=1`; tag existing articles with `cmd/topics-backfill` |
+| `TOPICS_INTERVAL` | `1h` | How often the topic summary loop looks for due topics (minimum `1m`) |
 | `GEMINI_API_KEY` | none | Required when `PUBLISHER_ENABLED=1`; Gemini API key used for rewriting and illustration |
 | `GEMINI_TEXT_MODEL`, `GEMINI_IMAGE_MODEL`, `GEMINI_VISION_MODEL` | client defaults | Optional Gemini model overrides |
 | `AWS_REGION` | none | Required when `PUBLISHER_ENABLED=1`; region for the S3 feature-image bucket. Credentials come from the default AWS chain, never from a file in this repo |
@@ -98,6 +100,8 @@ make contracts-accept  # explicitly accept the reviewed canonical Node fixture
 go run ./cmd/migrate   # explicitly migrate the guarded configured database
 go run ./cmd/adopt     # read-only: verify a Node-created database against the Go migrations
 go run ./cmd/adopt --apply  # back up with VACUUM INTO, then adopt it into the ledger
+go run ./cmd/topics-backfill -db <path>           # dry run: tag untagged articles with topics (needs migration 14 and GEMINI_API_KEY)
+go run ./cmd/topics-backfill -db <path> -write    # store them (back up the database first)
 scripts/smoke-local.sh <database> [uploads-dir]  # smoke-test the API on a temporary copy
 ```
 
