@@ -3,6 +3,7 @@ package newsletter
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -30,16 +31,18 @@ type DigestResult struct {
 }
 
 type articleRow struct {
-	title, slug, excerpt, category string
-	content, publishedAt           sql.NullString
+	title, slug, excerpt, category                     string
+	content, publishedAt, image, source, tldr, whyText sql.NullString
 }
 
 // RecentPublishedArticles is sendDailyDigest's article query: the twenty
 // published articles with the greatest published_at text.
 func (s *SQLiteStore) RecentPublishedArticles(ctx context.Context) ([]articleRow, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT a.title, a.slug, a.excerpt, a.content, a.published_at, c.name AS category_name
+	rows, err := s.db.QueryContext(ctx, `SELECT a.title, a.slug, a.excerpt, a.content, a.published_at, c.name AS category_name,
+                a.featured_image, a.source, s.tldr, s.why_it_matters
          FROM articles a
          JOIN categories c ON c.id = a.category_id
+         LEFT JOIN article_summaries s ON s.article_id = a.id
          WHERE a.status = 'published'
          ORDER BY a.published_at DESC
          LIMIT `+strconv.Itoa(digestCandidates))
@@ -50,7 +53,8 @@ func (s *SQLiteStore) RecentPublishedArticles(ctx context.Context) ([]articleRow
 	var articles []articleRow
 	for rows.Next() {
 		var row articleRow
-		if err := rows.Scan(&row.title, &row.slug, &row.excerpt, &row.content, &row.publishedAt, &row.category); err != nil {
+		if err := rows.Scan(&row.title, &row.slug, &row.excerpt, &row.content, &row.publishedAt, &row.category,
+			&row.image, &row.source, &row.tldr, &row.whyText); err != nil {
 			return nil, fmt.Errorf("scan digest article: %w", err)
 		}
 		articles = append(articles, row)
@@ -134,6 +138,22 @@ func (s *SQLiteStore) MarkFailed(ctx context.Context, subscriberID int64, editio
 		return fmt.Errorf("mark delivery failed: %w", err)
 	}
 	return nil
+}
+
+// parseTLDR reads article_summaries.tldr, a JSON array of sentences; a
+// missing or malformed value yields no points.
+func parseTLDR(value string) []string {
+	var points []string
+	if json.Unmarshal([]byte(value), &points) != nil {
+		return nil
+	}
+	kept := points[:0]
+	for _, point := range points {
+		if point = strings.TrimSpace(point); point != "" {
+			kept = append(kept, point)
+		}
+	}
+	return kept
 }
 
 // articlesJSON is JSON.stringify(articles) for the stored edition.
@@ -264,6 +284,8 @@ func (s *Service) sendDailyDigest(ctx context.Context, now time.Time) (DigestRes
 		articles = append(articles, DigestArticle{
 			Title: row.title, Slug: row.slug, Excerpt: row.excerpt, Category: row.category,
 			ReadingMinutes: readingMinutes(row.content.String),
+			Image:          row.image.String, Source: row.source.String,
+			WhyItMatters: row.whyText.String, TLDR: parseTLDR(row.tldr.String),
 		})
 		if len(articles) == digestSize {
 			break
@@ -295,7 +317,7 @@ func (s *Service) sendDailyDigest(ctx context.Context, now time.Time) (DigestRes
 			continue
 		}
 		key := "newsletter-digest-" + edition + "-" + strconv.FormatInt(recipient.id, 10)
-		providerID, sendErr := s.sender.Send(ctx, DigestEmail(recipient.email, articles, s.siteURL, s.unsubscribeURL(recipient.id, secret)), key)
+		providerID, sendErr := s.sender.Send(ctx, DigestEmail(recipient.email, articles, s.siteURL, s.unsubscribeURL(recipient.id, secret), edition), key)
 		// The outcome is recorded even while shutting down, so a claimed row
 		// never stays 'sending' because of cancellation.
 		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deliveryWriteTimeout)

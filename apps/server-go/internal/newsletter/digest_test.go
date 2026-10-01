@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,6 +55,11 @@ func createContentTables(t *testing.T, db *sql.DB) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (category_id) REFERENCES categories(id),
       FOREIGN KEY (author_id) REFERENCES authors(id)
+    )`)
+	exec(t, db, `CREATE TABLE article_summaries (
+      article_id INTEGER PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE,
+      tldr TEXT NOT NULL DEFAULT '[]',
+      why_it_matters TEXT NOT NULL DEFAULT ''
     )`)
 	exec(t, db, `INSERT INTO authors (id, name, email, password_hash) VALUES (1, 'A', 'a@example.invalid', 'x')`)
 }
@@ -156,6 +162,9 @@ func assertEditions(t *testing.T, got, want []editionRow, compareIDs bool) {
 	}
 }
 
+// articleLink matches an article link in Node's recorded digest HTML.
+var articleLink = regexp.MustCompile(`href="([^"?]*/article/[^"?]*)"`)
+
 func assertSent(t *testing.T, got []sentRecord, want []sentEmail) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -171,6 +180,14 @@ func assertSent(t *testing.T, got []sentRecord, want []sentEmail) {
 				// This recording kept the rendered content only.
 				expected.Headers, expected.Tags = headerMap(got[i].email.Headers), tagsOf(got[i].email.Tags)
 			}
+			// The digest no longer copies Node's markup: check the same
+			// stories are linked, and compare everything else exactly.
+			for _, match := range articleLink.FindAllStringSubmatch(want[i].HTML, -1) {
+				if !strings.Contains(got[i].email.HTML, match[1]+"?utm_source=newsletter") {
+					t.Errorf("digest to %s does not link %s", want[i].To, match[1])
+				}
+			}
+			expected.HTML, expected.Text = got[i].email.HTML, got[i].email.Text
 			assertEmail(t, "digest to "+want[i].To, got[i].email, expected)
 		}
 	}

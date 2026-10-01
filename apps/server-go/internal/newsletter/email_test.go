@@ -99,34 +99,63 @@ func TestWelcomeEmailIsByteIdenticalToNode(t *testing.T) {
 	}
 }
 
-func TestDigestEmailIsByteIdenticalToNode(t *testing.T) {
-	digests := golden(t).Emails.Digests
-	if len(digests) != 6 {
-		t.Fatalf("recorded digests = %d", len(digests))
+func TestDigestEmailLeadsWithTheFirstStory(t *testing.T) {
+	articles := []DigestArticle{
+		{Title: "Lead <story>", Slug: "lead story", Excerpt: "Lead excerpt", Category: "AI", ReadingMinutes: 3,
+			Image: "https://img.example/lead.webp", Source: "The Verge", WhyItMatters: "It matters & how", TLDR: []string{"First point", "Second point"}},
+		{Title: "Second", Slug: "second", Excerpt: "Second excerpt", Category: "Tech", ReadingMinutes: 2, Image: "/uploads/second.jpg"},
 	}
-	for _, vector := range digests {
-		articles := make([]DigestArticle, len(vector.Articles))
-		for i, article := range vector.Articles {
-			articles[i] = DigestArticle(article)
+	email := DigestEmail("reader@example.com", articles, "https://www.aiandtech.news", "https://www.aiandtech.news/unsub?t=1", "2026-10-01")
+	for _, want := range []string{
+		"Thu, Oct 1 · Daily Brief",
+		"Lead &lt;story&gt;, plus 1 more story",
+		"2 stories · about 5 minutes of reading",
+		`src="https://img.example/lead.webp"`,
+		`src="https://www.aiandtech.news/uploads/second.jpg"`,
+		"The Verge · 3 min",
+		"Why it matters", "It matters &amp; how",
+		"First point", "Second point",
+		`href="https://www.aiandtech.news/article/lead%20story?utm_source=newsletter&amp;utm_medium=email&amp;utm_campaign=daily_2026-10-01"`,
+		"Also today", "Second excerpt",
+		`href="https://www.aiandtech.news/unsub?t=1"`,
+		"prefers-color-scheme:dark",
+	} {
+		if !strings.Contains(email.HTML, want) {
+			t.Errorf("HTML is missing %q", want)
 		}
-		assertEmail(t, "digest "+vector.Name, DigestEmail(vector.To, articles, vector.SiteURL, vector.UnsubscribeURL), vector.Email)
-		if got := DigestSubject(articles); got != vector.Email.Subject {
-			t.Errorf("DigestSubject(%s) = %q", vector.Name, got)
+	}
+	if email.Subject != "Lead <story> (+1 more)" {
+		t.Errorf("subject = %q", email.Subject)
+	}
+	for _, want := range []string{"Lead <story> (3 min)\nIt matters & how\n1. First point\n2. Second point\n", "ALSO TODAY", "Unsubscribe: https://www.aiandtech.news/unsub?t=1"} {
+		if !strings.Contains(email.Text, want) {
+			t.Errorf("text is missing %q in %q", want, email.Text)
 		}
+	}
+	if !reflect.DeepEqual(email.Headers, unsubscribeHeaders("https://www.aiandtech.news/unsub?t=1")) || email.Tags[0].Value != "daily_digest" {
+		t.Errorf("headers = %v tags = %v", email.Headers, email.Tags)
 	}
 }
 
-func TestDigestGroupsByCategoryInSelectionOrder(t *testing.T) {
-	sections := groupByCategory([]DigestArticle{{Title: "1", Category: "AI"}, {Title: "2", Category: "Code"}, {Title: "3", Category: "AI"}, {Title: "4", Category: "ai"}})
-	var got []string
-	for _, section := range sections {
-		var titles []string
-		for _, article := range section.articles {
-			titles = append(titles, article.Title)
-		}
-		got = append(got, section.category+":"+strings.Join(titles, ","))
+func TestDigestEmailFallsBackWithoutImageOrSummary(t *testing.T) {
+	articles := []DigestArticle{{Title: "Only", Slug: "only", Excerpt: "Plain excerpt", Category: "AI", ReadingMinutes: 1, Image: "javascript:alert(1)"}}
+	email := DigestEmail("reader@example.com", articles, "https://www.aiandtech.news", "https://u", "2026-10-01")
+	if strings.Contains(email.HTML, "<img") || strings.Contains(email.HTML, "javascript:") {
+		t.Error("an unusable image was rendered")
 	}
-	if want := []string{"AI:1,3", "Code:2", "ai:4"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("sections = %v, want %v", got, want)
+	if strings.Contains(email.HTML, "Why it matters") || strings.Contains(email.HTML, "Also today") {
+		t.Error("empty sections were rendered")
+	}
+	if !strings.Contains(email.HTML, "Plain excerpt") || !strings.Contains(email.HTML, "1 story · about 1 minute of reading") {
+		t.Error("excerpt or intro missing")
+	}
+}
+
+func TestParseTLDR(t *testing.T) {
+	if got := parseTLDR(`["a", " ", "b "]`); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("got %q", got)
+	}
+	if got := parseTLDR("not json"); got != nil {
+		t.Errorf("got %q", got)
 	}
 }
