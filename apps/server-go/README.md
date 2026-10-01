@@ -25,7 +25,9 @@ Development configuration is deliberately isolated:
 
 `OPTIONS` responses match Express in status (`204`), CORS headers and `Vary`, and empty-body semantics. They deliberately omit Express's wire-level `Content-Length: 0`: [RFC 9110 section 8.6](https://www.rfc-editor.org/rfc/rfc9110#section-8.6) forbids servers from sending `Content-Length` on a `204` response, and Go's `net/http` strips it accordingly.
 
-The reviewed compatibility authority is the synthetic Node fixture at `apps/server/contracts/node/contracts.json`. Its 32 canonical operations capture reviewed primary success responses. The implemented public-read slice additionally tests unknown and malformed identifiers, draft visibility, query clamping/filtering/pagination, pre-increment view responses, persistence, ordering, nullability, empty collections, cancellation, and database failures. Negative scenarios for capabilities not yet ported remain deferred. `contracts/fixtures/node-contracts.json` is a generated Go-side mirror, not a separately editable fixture. Capture uses an isolated temporary SQLite database and uploads directory; it never copies or opens a production database.
+The reviewed compatibility authority is the synthetic Node fixture at `apps/server/contracts/node/contracts.json`. Its 32 canonical operations capture reviewed primary success responses. The implemented public-read slice additionally tests unknown and malformed identifiers, draft visibility, query clamping/filtering/pagination, view counting, persistence, ordering, nullability, empty collections, cancellation, and database failures. Negative scenarios for capabilities not yet ported remain deferred. `contracts/fixtures/node-contracts.json` is a generated Go-side mirror, not a separately editable fixture. Capture uses an isolated temporary SQLite database and uploads directory; it never copies or opens a production database.
+
+**Changed: article views are counted by a beacon, not by reads.** Node incremented `view_count`, `article_views`, and `article_views_hourly` on every `GET /api/articles/:slug`. The website now caches article pages (ISR), so that read happens about once an hour instead of once per reader. Go's `GET /api/articles/{slug}` returns the same JSON but counts nothing; the article page in the browser sends `POST /api/articles/{slug}/view` (`navigator.sendBeacon`, a CORS simple request), which answers `204`, or `404` for an unknown or unpublished slug. It ignores obvious bots by `User-Agent` and counts one view per client and article every 30 minutes, keeping only a salted hash of the client address in a bounded in-memory table. The contract replays send that beacon right after `articles.getBySlug`, so the recorded fixture's 42 -> 43 view count still holds (see `countBeaconViewAfter` in `internal/app/contract_divergence_test.go`).
 
 The public author contract includes email addresses for compatibility with the current Node endpoint. This is recorded privacy debt, not an endorsement of public email exposure. The Go query uses an explicit six-column allowlist and never selects or serializes `password_hash`; changing email visibility requires a separately reviewed contract change.
 
@@ -55,6 +57,10 @@ Review contract changes in this order:
 | `PUBLISHER_INTERVAL` | `1m` | How often the publisher loop runs when enabled (minimum `10s`) |
 | `INLINE_IMAGES_ENABLED` | off | Runs the worker that adds a second illustration inside articles of 6+ paragraphs published in the last 7 days (so turning it on also backfills that week). Needs `PUBLISHER_ENABLED=1` |
 | `INLINE_IMAGES_INTERVAL` | `5m` | How often the inline image worker picks one article (minimum `1m`) |
+| `REIMAGE_ENABLED` | off | Runs the job that replaces featured images that are a news source's photo (older articles; the site no longer shows them) with an image of our own: drawn by the generating providers only (never the `source` step, no reference photo, no collage), stored in S3, the article's `featured_image` switched and its site page refreshed. Newest first, 3 tries per article (`featured_reimage` table). Needs `PUBLISHER_ENABLED=1`; shares the pipeline's one-image-at-a-time lock |
+| `REIMAGE_INTERVAL` | `10m` | How often the re-image job picks one article (minimum `1m`) |
+| `TOPICS_ENABLED` | off | Tags each published article with 1-4 topics (company, product, person, theme) and runs the loop that refreshes live topics' summaries and key facts (at most daily per topic, only when new articles arrived, verified by a second model call). A topic is live (public at `/api/topics`) once it has 3 published articles. Needs `PUBLISHER_ENABLED=1`; tag existing articles with `cmd/topics-backfill` |
+| `TOPICS_INTERVAL` | `1h` | How often the topic summary loop looks for due topics (minimum `1m`) |
 | `GEMINI_API_KEY` | none | Required when `PUBLISHER_ENABLED=1`; Gemini API key used for rewriting and illustration |
 | `GEMINI_TEXT_MODEL`, `GEMINI_IMAGE_MODEL`, `GEMINI_VISION_MODEL` | client defaults | Optional Gemini model overrides |
 | `AWS_REGION` | none | Required when `PUBLISHER_ENABLED=1`; region for the S3 feature-image bucket. Credentials come from the default AWS chain, never from a file in this repo |
@@ -69,6 +75,7 @@ Review contract changes in this order:
 | `NEWSLETTER_FROM` | none | Sender, for example `AI & Tech News <news@aiandtech.news>` (a verified Resend domain) |
 | `NEWSLETTER_REPLY_TO` | none | Optional `reply_to` for every email |
 | `INDEXNOW_ENABLED` | `0` | Submits article URLs to IndexNow: each publisher-published article, and dashboard publishes, unpublishes, published-slug renames, and deletions of published articles. Off by default, so local runs never ping IndexNow for an article that only exists in the dev database |
+| `SITE_REVALIDATE_URL` | none | The website's `POST /api/revalidate` (e.g. `https://www.aiandtech.news/api/revalidate`). After a publish, a ready inline image, or a dashboard article create/update/delete, the API posts `{"slugs":[...]}` there with `Authorization: Bearer <NEWSLETTER_CRON_SECRET or CRON_SECRET>` so cached pages refresh at once; best effort, in the background, 10s timeout, failures only logged. Empty disables it; set without a secret refuses to start |
 
 AWS credentials always come from the default AWS SDK credential chain (for example `AWS_PROFILE`), never from a file in this repo.
 
@@ -95,6 +102,8 @@ make contracts-accept  # explicitly accept the reviewed canonical Node fixture
 go run ./cmd/migrate   # explicitly migrate the guarded configured database
 go run ./cmd/adopt     # read-only: verify a Node-created database against the Go migrations
 go run ./cmd/adopt --apply  # back up with VACUUM INTO, then adopt it into the ledger
+go run ./cmd/topics-backfill -db <path>           # dry run: tag untagged articles with topics (needs migration 14 and GEMINI_API_KEY)
+go run ./cmd/topics-backfill -db <path> -write    # store them (back up the database first)
 scripts/smoke-local.sh <database> [uploads-dir]  # smoke-test the API on a temporary copy
 ```
 
@@ -263,3 +272,12 @@ make dev-api    # serve on 127.0.0.1:4401 with a local JWT secret
 ```
 
 `dev-seed` is idempotent (it re-sets the dev password and skips existing candidates) and refuses to run with `APP_ENV=production`. A Debug build of the iOS app points at `http://127.0.0.1:4401/api`.
+
+### Preview the featured-image replacement
+
+`go run ./cmd/imagegen-try -reimage-latest 20 -db <copy of technews.db>` lists
+the newest 20 articles the re-image job would replace (and how many in all). It
+opens the database read-only, generates nothing, uploads nothing and writes
+nothing. An article is selected when it is published and its `featured_image` is
+empty or not ours (`internal/ownimage`, the Go twin of the site's
+`own-image.ts`), and it has failed fewer than 3 times.

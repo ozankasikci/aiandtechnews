@@ -650,3 +650,26 @@ func TestPublisherWithCodexRequiresCodexBin(t *testing.T) {
 		t.Fatal("relative CUTOUT_BIN: want an error")
 	}
 }
+
+func TestLoadSiteRevalidateURLReusesTheCronSecret(t *testing.T) {
+	cfg, err := Load(mapLookup(map[string]string{"JWT_SECRET": "x"}), t.TempDir())
+	if err != nil || cfg.SiteRevalidateURL != "" {
+		t.Fatalf("default = %q, %v", cfg.SiteRevalidateURL, err)
+	}
+	cfg, err = Load(mapLookup(map[string]string{"JWT_SECRET": "x", "SITE_REVALIDATE_URL": " https://www.aiandtech.news/api/revalidate ", "CRON_SECRET": "s"}), t.TempDir())
+	if err != nil || cfg.SiteRevalidateURL != "https://www.aiandtech.news/api/revalidate" || cfg.NewsletterCronSecret != "s" {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+	if strings.Contains(cfg.String(), "\"s\"") {
+		t.Fatalf("String() leaks the secret: %s", cfg.String())
+	}
+	for _, env := range []map[string]string{
+		{"JWT_SECRET": "x", "SITE_REVALIDATE_URL": "https://www.aiandtech.news/api/revalidate"},
+		{"JWT_SECRET": "x", "SITE_REVALIDATE_URL": "www.aiandtech.news/api/revalidate", "CRON_SECRET": "s"},
+		{"JWT_SECRET": "x", "SITE_REVALIDATE_URL": "ftp://example.com/x", "CRON_SECRET": "s"},
+	} {
+		if _, err := Load(mapLookup(env), t.TempDir()); err == nil {
+			t.Errorf("Load(%v) accepted an unusable SITE_REVALIDATE_URL", env)
+		}
+	}
+}

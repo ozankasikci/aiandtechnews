@@ -404,3 +404,19 @@ func (s *failingResetStore) ResetProcessing(ctx context.Context, now time.Time, 
 	}
 	return s.Store.ResetProcessing(ctx, now, maxAttempts)
 }
+
+type fakeTagger struct{ ids []int64 }
+
+func (f *fakeTagger) TagArticle(_ context.Context, id int64) { f.ids = append(f.ids, id) }
+
+func TestPublishNextTagsTheArticleAfterItIsStored(t *testing.T) {
+	h := newHarness(t, fakeFetcher{body: sourcePage()}, fakeRewriter{}, nil)
+	tagger := &fakeTagger{}
+	h.pub.Topics = tagger
+	if published, err := h.pub.PublishNext(context.Background()); err != nil || !published {
+		t.Fatalf("published=%v err=%v", published, err)
+	}
+	if len(tagger.ids) != 1 || tagger.ids[0] == 0 {
+		t.Fatalf("tagged = %v", tagger.ids)
+	}
+}

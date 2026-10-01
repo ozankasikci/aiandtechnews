@@ -55,6 +55,12 @@ const (
 	// DefaultInlineImagesInterval is how often the inline image worker picks
 	// an article when INLINE_IMAGES_INTERVAL is unset.
 	DefaultInlineImagesInterval = 5 * time.Minute
+	// DefaultReimageInterval is how often the featured-image replacement job
+	// picks an article when REIMAGE_INTERVAL is unset.
+	DefaultReimageInterval = 10 * time.Minute
+	// DefaultTopicsInterval is how often the topic summary loop looks for
+	// topics that are due when TOPICS_INTERVAL is unset.
+	DefaultTopicsInterval = time.Hour
 	// DefaultAutopickInterval is how often the automatic editor runs when
 	// AUTOPICK_INTERVAL is unset.
 	DefaultAutopickInterval = 6 * time.Hour
@@ -170,12 +176,34 @@ type Config struct {
 	// false (the default), published URLs are not submitted to IndexNow.
 	IndexNowEnabled bool
 
+	// SiteRevalidateURL (SITE_REVALIDATE_URL, e.g.
+	// https://www.aiandtech.news/api/revalidate) is where the API asks the
+	// website to refresh cached pages after an article is published,
+	// illustrated, edited, or deleted. It is authorized with the site's
+	// CRON_SECRET (NewsletterCronSecret). Empty disables it.
+	SiteRevalidateURL string
+
 	// InlineImagesEnabled (INLINE_IMAGES_ENABLED, default off) runs the
 	// worker that gives articles of the last 7 days a second illustration
 	// inside the body, one article every InlineImagesInterval
 	// (INLINE_IMAGES_INTERVAL, default 5m). It needs the publisher.
 	InlineImagesEnabled  bool
 	InlineImagesInterval time.Duration
+	// ReimageEnabled (REIMAGE_ENABLED, default off) runs the job that gives
+	// articles whose featured image is a news source's photo an image of
+	// our own (drawn, never copied), one article every ReimageInterval
+	// (REIMAGE_INTERVAL, default 10m). It needs the publisher.
+	ReimageEnabled  bool
+	ReimageInterval time.Duration
+
+	// TopicsEnabled (TOPICS_ENABLED, default off) tags each published
+	// article with its topics (1 to 4 entities, one Gemini call) and runs the
+	// loop that refreshes live topics' summaries and key facts every
+	// TopicsInterval (TOPICS_INTERVAL, default 1h; at most daily per topic).
+	// It needs the publisher, which owns the Gemini client. The public topic
+	// routes are always mounted.
+	TopicsEnabled  bool
+	TopicsInterval time.Duration
 
 	// Newsletter settings keep Node's names (apps/server/.env.example) and
 	// raw values: Node trims each one where it uses it, and so does
@@ -192,12 +220,12 @@ type Config struct {
 
 func (c Config) String() string {
 	return fmt.Sprintf("Config{Mode:%q Address:%q TimeZone:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
-		"PublisherEnabled:%t PublisherInterval:%s InlineImagesEnabled:%t InlineImagesInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q FeaturedImageChain:%q FeaturedImageAnalyzers:%q CodexBin:%q CodexNodeDir:%q CodexTimeout:%s CutoutBin:%q GeminiVisionModel:%q "+
-		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t "+
+		"PublisherEnabled:%t PublisherInterval:%s InlineImagesEnabled:%t InlineImagesInterval:%s ReimageEnabled:%t ReimageInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q FeaturedImageChain:%q FeaturedImageAnalyzers:%q CodexBin:%q CodexNodeDir:%q CodexTimeout:%s CutoutBin:%q GeminiVisionModel:%q "+
+		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t SiteRevalidateURL:%q "+
 		"NewsletterSiteURL:%q NewsletterTokenSecret:[REDACTED] NewsletterCronSecret:[REDACTED] ResendAPIKey:[REDACTED] NewsletterFrom:%q NewsletterReplyTo:%q}",
 		c.Mode, c.Address, c.TimeZone, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
-		c.PublisherEnabled, c.PublisherInterval, c.InlineImagesEnabled, c.InlineImagesInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.FeaturedImageChain, c.FeaturedImageAnalyzers, c.CodexBin, c.CodexNodeDir, c.CodexTimeout, c.CutoutBin, c.GeminiVisionModel,
-		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled,
+		c.PublisherEnabled, c.PublisherInterval, c.InlineImagesEnabled, c.InlineImagesInterval, c.ReimageEnabled, c.ReimageInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.FeaturedImageChain, c.FeaturedImageAnalyzers, c.CodexBin, c.CodexNodeDir, c.CodexTimeout, c.CutoutBin, c.GeminiVisionModel,
+		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled, c.SiteRevalidateURL,
 		c.NewsletterSiteURL, c.NewsletterFrom, c.NewsletterReplyTo)
 }
 
@@ -280,6 +308,32 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 			return Config{}, fmt.Errorf("INLINE_IMAGES_INTERVAL: %w", err)
 		}
 		cfg.InlineImagesInterval = interval
+	}
+	reimageEnabled, err := parseOnOff("REIMAGE_ENABLED", lookup("REIMAGE_ENABLED"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ReimageEnabled = reimageEnabled
+	cfg.ReimageInterval = DefaultReimageInterval
+	if value := lookup("REIMAGE_INTERVAL"); value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("REIMAGE_INTERVAL: %w", err)
+		}
+		cfg.ReimageInterval = interval
+	}
+	topicsEnabled, err := parseOnOff("TOPICS_ENABLED", lookup("TOPICS_ENABLED"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.TopicsEnabled = topicsEnabled
+	cfg.TopicsInterval = DefaultTopicsInterval
+	if value := lookup("TOPICS_INTERVAL"); value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("TOPICS_INTERVAL: %w", err)
+		}
+		cfg.TopicsInterval = interval
 	}
 	cfg.GeminiAPIKey = lookup("GEMINI_API_KEY")
 	cfg.GeminiTextModel = lookup("GEMINI_TEXT_MODEL")
@@ -385,6 +439,7 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.IndexNowEnabled = indexNowEnabled
+	cfg.SiteRevalidateURL = strings.TrimSpace(lookup("SITE_REVALIDATE_URL"))
 
 	cfg.NewsletterSiteURL = lookup("NEWSLETTER_SITE_URL")
 	cfg.NewsletterTokenSecret = lookup("NEWSLETTER_TOKEN_SECRET")
@@ -433,6 +488,22 @@ func (c Config) Validate() error {
 			return errors.New("INLINE_IMAGES_INTERVAL must be at least 1m")
 		}
 	}
+	if c.ReimageEnabled {
+		if !c.PublisherEnabled {
+			return errors.New("REIMAGE_ENABLED needs PUBLISHER_ENABLED: the job uses the publisher's illustration pipeline")
+		}
+		if c.ReimageInterval < time.Minute {
+			return errors.New("REIMAGE_INTERVAL must be at least 1m")
+		}
+	}
+	if c.TopicsEnabled {
+		if !c.PublisherEnabled {
+			return errors.New("TOPICS_ENABLED needs PUBLISHER_ENABLED: topics use the publisher's Gemini client")
+		}
+		if c.TopicsInterval < time.Minute {
+			return errors.New("TOPICS_INTERVAL must be at least 1m")
+		}
+	}
 	if c.PublisherEnabled {
 		if err := c.validatePublisher(); err != nil {
 			return err
@@ -441,6 +512,15 @@ func (c Config) Validate() error {
 	if c.MediaStorage == MediaStorageS3 {
 		if err := c.validateMediaS3(); err != nil {
 			return err
+		}
+	}
+	if c.SiteRevalidateURL != "" {
+		parsed, err := url.Parse(c.SiteRevalidateURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return fmt.Errorf("SITE_REVALIDATE_URL must be an absolute http(s) URL, got %q", c.SiteRevalidateURL)
+		}
+		if strings.TrimSpace(c.NewsletterCronSecret) == "" {
+			return errors.New("SITE_REVALIDATE_URL needs NEWSLETTER_CRON_SECRET or CRON_SECRET (the site's CRON_SECRET)")
 		}
 	}
 

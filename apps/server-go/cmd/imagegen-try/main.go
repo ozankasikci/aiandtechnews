@@ -21,6 +21,13 @@
 //
 //	go run ./cmd/imagegen-try -inline-latest 10 -db ~/aiandtechnews/data/technews.db
 //
+// -reimage-latest N lists the newest N published articles whose featured image
+// is empty or not ours (the ones the REIMAGE_ENABLED job would replace) and
+// how many there are in all. It opens -db read-only, generates nothing,
+// uploads nothing and writes nothing; the database copy must have migration 15:
+//
+//	go run ./cmd/imagegen-try -reimage-latest 20 -db ~/copy-of-technews.db
+//
 // It reads GEMINI_API_KEY, GEMINI_TEXT_MODEL, GEMINI_IMAGE_MODEL,
 // GEMINI_IMAGE_SIZE, GEMINI_VISION_MODEL, CODEX_BIN, CODEX_NODE_DIR,
 // CODEX_TIMEOUT, CUTOUT_BIN, FEATURED_IMAGE_CHAIN and FEATURED_IMAGE_ANALYZER
@@ -43,6 +50,7 @@ import (
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/config"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/database"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/featuredreimage"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/gemini"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/imaging"
@@ -90,8 +98,12 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 	photosOnly := flags.Bool("real-photos-only", false, "with -inline: only look for a real photo, never draw")
 	noPhotos := flags.Bool("no-real-photos", false, "with -inline: skip the real photo search and draw")
 	latest := flags.Int("inline-latest", 0, "look for real photos for the newest N published articles and print a table")
+	reimageLatest := flags.Int("reimage-latest", 0, "list the newest N articles the featured image re-image job would replace (read-only, nothing generated)")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *reimageLatest > 0 {
+		return runReimageLatest(ctx, os.Stdout, *dbPath, *reimageLatest)
 	}
 	if *inline == "" && *title == "" && *latest <= 0 {
 		return errors.New("-title is required")
@@ -194,6 +206,41 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 	}
 	fmt.Println(string(report))
 	return produceErr
+}
+
+// runReimageLatest prints what the re-image job would replace, newest first.
+// The database is opened read-only and nothing is generated or uploaded.
+func runReimageLatest(ctx context.Context, w io.Writer, dbPath string, count int) error {
+	if dbPath == "" {
+		return errors.New("-reimage-latest needs -db (or DATABASE_PATH)")
+	}
+	db, err := database.OpenExisting(ctx, dbPath, true)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	pending, err := featuredreimage.NewSQLiteStore(db, nil).Pending(ctx, featuredreimage.MaxAttempts)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table: featured_reimage") {
+			return fmt.Errorf("%w (run cmd/migrate on this copy first: migration 15 is missing)", err)
+		}
+		return err
+	}
+	table := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(table, "ID\tSLUG\tTRIES\tCURRENT FEATURED IMAGE")
+	for i, article := range pending {
+		if i == count {
+			break
+		}
+		current := article.FeaturedImage
+		if current == "" {
+			current = "(empty)"
+		}
+		fmt.Fprintf(table, "%d\t%s\t%d\t%s\n", article.ID, cut(article.Slug, 60), article.Attempts, cut(current, 80))
+	}
+	_ = table.Flush()
+	fmt.Fprintf(w, "\n%d article(s) would be replaced in all; nothing generated, uploaded or written.\n", len(pending))
+	return nil
 }
 
 func splitList(value string) []string {

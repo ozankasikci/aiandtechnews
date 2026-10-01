@@ -1,4 +1,5 @@
 import snapshot from "../../public/articles-data.json";
+import { ownImageOr } from "./own-image";
 import type { Article } from "../data/articles";
 import { parseApiDate, toIsoDate } from "./dates";
 
@@ -10,7 +11,7 @@ interface SnapshotArticle {
   slug: string;
   title: string;
   excerpt: string;
-  featured_image: string;
+  featured_image: string | null;
   published_at: string;
   category?: { name: string; slug: string; color: string };
   author?: { name: string; avatar: string };
@@ -58,7 +59,7 @@ export function snapshotToArticle(entry: SnapshotArticle, now = new Date()): Art
     publishedAt: toIsoDate(entry.published_at),
     updatedAt: toIsoDate(entry.published_at),
     readTime: "1 min read",
-    image: entry.featured_image || "",
+    image: ownImageOr(entry.featured_image),
   };
 }
 

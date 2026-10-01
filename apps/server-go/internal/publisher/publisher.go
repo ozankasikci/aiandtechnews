@@ -86,6 +86,12 @@ type NoopNotifier struct{}
 
 func (NoopNotifier) SubmitSlugs(context.Context, []string) error { return nil }
 
+// TopicTagger gives a just-published article its topics. It is best effort
+// and must not fail: any error is its own to log (topics.Tagger).
+type TopicTagger interface {
+	TagArticle(ctx context.Context, articleID int64)
+}
+
 type Deps struct {
 	Store    Store
 	Fetcher  SourceFetcher
@@ -93,6 +99,9 @@ type Deps struct {
 	// Subheadings, when set, adds subheadings to a rewrite that came back
 	// without any (see addSubheadings).
 	Subheadings TextGenerator
+	// Topics, when set, tags each published article with its topics after
+	// the article is stored.
+	Topics      TopicTagger
 	Illustrator Illustrator
 	Articles    ArticleStore
 	Notifier    Notifier
@@ -183,6 +192,9 @@ func (p *Publisher) PublishNext(ctx context.Context) (bool, error) {
 	p.Logger.InfoContext(ctx, "published candidate", "candidate", candidate.ID, "article", articleID, "slug", slug)
 	if err := p.Notifier.SubmitSlugs(bookkeeping, []string{slug}); err != nil {
 		p.Logger.WarnContext(ctx, "IndexNow notification failed", "slug", slug, "error", err)
+	}
+	if p.Topics != nil {
+		p.Topics.TagArticle(ctx, articleID)
 	}
 	return true, nil
 }

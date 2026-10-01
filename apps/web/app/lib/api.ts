@@ -1,7 +1,9 @@
 import type { Article } from "../data/articles";
+import { ownImageOr } from "./own-image";
 import { parseApiDate, toIsoDate } from "./dates";
 import { readingTimeLabel } from "./reading-time";
 import { usableInlineImages } from "./inline-images";
+import { parseTopicDetail, parseTopicList, parseTopicRefs, topicTag, TOPICS_TAG, type TopicDetail, type TopicSummary } from "./topics";
 
 function getApiUrl() {
   const configured = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL)?.trim();
@@ -14,6 +16,30 @@ function getApiUrl() {
 }
 
 const API_URL = getApiUrl();
+
+// The API base the reader's browser calls directly (the article view
+// beacon). Only NEXT_PUBLIC_API_URL is meant to be public; API_URL may be a
+// private address, so it is used only outside production. Production falls
+// back to the public API host, never localhost.
+export function getPublicApiUrl(env: Record<string, string | undefined> = process.env): string {
+  const configured = env.NEXT_PUBLIC_API_URL?.trim();
+  if (env.NODE_ENV === "production") {
+    if (!configured || configured.includes("localhost") || configured.includes("127.0.0.1")) {
+      return "https://technews.subtunnel.dev";
+    }
+    return configured.replace(/\/+$/, "");
+  }
+  return (configured || env.API_URL?.trim() || "http://localhost:4001").replace(/\/+$/, "");
+}
+
+// Cache policy. Pages are refreshed on demand by POST /api/revalidate when
+// the API publishes or edits an article; these are only the fallbacks.
+export const ARTICLE_REVALIDATE_SECONDS = 3600;
+export const LIST_REVALIDATE_SECONDS = 300;
+export const ARTICLES_TAG = "articles";
+export function articleTag(slug: string) {
+  return `article:${slug}`;
+}
 
 export interface ApiArticle {
   id: number;
@@ -33,6 +59,7 @@ export interface ApiArticle {
   meta_description?: string | null;
   tldr?: string[];
   why_it_matters?: string;
+  topics?: unknown;
   inlineImages?: {
     url: string;
     alt: string;
@@ -112,19 +139,22 @@ export function mapArticle(a: ApiArticle): Article {
     publishedAt: toIsoDate(a.published_at || a.created_at),
     updatedAt: toIsoDate(a.updated_at || a.published_at || a.created_at),
     readTime: readingTimeLabel(a.content),
-    image: a.featured_image || "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=500&fit=crop",
+    image: ownImageOr(a.featured_image),
     tldr: a.tldr?.length ? a.tldr : undefined,
     whyItMatters: a.why_it_matters || undefined,
     inlineImages: usableInlineImages(a.inlineImages),
+    topics: parseTopicRefs(a.topics),
     metaTitle: a.meta_title || undefined,
     metaDescription: a.meta_description || undefined,
     body: a.content,
   };
 }
 
-async function apiFetch<T>(path: string): Promise<T | null> {
+async function apiFetch<T>(path: string, tags?: string[]): Promise<T | null> {
   try {
-    const res = await fetch(`${API_URL}${path}`, { next: { revalidate: 60 } });
+    const res = await fetch(`${API_URL}${path}`, {
+      next: tags ? { revalidate: LIST_REVALIDATE_SECONDS, tags } : { revalidate: LIST_REVALIDATE_SECONDS },
+    });
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -139,7 +169,7 @@ export async function getArticles(opts?: { page?: number; limit?: number; catego
   if (opts?.category) params.set("category", opts.category);
   if (opts?.search) params.set("search", opts.search);
   const qs = params.toString();
-  return apiFetch<{ articles: ApiArticle[]; total: number; page: number; totalPages: number }>(`/api/articles${qs ? `?${qs}` : ""}`);
+  return apiFetch<{ articles: ApiArticle[]; total: number; page: number; totalPages: number }>(`/api/articles${qs ? `?${qs}` : ""}`, [ARTICLES_TAG]);
 }
 
 // The public API caps each page at 50 articles, so callers that need more
@@ -242,7 +272,7 @@ export async function getTodayQuiz() {
 
 export async function getTrendingArticles(limit = 5, window?: TrendingWindow) {
   const windowParam = window ? `&window=${window}` : "";
-  return apiFetch<{ articles: ApiArticle[] }>(`/api/articles/trending?limit=${limit}${windowParam}`);
+  return apiFetch<{ articles: ApiArticle[] }>(`/api/articles/trending?limit=${limit}${windowParam}`, [ARTICLES_TAG]);
 }
 
 export type ArticleLookupResult =
@@ -255,8 +285,10 @@ export async function getArticleLookup(
   fetchImplementation: typeof fetch = fetch,
 ): Promise<ArticleLookupResult> {
   try {
+    // Only 200 responses enter Next's data cache, so a 404 for a slug that
+    // is published a moment later is not remembered here.
     const articleResponse = await fetchImplementation(`${API_URL}/api/articles/${encodeURIComponent(slug)}`, {
-      next: { revalidate: 60 },
+      next: { revalidate: ARTICLE_REVALIDATE_SECONDS, tags: [articleTag(slug)] },
     });
 
     if (articleResponse.ok) {
@@ -305,4 +337,46 @@ export async function getNewsletterEditions(limit = 30) {
 
 export async function getNewsletterEdition(edition: string) {
   return apiFetch<{ edition: NewsletterEdition }>(`/api/newsletter/editions/${encodeURIComponent(edition)}`);
+}
+
+// All live topics, most covered first. "unavailable" covers an API without
+// the topics endpoint yet, so callers can render nothing instead of failing.
+export async function getTopics(fetchImplementation: typeof fetch = fetch): Promise<TopicSummary[] | null> {
+  try {
+    const res = await fetchImplementation(`${API_URL}/api/topics`, {
+      next: { revalidate: LIST_REVALIDATE_SECONDS, tags: [TOPICS_TAG] },
+    });
+    if (!res.ok) return null;
+    return parseTopicList(await res.json());
+  } catch {
+    return null;
+  }
+}
+
+export type TopicLookupResult =
+  | { state: "found"; topic: TopicDetail; articles: ApiArticle[] }
+  | { state: "missing" }
+  | { state: "unavailable" };
+
+export async function getTopic(
+  slug: string,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<TopicLookupResult> {
+  try {
+    const res = await fetchImplementation(`${API_URL}/api/topics/${encodeURIComponent(slug)}`, {
+      next: { revalidate: LIST_REVALIDATE_SECONDS, tags: [TOPICS_TAG, topicTag(slug)] },
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { topic?: unknown; articles?: unknown };
+      const topic = parseTopicDetail(data.topic);
+      if (!topic || !Array.isArray(data.articles)) return { state: "unavailable" };
+      const articles = (data.articles as ApiArticle[]).filter((a) => a && typeof a.slug === "string" && a.slug);
+      return { state: "found", topic, articles };
+    }
+    if (res.status !== 404) return { state: "unavailable" };
+    const health = await fetchImplementation(`${API_URL}/api/health`, { next: { revalidate: 30 } });
+    return health.ok ? { state: "missing" } : { state: "unavailable" };
+  } catch {
+    return { state: "unavailable" };
+  }
 }

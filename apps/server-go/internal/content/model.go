@@ -29,6 +29,9 @@ type Article struct {
 	// InlineImages are the ready illustrations inside the body, from
 	// article_images; also loaded only for a single article read by slug.
 	InlineImages []InlineImage `json:"inlineImages,omitempty"`
+	// Topics are the article's live topic hubs (at most MaxArticleTopics),
+	// loaded for public reads only. Absent when it has none.
+	Topics []TopicRef `json:"topics,omitempty"`
 }
 
 // InlineImage is an illustration placed after paragraph AfterParagraph

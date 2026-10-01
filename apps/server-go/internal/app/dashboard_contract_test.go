@@ -142,7 +142,8 @@ func TestDashboardContentMatchesApprovedNodeContractSequence(t *testing.T) {
 		t.Fatalf("fixture dashboard operations = %v, want %v", fixtureOperations, dashboardContentOperations)
 	}
 
-	// Canonical state: articles.getBySlug increments view_count 42 -> 43 before
+	// Canonical state: the view of articles.getBySlug (counted by the site's
+	// beacon, see countBeaconViewAfter) raises view_count 42 -> 43 before
 	// dashboard.articles.list is recorded. Newsletter (7-14) and media (27-29,
 	// replayed by TestDashboardMediaMatchesApprovedNodeContractSequence)
 	// operations touch no table these operations read, so they are skipped.
@@ -154,6 +155,7 @@ func TestDashboardContentMatchesApprovedNodeContractSequence(t *testing.T) {
 		if err := contracttest.Replay(handler, op); err != nil {
 			t.Fatalf("%s replay: %v", id, err)
 		}
+		countBeaconViewAfter(t, handler, op)
 	}
 	bindings := contractBindings(t, handler, contract)
 	previous = assertAfter(t, contract, "auth.login", previous)

@@ -603,3 +603,46 @@ func TestMixedCollageKeepsSizeAndPastesPieces(t *testing.T) {
 		t.Fatal("the subject was not pasted over the backdrop")
 	}
 }
+
+func TestProduceGeneratedNeverFetchesOrCopiesTheSourceImage(t *testing.T) {
+	hits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(solidPNG(t, 40, 30))
+	}))
+	t.Cleanup(server.Close)
+	gem := &fakeProvider{name: "gemini", attempts: 3, image: solidPNG(t, 64, 36)}
+	fixture := newFixture(t, illustration.ProviderStep(gem), illustration.SourceStep())
+	fixture.request.ReferenceImageURL = server.URL + "/source.png"
+
+	result, err := illustration.NewPipeline(fixture.deps).ProduceGenerated(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hits != 0 || fixture.analyzer.input.Source != nil || fixture.analyzer.input.ImageURL != "" {
+		t.Fatalf("source image was used: hits %d input %+v", hits, fixture.analyzer.input)
+	}
+	if result.Report.Provider != "gemini" || result.Report.SourceImage || result.Report.Collage {
+		t.Fatalf("report = %+v", result.Report)
+	}
+	for _, style := range fixture.analyzer.input.Styles.All() {
+		if style.Collage {
+			t.Fatalf("collage style %q offered", style.Name)
+		}
+	}
+}
+
+func TestProduceGeneratedDoesNotFallBackToTheSourceWhenEveryDrawingIsRejected(t *testing.T) {
+	gem := &fakeProvider{name: "gemini", attempts: 3, image: solidPNG(t, 64, 36)}
+	fixture := newFixture(t, illustration.ProviderStep(gem), illustration.SourceStep())
+	fixture.reviewer.verdicts = []illustration.Verdict{rejectText, rejectText, rejectText}
+	fixture.request.ReferenceImageURL = sourceServer(t, solidPNG(t, 40, 30))
+	result, err := illustration.NewPipeline(fixture.deps).ProduceGenerated(context.Background(), fixture.request)
+	if err == nil || len(result.Image) != 0 || result.Report.SourceImage {
+		t.Fatalf("result %+v err %v", result.Report, err)
+	}
+	if !publisher.IsPermanent(err) {
+		t.Fatalf("err = %v, want permanent", err)
+	}
+}

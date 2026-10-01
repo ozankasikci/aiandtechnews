@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ownImageOr } from "../../lib/own-image";
 import articlesData from "../../../public/articles-data.json";
 
 function getApiBase() {
@@ -20,7 +21,7 @@ interface ArticleRecord {
   slug: string;
   title: string;
   excerpt: string;
-  featured_image: string;
+  featured_image: string | null;
   published_at: string;
   category: { name: string; slug: string; color: string };
   author: { name: string; avatar: string };
@@ -50,12 +51,17 @@ function fallbackSearch(q: string, category: string, limit: number, page: number
   const offset = (page - 1) * limit;
 
   return {
-    articles: filtered.slice(offset, offset + limit),
+    articles: withOwnImages(filtered.slice(offset, offset + limit)),
     total,
     page,
     totalPages: Math.ceil(total / limit),
     source: "static-fallback",
   };
+}
+
+// Never pass a source's photo address to the browser, even unused.
+function withOwnImages<T extends { featured_image?: string | null }>(articles: T[] | undefined): T[] {
+  return (articles ?? []).map((a) => ({ ...a, featured_image: ownImageOr(a.featured_image) }));
 }
 
 export async function GET(request: NextRequest) {
@@ -72,7 +78,7 @@ export async function GET(request: NextRequest) {
     const res = await fetch(`${API_BASE}/api/articles?${params}`, { cache: "no-store" });
     if (res.ok) {
       const data = await res.json();
-      return NextResponse.json({ ...data, source: "api" });
+      return NextResponse.json({ ...data, articles: withOwnImages(data.articles), source: "api" });
     }
   } catch {
     // Fall through to the static snapshot so search/infinite scroll degrade gracefully.

@@ -10,7 +10,8 @@ import (
 type articleStore interface {
 	List(context.Context, ListQuery) (ListResult, error)
 	Trending(context.Context, int, time.Time) ([]Article, error)
-	PublishedBySlugAndIncrement(context.Context, string) (Article, error)
+	PublishedBySlug(context.Context, string) (Article, error)
+	RecordView(context.Context, string) error
 	ByID(context.Context, string) (Article, error)
 }
 
@@ -56,11 +57,19 @@ func (s *Service) Trending(ctx context.Context, limit int, window string) ([]Art
 }
 
 func (s *Service) BySlug(ctx context.Context, slug string) (Article, error) {
-	article, err := s.store.PublishedBySlugAndIncrement(ctx, slug)
+	article, err := s.store.PublishedBySlug(ctx, slug)
 	if err != nil {
 		return Article{}, fmt.Errorf("article by slug: %w", err)
 	}
 	return article, nil
+}
+
+// RecordView counts one reader view of a published article.
+func (s *Service) RecordView(ctx context.Context, slug string) error {
+	if err := s.store.RecordView(ctx, slug); err != nil {
+		return fmt.Errorf("record article view: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) ByID(ctx context.Context, id string) (Article, error) {

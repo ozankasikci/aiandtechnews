@@ -8,7 +8,7 @@ type Props = { searchParams: Promise<{ page?: string | string[] }> };
 
 const BASE_URL = "https://www.aiandtech.news";
 
-export const revalidate = 60;
+export const revalidate = 300;
 
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
   const { page: rawPage } = await searchParams;
@@ -44,6 +44,9 @@ export default async function ArchivePage({ searchParams }: Props) {
         <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-3">AI news archive</h1>
         <p className="text-text-secondary text-lg">
           Browse the latest AI and technology news, then follow the pages back through our earlier coverage.
+        </p>
+        <p className="text-text-secondary text-sm mt-3">
+          Looking for a company or product? <Link href="/topics" className="text-accent-purple hover:underline">Browse our topics</Link>.
         </p>
         {total > 0 && (
           <p className="text-text-muted text-sm mt-4">

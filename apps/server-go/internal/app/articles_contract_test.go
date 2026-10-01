@@ -30,7 +30,8 @@ func TestPublicReadsMatchApprovedNodeContractsInCanonicalOperationOrder(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Preserve canonical stateful order: slug increments the view count before ID.
+	// Preserve canonical stateful order: the slug read's view (now counted by
+	// the site's beacon, see countBeaconViewAfter) lands before the ID read.
 	for _, id := range []string{"articles.list", "articles.trending", "articles.getBySlug", "articles.getById", "categories.list", "authors.list"} {
 		op, ok := contract.Operation(id)
 		if !ok {
@@ -40,6 +41,7 @@ func TestPublicReadsMatchApprovedNodeContractsInCanonicalOperationOrder(t *testi
 		if err := contracttest.Replay(application.Handler(), op); err != nil {
 			t.Fatalf("%s replay: %v", id, err)
 		}
+		countBeaconViewAfter(t, application.Handler(), op)
 	}
 }
 

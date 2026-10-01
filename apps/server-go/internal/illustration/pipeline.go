@@ -180,12 +180,47 @@ func (p *Pipeline) recordChoice(ctx context.Context, report Report) {
 
 // Produce runs the pipeline without storing anything.
 func (p *Pipeline) Produce(ctx context.Context, request publisher.IllustrationRequest) (Result, error) {
+	return p.produce(ctx, request, false)
+}
+
+// ProduceGenerated is Produce for replacing a featured image that is a news
+// source's photo: it never fetches the request's reference image, never runs
+// the "source" step, and never builds a collage, so nothing of the source's
+// photo can reach the result. It does not store anything.
+func (p *Pipeline) ProduceGenerated(ctx context.Context, request publisher.IllustrationRequest) (Result, error) {
+	request.ReferenceImageURL = ""
+	return p.produce(ctx, request, true)
+}
+
+// IllustrateGenerated is ProduceGenerated plus the WebP encoding and storing
+// of Illustrate. It does not read or record the featured image variety
+// history, which is for new articles.
+func (p *Pipeline) IllustrateGenerated(ctx context.Context, request publisher.IllustrationRequest) (publisher.Illustration, error) {
+	if p.deps.Store == nil {
+		return publisher.Illustration{}, publisher.SystemFault(errors.New("no image store"))
+	}
+	result, err := p.ProduceGenerated(ctx, request)
+	if err != nil {
+		return publisher.Illustration{}, err
+	}
+	webp, _, _, err := imaging.EncodeWebPMinWidth(result.Image, webpQuality, minFeatureWidth)
+	if err != nil {
+		return publisher.Illustration{}, publisher.Permanent(fmt.Errorf("encode featured image: %w", err))
+	}
+	illustration, err := storeWebP(ctx, p.deps.Store, request.Slug, webp, p.deps.Logger)
+	if err != nil {
+		return publisher.Illustration{}, fmt.Errorf("store featured image: %w", err)
+	}
+	return illustration, nil
+}
+
+func (p *Pipeline) produce(ctx context.Context, request publisher.IllustrationRequest, generatedOnly bool) (Result, error) {
 	if err := p.acquire(ctx); err != nil {
 		return Result{}, err
 	}
 	defer p.release()
 	started := p.deps.Now()
-	run := &pipelineRun{p: p, request: request, report: &Report{}}
+	run := &pipelineRun{p: p, request: request, report: &Report{}, generatedOnly: generatedOnly}
 	image, err := run.produce(ctx)
 	run.report.Seconds = p.deps.Now().Sub(started).Seconds()
 	logger := p.deps.Logger.With("slug", request.Slug, "analyzer", run.report.Analyzer, "style", run.report.Style,
@@ -229,6 +264,9 @@ type pipelineRun struct {
 	allowedStyles styles.Catalog
 	// styleReference is the featured image an inline image is drawn like.
 	styleReference []byte
+	// generatedOnly never touches a source photo: no fetch, no "source" step,
+	// no collage (see Pipeline.ProduceGenerated).
+	generatedOnly bool
 }
 
 func (r *pipelineRun) fail(provider string, attempt int, started time.Time, err error) {
@@ -239,7 +277,9 @@ func (r *pipelineRun) fail(provider string, attempt int, started time.Time, err 
 
 func (r *pipelineRun) produce(ctx context.Context) ([]byte, error) {
 	deps := r.p.deps
-	r.fetchSource(ctx)
+	if !r.generatedOnly {
+		r.fetchSource(ctx)
+	}
 
 	var brief *Brief
 	for _, step := range deps.Chain {
@@ -250,7 +290,7 @@ func (r *pipelineRun) produce(ctx context.Context) ([]byte, error) {
 	}
 	var person *image.NRGBA
 	var parts *CollageParts
-	if brief != nil {
+	if brief != nil && !r.generatedOnly {
 		if style, _ := deps.Styles.Get(brief.Style); style.Collage {
 			parts = r.prepareMixed(ctx, brief)
 		} else {
@@ -263,6 +303,9 @@ func (r *pipelineRun) produce(ctx context.Context) ([]byte, error) {
 			return nil, err
 		}
 		if step.Provider == nil {
+			if r.generatedOnly {
+				continue
+			}
 			if r.source == nil {
 				r.fail(ProviderSource, 0, deps.Now(), ErrNoSourceImage)
 				continue
