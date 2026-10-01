@@ -2,6 +2,7 @@ import type { Article } from "../data/articles";
 import { parseApiDate, toIsoDate } from "./dates";
 import { readingTimeLabel } from "./reading-time";
 import { usableInlineImages } from "./inline-images";
+import { parseTopicDetail, parseTopicList, parseTopicRefs, topicTag, TOPICS_TAG, type TopicDetail, type TopicSummary } from "./topics";
 
 function getApiUrl() {
   const configured = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL)?.trim();
@@ -57,6 +58,7 @@ export interface ApiArticle {
   meta_description?: string | null;
   tldr?: string[];
   why_it_matters?: string;
+  topics?: unknown;
   inlineImages?: {
     url: string;
     alt: string;
@@ -140,6 +142,7 @@ export function mapArticle(a: ApiArticle): Article {
     tldr: a.tldr?.length ? a.tldr : undefined,
     whyItMatters: a.why_it_matters || undefined,
     inlineImages: usableInlineImages(a.inlineImages),
+    topics: parseTopicRefs(a.topics),
     metaTitle: a.meta_title || undefined,
     metaDescription: a.meta_description || undefined,
     body: a.content,
@@ -333,4 +336,46 @@ export async function getNewsletterEditions(limit = 30) {
 
 export async function getNewsletterEdition(edition: string) {
   return apiFetch<{ edition: NewsletterEdition }>(`/api/newsletter/editions/${encodeURIComponent(edition)}`);
+}
+
+// All live topics, most covered first. "unavailable" covers an API without
+// the topics endpoint yet, so callers can render nothing instead of failing.
+export async function getTopics(fetchImplementation: typeof fetch = fetch): Promise<TopicSummary[] | null> {
+  try {
+    const res = await fetchImplementation(`${API_URL}/api/topics`, {
+      next: { revalidate: LIST_REVALIDATE_SECONDS, tags: [TOPICS_TAG] },
+    });
+    if (!res.ok) return null;
+    return parseTopicList(await res.json());
+  } catch {
+    return null;
+  }
+}
+
+export type TopicLookupResult =
+  | { state: "found"; topic: TopicDetail; articles: ApiArticle[] }
+  | { state: "missing" }
+  | { state: "unavailable" };
+
+export async function getTopic(
+  slug: string,
+  fetchImplementation: typeof fetch = fetch,
+): Promise<TopicLookupResult> {
+  try {
+    const res = await fetchImplementation(`${API_URL}/api/topics/${encodeURIComponent(slug)}`, {
+      next: { revalidate: LIST_REVALIDATE_SECONDS, tags: [TOPICS_TAG, topicTag(slug)] },
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { topic?: unknown; articles?: unknown };
+      const topic = parseTopicDetail(data.topic);
+      if (!topic || !Array.isArray(data.articles)) return { state: "unavailable" };
+      const articles = (data.articles as ApiArticle[]).filter((a) => a && typeof a.slug === "string" && a.slug);
+      return { state: "found", topic, articles };
+    }
+    if (res.status !== 404) return { state: "unavailable" };
+    const health = await fetchImplementation(`${API_URL}/api/health`, { next: { revalidate: 30 } });
+    return health.ok ? { state: "missing" } : { state: "unavailable" };
+  } catch {
+    return { state: "unavailable" };
+  }
 }

@@ -108,6 +108,40 @@ test("accepts the slugs the API generates", () => {
   assert.deepEqual(parseRevalidateBody({ slugs: ["openai-ships-gpt-6-to-everyone", "a1"] }), {
     ok: true,
     slugs: ["openai-ships-gpt-6-to-everyone", "a1"],
+    topics: [],
   });
   assert.equal(revalidateTargets(["x"]).tags[0], "article:x");
+});
+
+test("topics refresh each hub, its data tag, and the topics index", async () => {
+  const calls = recorder();
+  const response = await handleRevalidateRequest(
+    post({ slugs: ["new-story"], topics: ["nvidia", "gpt-6", "nvidia"] }, "Bearer cron-secret"),
+    calls.deps,
+  );
+  assert.equal(response.status, 200);
+  const json = await response.json();
+  assert.deepEqual(json.topics, ["nvidia", "gpt-6"]);
+  assert.deepEqual(calls.tags, ["article:new-story", "articles", "topic:nvidia", "topic:gpt-6", "topics"]);
+  assert.ok(calls.paths.includes("/topics/nvidia"));
+  assert.ok(calls.paths.includes("/topics/gpt-6"));
+  assert.ok(calls.paths.includes("/topics"));
+  assert.ok(calls.paths.includes("/article/new-story"));
+});
+
+test("without topics nothing topic-related is revalidated", async () => {
+  const calls = recorder();
+  await handleRevalidateRequest(post({ slugs: ["a"] }, "Bearer cron-secret"), calls.deps);
+  assert.ok(!calls.tags.some((t) => t.startsWith("topic")));
+  assert.ok(!calls.paths.some((p) => p.startsWith("/topics")));
+});
+
+test("rejects malformed topics without revalidating", async () => {
+  const tooMany = Array.from({ length: MAX_REVALIDATE_SLUGS + 1 }, (_, i) => `t-${i}`);
+  for (const topics of ["nvidia", tooMany, ["ok", 5], ["../x"], ["a/b"], [""], [".."]]) {
+    const calls = recorder();
+    const response = await handleRevalidateRequest(post({ slugs: [], topics }, "Bearer cron-secret"), calls.deps);
+    assert.equal(response.status, 400, JSON.stringify(topics)?.slice(0, 60));
+    assert.deepEqual([calls.tags, calls.paths], [[], []]);
+  }
 });

@@ -29,6 +29,7 @@ export type Article = {
   tldr?: string[];
   whyItMatters?: string;
   inlineImages?: InlineImage[];
+  topics?: { slug: string; name: string }[];
   metaTitle?: string;
   metaDescription?: string;
   body?: string;
