@@ -78,7 +78,7 @@ func TestApplyAdoptsAFreshNodeDatabaseWithoutChangingItsData(t *testing.T) {
 	if got, want := result.Adoption.Recorded, []int64{1, 2, 5, 6}; !equalVersions(got, want) {
 		t.Errorf("Recorded = %v, want %v", got, want)
 	}
-	if got, want := result.Adoption.Applied, []int64{3, 4, 7, 8, 9, 10, 11, 12, 13}; !equalVersions(got, want) {
+	if got, want := result.Adoption.Applied, []int64{3, 4, 7, 8, 9, 10, 11, 12, 13, 14}; !equalVersions(got, want) {
 		t.Errorf("Applied = %v, want %v", got, want)
 	}
 
