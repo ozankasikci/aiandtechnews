@@ -35,12 +35,30 @@ type Notifier interface {
 	Notify(slugs []string)
 }
 
+// TopicNotifier is a Notifier that can also name topic hub pages to refresh.
+type TopicNotifier interface {
+	Notifier
+	NotifyWithTopics(slugs, topics []string)
+}
+
+// NotifyWithTopics queues article slugs and topic slugs on n. A notifier that
+// cannot name topics (not a TopicNotifier) still gets the article slugs.
+func NotifyWithTopics(n Notifier, slugs, topics []string) {
+	if tn, ok := n.(TopicNotifier); ok {
+		tn.NotifyWithTopics(slugs, topics)
+		return
+	}
+	n.Notify(slugs)
+}
+
 // Disabled drops every notification (SITE_REVALIDATE_URL is unset).
 type Disabled struct{}
 
-func (Disabled) Notify([]string) {}
+func (Disabled) Notify([]string)                {}
+func (Disabled) NotifyWithTopics(_, _ []string) {}
 
-// Client posts {"slugs": [...]} to the site's revalidation endpoint.
+// Client posts {"slugs": [...], "topics": [...]} to the site's revalidation
+// endpoint; topics is left out when empty.
 type Client struct {
 	url    string
 	secret string
@@ -56,9 +74,20 @@ func NewClient(url, secret string, httpClient *http.Client) *Client {
 
 // Revalidate sends one request for up to MaxSlugs slugs; any 2xx is success.
 func (c *Client) Revalidate(ctx context.Context, slugs []string) error {
+	return c.RevalidateWithTopics(ctx, slugs, nil)
+}
+
+// RevalidateWithTopics sends one request for up to MaxSlugs article slugs and
+// MaxSlugs topic slugs. slugs is always sent (an empty list when only topics
+// changed); topics only when there are some.
+func (c *Client) RevalidateWithTopics(ctx context.Context, slugs, topics []string) error {
+	if slugs == nil {
+		slugs = []string{}
+	}
 	body, err := json.Marshal(struct {
-		Slugs []string `json:"slugs"`
-	}{slugs})
+		Slugs  []string `json:"slugs"`
+		Topics []string `json:"topics,omitempty"`
+	}{slugs, topics})
 	if err != nil {
 		return err
 	}
@@ -84,6 +113,10 @@ type revalidator interface {
 	Revalidate(ctx context.Context, slugs []string) error
 }
 
+type topicRevalidator interface {
+	RevalidateWithTopics(ctx context.Context, slugs, topics []string) error
+}
+
 // Queue runs revalidations in the background. Close stops accepting new
 // ones and waits, up to a deadline, for those in flight.
 type Queue struct {
@@ -106,31 +139,40 @@ func NewQueue(client revalidator, logger *slog.Logger) *Queue {
 
 // Notify revalidates the site pages for slugs (deduplicated, blanks
 // dropped) in the background.
-func (q *Queue) Notify(slugs []string) {
-	slugs = unique(slugs)
-	if len(slugs) == 0 {
+func (q *Queue) Notify(slugs []string) { q.NotifyWithTopics(slugs, nil) }
+
+// NotifyWithTopics also refreshes the given topic hub pages.
+func (q *Queue) NotifyWithTopics(slugs, topics []string) {
+	slugs, topics = unique(slugs), unique(topics)
+	if len(slugs) == 0 && len(topics) == 0 {
 		return
 	}
 	q.mu.Lock()
 	if q.closed {
 		q.mu.Unlock()
-		q.logger.Warn("site revalidation dropped after shutdown", "slugs", slugs)
+		q.logger.Warn("site revalidation dropped after shutdown", "slugs", slugs, "topics", topics)
 		return
 	}
 	q.pending.Add(1)
 	q.mu.Unlock()
 	go func() {
 		defer q.pending.Done()
-		for start := 0; start < len(slugs); start += MaxSlugs {
-			batch := slugs[start:min(start+MaxSlugs, len(slugs))]
+		for start := 0; start < max(len(slugs), len(topics)); start += MaxSlugs {
+			batch := slugs[min(start, len(slugs)):min(start+MaxSlugs, len(slugs))]
+			topicBatch := topics[min(start, len(topics)):min(start+MaxSlugs, len(topics))]
 			ctx, cancel := context.WithTimeout(context.Background(), q.timeout)
-			err := q.client.Revalidate(ctx, batch)
+			var err error
+			if tr, ok := q.client.(topicRevalidator); ok {
+				err = tr.RevalidateWithTopics(ctx, batch, topicBatch)
+			} else {
+				err = q.client.Revalidate(ctx, batch)
+			}
 			cancel()
 			if err != nil {
-				q.logger.Warn("site revalidation failed", "slugs", batch, "error", err)
+				q.logger.Warn("site revalidation failed", "slugs", batch, "topics", topicBatch, "error", err)
 				continue
 			}
-			q.logger.Info("site revalidated", "slugs", batch)
+			q.logger.Info("site revalidated", "slugs", batch, "topics", topicBatch)
 		}
 	}()
 }
@@ -178,10 +220,13 @@ func New(url, secret string, logger *slog.Logger) (Notifier, func()) {
 // Multi fans one notification out to several notifiers.
 type Multi []Notifier
 
-func (m Multi) Notify(slugs []string) {
+func (m Multi) Notify(slugs []string) { m.NotifyWithTopics(slugs, nil) }
+
+// NotifyWithTopics passes topics only to members that take them.
+func (m Multi) NotifyWithTopics(slugs, topics []string) {
 	for _, notifier := range m {
 		if notifier != nil {
-			notifier.Notify(slugs)
+			NotifyWithTopics(notifier, slugs, topics)
 		}
 	}
 }

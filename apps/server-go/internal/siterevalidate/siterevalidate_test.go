@@ -118,3 +118,32 @@ func TestMultiNotifiesEveryNotifier(t *testing.T) {
 		t.Fatalf("a=%v b=%v", a.got, b.got)
 	}
 }
+
+func TestQueuePostsTopicsAndOmitsThemWhenEmpty(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(raw))
+		mu.Unlock()
+	}))
+	t.Cleanup(server.Close)
+	notifier, drain := siterevalidate.New(server.URL, "s", quietLogger())
+	siterevalidate.NotifyWithTopics(notifier, []string{"a"}, []string{"nvidia", "openai", "nvidia"})
+	siterevalidate.NotifyWithTopics(notifier, nil, []string{"rubin"})
+	notifier.Notify([]string{"b"})
+	drain()
+	mu.Lock()
+	defer mu.Unlock()
+	joined := fmt.Sprint(bodies)
+	for _, want := range []string{`{"slugs":["a"],"topics":["nvidia","openai"]}`, `{"slugs":[],"topics":["rubin"]}`, `{"slugs":["b"]}`} {
+		found := false
+		for _, body := range bodies {
+			found = found || body == want
+		}
+		if !found {
+			t.Fatalf("missing %s in %s", want, joined)
+		}
+	}
+}
