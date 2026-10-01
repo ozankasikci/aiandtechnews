@@ -20,6 +20,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/database/migrate"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/editorial"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/featuredreimage"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/gemini"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/health"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/httpserver"
@@ -276,6 +277,15 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			logger.Info("inline images", "interval", cfg.InlineImagesInterval)
 			application.background = append(application.background, func(ctx context.Context) {
 				inlineImages.Loop(ctx, cfg.InlineImagesInterval)
+			})
+		}
+		if cfg.ReimageEnabled {
+			// Shares the publisher's pipeline, so it never competes with a
+			// publish or an inline image. It draws only (no "source" step).
+			reimage := featuredreimage.NewWorker(featuredreimage.NewSQLiteStore(db, now), illustrator, siteRevalidate, logger)
+			logger.Info("featured image re-image", "interval", cfg.ReimageInterval)
+			application.background = append(application.background, func(ctx context.Context) {
+				reimage.Loop(ctx, cfg.ReimageInterval)
 			})
 		}
 	}

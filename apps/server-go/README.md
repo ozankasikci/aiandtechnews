@@ -57,6 +57,8 @@ Review contract changes in this order:
 | `PUBLISHER_INTERVAL` | `1m` | How often the publisher loop runs when enabled (minimum `10s`) |
 | `INLINE_IMAGES_ENABLED` | off | Runs the worker that adds a second illustration inside articles of 6+ paragraphs published in the last 7 days (so turning it on also backfills that week). Needs `PUBLISHER_ENABLED=1` |
 | `INLINE_IMAGES_INTERVAL` | `5m` | How often the inline image worker picks one article (minimum `1m`) |
+| `REIMAGE_ENABLED` | off | Runs the job that replaces featured images that are a news source's photo (older articles; the site no longer shows them) with an image of our own: drawn by the generating providers only (never the `source` step, no reference photo, no collage), stored in S3, the article's `featured_image` switched and its site page refreshed. Newest first, 3 tries per article (`featured_reimage` table). Needs `PUBLISHER_ENABLED=1`; shares the pipeline's one-image-at-a-time lock |
+| `REIMAGE_INTERVAL` | `10m` | How often the re-image job picks one article (minimum `1m`) |
 | `TOPICS_ENABLED` | off | Tags each published article with 1-4 topics (company, product, person, theme) and runs the loop that refreshes live topics' summaries and key facts (at most daily per topic, only when new articles arrived, verified by a second model call). A topic is live (public at `/api/topics`) once it has 3 published articles. Needs `PUBLISHER_ENABLED=1`; tag existing articles with `cmd/topics-backfill` |
 | `TOPICS_INTERVAL` | `1h` | How often the topic summary loop looks for due topics (minimum `1m`) |
 | `GEMINI_API_KEY` | none | Required when `PUBLISHER_ENABLED=1`; Gemini API key used for rewriting and illustration |
@@ -270,3 +272,12 @@ make dev-api    # serve on 127.0.0.1:4401 with a local JWT secret
 ```
 
 `dev-seed` is idempotent (it re-sets the dev password and skips existing candidates) and refuses to run with `APP_ENV=production`. A Debug build of the iOS app points at `http://127.0.0.1:4401/api`.
+
+### Preview the featured-image replacement
+
+`go run ./cmd/imagegen-try -reimage-latest 20 -db <copy of technews.db>` lists
+the newest 20 articles the re-image job would replace (and how many in all). It
+opens the database read-only, generates nothing, uploads nothing and writes
+nothing. An article is selected when it is published and its `featured_image` is
+empty or not ours (`internal/ownimage`, the Go twin of the site's
+`own-image.ts`), and it has failed fewer than 3 times.

@@ -55,6 +55,9 @@ const (
 	// DefaultInlineImagesInterval is how often the inline image worker picks
 	// an article when INLINE_IMAGES_INTERVAL is unset.
 	DefaultInlineImagesInterval = 5 * time.Minute
+	// DefaultReimageInterval is how often the featured-image replacement job
+	// picks an article when REIMAGE_INTERVAL is unset.
+	DefaultReimageInterval = 10 * time.Minute
 	// DefaultTopicsInterval is how often the topic summary loop looks for
 	// topics that are due when TOPICS_INTERVAL is unset.
 	DefaultTopicsInterval = time.Hour
@@ -186,6 +189,12 @@ type Config struct {
 	// (INLINE_IMAGES_INTERVAL, default 5m). It needs the publisher.
 	InlineImagesEnabled  bool
 	InlineImagesInterval time.Duration
+	// ReimageEnabled (REIMAGE_ENABLED, default off) runs the job that gives
+	// articles whose featured image is a news source's photo an image of
+	// our own (drawn, never copied), one article every ReimageInterval
+	// (REIMAGE_INTERVAL, default 10m). It needs the publisher.
+	ReimageEnabled  bool
+	ReimageInterval time.Duration
 
 	// TopicsEnabled (TOPICS_ENABLED, default off) tags each published
 	// article with its topics (1 to 4 entities, one Gemini call) and runs the
@@ -211,11 +220,11 @@ type Config struct {
 
 func (c Config) String() string {
 	return fmt.Sprintf("Config{Mode:%q Address:%q TimeZone:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
-		"PublisherEnabled:%t PublisherInterval:%s InlineImagesEnabled:%t InlineImagesInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q FeaturedImageChain:%q FeaturedImageAnalyzers:%q CodexBin:%q CodexNodeDir:%q CodexTimeout:%s CutoutBin:%q GeminiVisionModel:%q "+
+		"PublisherEnabled:%t PublisherInterval:%s InlineImagesEnabled:%t InlineImagesInterval:%s ReimageEnabled:%t ReimageInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q FeaturedImageChain:%q FeaturedImageAnalyzers:%q CodexBin:%q CodexNodeDir:%q CodexTimeout:%s CutoutBin:%q GeminiVisionModel:%q "+
 		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t SiteRevalidateURL:%q "+
 		"NewsletterSiteURL:%q NewsletterTokenSecret:[REDACTED] NewsletterCronSecret:[REDACTED] ResendAPIKey:[REDACTED] NewsletterFrom:%q NewsletterReplyTo:%q}",
 		c.Mode, c.Address, c.TimeZone, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
-		c.PublisherEnabled, c.PublisherInterval, c.InlineImagesEnabled, c.InlineImagesInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.FeaturedImageChain, c.FeaturedImageAnalyzers, c.CodexBin, c.CodexNodeDir, c.CodexTimeout, c.CutoutBin, c.GeminiVisionModel,
+		c.PublisherEnabled, c.PublisherInterval, c.InlineImagesEnabled, c.InlineImagesInterval, c.ReimageEnabled, c.ReimageInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.FeaturedImageChain, c.FeaturedImageAnalyzers, c.CodexBin, c.CodexNodeDir, c.CodexTimeout, c.CutoutBin, c.GeminiVisionModel,
 		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled, c.SiteRevalidateURL,
 		c.NewsletterSiteURL, c.NewsletterFrom, c.NewsletterReplyTo)
 }
@@ -299,6 +308,19 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 			return Config{}, fmt.Errorf("INLINE_IMAGES_INTERVAL: %w", err)
 		}
 		cfg.InlineImagesInterval = interval
+	}
+	reimageEnabled, err := parseOnOff("REIMAGE_ENABLED", lookup("REIMAGE_ENABLED"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ReimageEnabled = reimageEnabled
+	cfg.ReimageInterval = DefaultReimageInterval
+	if value := lookup("REIMAGE_INTERVAL"); value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("REIMAGE_INTERVAL: %w", err)
+		}
+		cfg.ReimageInterval = interval
 	}
 	topicsEnabled, err := parseOnOff("TOPICS_ENABLED", lookup("TOPICS_ENABLED"))
 	if err != nil {
@@ -464,6 +486,14 @@ func (c Config) Validate() error {
 		}
 		if c.InlineImagesInterval < time.Minute {
 			return errors.New("INLINE_IMAGES_INTERVAL must be at least 1m")
+		}
+	}
+	if c.ReimageEnabled {
+		if !c.PublisherEnabled {
+			return errors.New("REIMAGE_ENABLED needs PUBLISHER_ENABLED: the job uses the publisher's illustration pipeline")
+		}
+		if c.ReimageInterval < time.Minute {
+			return errors.New("REIMAGE_INTERVAL must be at least 1m")
 		}
 	}
 	if c.TopicsEnabled {
