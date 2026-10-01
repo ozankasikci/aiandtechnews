@@ -55,6 +55,9 @@ const (
 	// DefaultInlineImagesInterval is how often the inline image worker picks
 	// an article when INLINE_IMAGES_INTERVAL is unset.
 	DefaultInlineImagesInterval = 5 * time.Minute
+	// DefaultTopicsInterval is how often the topic summary loop looks for
+	// topics that are due when TOPICS_INTERVAL is unset.
+	DefaultTopicsInterval = time.Hour
 	// DefaultAutopickInterval is how often the automatic editor runs when
 	// AUTOPICK_INTERVAL is unset.
 	DefaultAutopickInterval = 6 * time.Hour
@@ -184,6 +187,15 @@ type Config struct {
 	InlineImagesEnabled  bool
 	InlineImagesInterval time.Duration
 
+	// TopicsEnabled (TOPICS_ENABLED, default off) tags each published
+	// article with its topics (1 to 4 entities, one Gemini call) and runs the
+	// loop that refreshes live topics' summaries and key facts every
+	// TopicsInterval (TOPICS_INTERVAL, default 1h; at most daily per topic).
+	// It needs the publisher, which owns the Gemini client. The public topic
+	// routes are always mounted.
+	TopicsEnabled  bool
+	TopicsInterval time.Duration
+
 	// Newsletter settings keep Node's names (apps/server/.env.example) and
 	// raw values: Node trims each one where it uses it, and so does
 	// internal/newsletter. None of them is required to start: like Node,
@@ -287,6 +299,19 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 			return Config{}, fmt.Errorf("INLINE_IMAGES_INTERVAL: %w", err)
 		}
 		cfg.InlineImagesInterval = interval
+	}
+	topicsEnabled, err := parseOnOff("TOPICS_ENABLED", lookup("TOPICS_ENABLED"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.TopicsEnabled = topicsEnabled
+	cfg.TopicsInterval = DefaultTopicsInterval
+	if value := lookup("TOPICS_INTERVAL"); value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("TOPICS_INTERVAL: %w", err)
+		}
+		cfg.TopicsInterval = interval
 	}
 	cfg.GeminiAPIKey = lookup("GEMINI_API_KEY")
 	cfg.GeminiTextModel = lookup("GEMINI_TEXT_MODEL")
@@ -439,6 +464,14 @@ func (c Config) Validate() error {
 		}
 		if c.InlineImagesInterval < time.Minute {
 			return errors.New("INLINE_IMAGES_INTERVAL must be at least 1m")
+		}
+	}
+	if c.TopicsEnabled {
+		if !c.PublisherEnabled {
+			return errors.New("TOPICS_ENABLED needs PUBLISHER_ENABLED: topics use the publisher's Gemini client")
+		}
+		if c.TopicsInterval < time.Minute {
+			return errors.New("TOPICS_INTERVAL must be at least 1m")
 		}
 	}
 	if c.PublisherEnabled {

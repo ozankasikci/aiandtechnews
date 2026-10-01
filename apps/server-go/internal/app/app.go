@@ -35,6 +35,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/relevance"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/settings"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/siterevalidate"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/topics"
 )
 
 type App struct {
@@ -233,11 +234,24 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			Logger:       logger,
 		}))
 		logger.Info("featured image pipeline", "chain", cfg.FeaturedImageChain, "analyzers", cfg.FeaturedImageAnalyzers, "collage", cfg.CutoutBin != "")
+		// Flash writes both the subheading pass and the topics.
+		flash := subheadingModel(cfg)
+		var topicTagger publisher.TopicTagger
+		if cfg.TopicsEnabled {
+			topicStore := topics.NewStore(db, now)
+			topicTagger = &topics.Tagger{Store: topicStore, Extractor: topics.Extractor{Text: flash}, Site: siteRevalidate, Logger: logger}
+			summarizer := &topics.Summarizer{Store: topicStore, Text: flash, Site: siteRevalidate, Logger: logger}
+			logger.Info("topics", "interval", cfg.TopicsInterval)
+			application.background = append(application.background, func(ctx context.Context) {
+				summarizer.Loop(ctx, cfg.TopicsInterval)
+			})
+		}
 		newsPublisher := publisher.New(publisher.Deps{
 			Store:       newsroomStore,
 			Fetcher:     collector.NewFetcher(),
 			Rewriter:    publisher.NewRewriter(geminiClient),
-			Subheadings: subheadingModel(cfg),
+			Subheadings: flash,
+			Topics:      topicTagger,
 			Illustrator: illustrator,
 			Articles:    publisher.NewSQLiteArticles(db, now),
 			Notifier:    revalidatingNotifier{site: siteRevalidate, next: newPublisherNotifier(cfg, logger)},
