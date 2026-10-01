@@ -58,7 +58,7 @@ test("topic list and detail parsing is defensive", () => {
   assert.equal(detail?.summary, "Chips.");
   assert.deepEqual(detail?.facts, ["a"]);
   assert.deepEqual(detail?.related, [{ slug: "openai", name: "OpenAI" }]);
-  assert.equal(parseTopicDetail({ slug: "x", name: "X", kind: "theme", summary: "" }), null);
+  assert.equal(parseTopicDetail({ slug: "x", name: "X", kind: "theme", summary: "" })?.summary, "");
 });
 
 test("getTopic tells missing from unavailable, getTopics fails soft", async () => {

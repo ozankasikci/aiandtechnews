@@ -105,8 +105,9 @@ export function parseTopicDetail(raw: unknown): TopicDetail | null {
   const base = parseTopicSummary(raw);
   if (!base) return null;
   const { summary, facts, related } = raw as { summary?: unknown; facts?: unknown; related?: unknown };
-  const summaryText = cleanText(summary);
-  if (!summaryText) return null;
+  // A new hub has no summary until the API's summary job writes one; it
+  // still shows its timeline.
+  const summaryText = cleanText(summary) ?? "";
   return {
     ...base,
     summary: summaryText,
