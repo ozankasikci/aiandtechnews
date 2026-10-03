@@ -73,3 +73,14 @@ func TestExtractDocumentTextKeepsListsAndHeadings(t *testing.T) {
 		t.Errorf("navigation kept: %q", text)
 	}
 }
+
+func TestReportExplainsWhyAnExcerptIsNotOneSentence(t *testing.T) {
+	bad := strings.Replace(validArticleJSON(), "The new model handles longer tasks at a lower price.", "The model goes on sale Oct. 23 at a lower price.", 1)
+	text := &scriptedText{responses: []string{bad, validArticleJSON(), `{"unsupported":[]}`}}
+	if _, err := publisher.NewRewriter(text).Rewrite(context.Background(), primaryInput); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text.prompts[1], "The model goes on sale Oct. 23 at a lower price.") || !strings.Contains(text.prompts[1], "write the words out") {
+		t.Fatalf("correction: %s", text.prompts[1][len(text.prompts[1])-500:])
+	}
+}

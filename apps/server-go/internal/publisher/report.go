@@ -113,6 +113,9 @@ func (r *Rewriter) report(ctx context.Context, input RewriteInput) (content.Rewr
 		lastProblem = strings.Join(problems, "; ")
 		correction = "\n\nYour previous draft failed these checks: " + lastProblem +
 			". Write it again from the same document and satisfy every requirement."
+		if strings.Contains(lastProblem, "exactly one sentence") {
+			correction += " The excerpt was \"" + article.Excerpt + "\". An abbreviation ending in a period (Oct., U.S., vs., Inc.) counts as the end of a sentence, and so does a missing final period: write the words out and end with one period."
+		}
 	}
 	return content.RewrittenArticle{}, Permanent(fmt.Errorf("report failed validation: %s", lastProblem))
 }
@@ -175,7 +178,7 @@ Requirements:
 - Never use the phrases "In a move that" or "It remains to be seen".
 - Never use "groundbreaking", "revolutionary", or "game-changing".
 - Write a short, direct, factual, non-clickbait headline, maximum 120 characters, in sentence case, that names the company or product and what happened. Never a bare version number.
-- Write one plain-sentence excerpt, maximum 180 characters, with no HTML.
+- Write one plain-sentence excerpt, maximum 180 characters, with no HTML. It must end with a period and contain no other period followed by a space: write out months and other abbreviations (October 23, not Oct. 23; United States, not U.S.).
 - Write a search title, maximum 60 characters, that starts with the main searchable subject (the product, company or project). Keep it factual and non-clickbait.
 - Write a search description, maximum 155 characters, as one plain sentence with the key facts and no HTML.
 - Write a TL;DR of exactly 3 plain sentences, each maximum 140 characters, giving the key facts in order of importance, with no HTML.
