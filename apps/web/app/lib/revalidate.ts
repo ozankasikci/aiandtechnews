@@ -4,7 +4,7 @@ import { TOPICS_TAG, topicTag } from "./topics";
 
 // POST /api/revalidate lets the API refresh cached pages the moment an
 // article is published, illustrated, edited, or deleted, instead of waiting
-// for the ISR timers (an hour for article pages, five minutes for lists).
+// for the ISR timers (a day for article pages, 30 minutes for lists).
 
 export const MAX_REVALIDATE_SLUGS = 50;
 // Generated slugs are lowercase letters, digits, and hyphens (Go
@@ -18,7 +18,9 @@ export function isValidSlug(value: unknown): value is string {
   return typeof value === "string" && value.length <= MAX_SLUG_LENGTH && SLUG_PATTERN.test(value);
 }
 
-export type ParsedRevalidateBody = { ok: true; slugs: string[]; topics: string[] } | { ok: false; error: string };
+export type ParsedRevalidateBody =
+  | { ok: true; slugs: string[]; topics: string[]; lists: boolean }
+  | { ok: false; error: string };
 
 export function parseRevalidateBody(body: unknown): ParsedRevalidateBody {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -42,7 +44,11 @@ export function parseRevalidateBody(body: unknown): ParsedRevalidateBody {
     if (!rawTopics.every(isValidSlug)) return { ok: false, error: "Every topic must be a valid topic slug" };
     topics = [...new Set(rawTopics)];
   }
-  return { ok: true, slugs: [...new Set(slugs)], topics };
+  // Optional: true only when the change alters lists (a publish, an unpublish
+  // or delete, a headline edit). Image or summary updates leave lists alone,
+  // which keeps ISR writes down on Vercel's free plan.
+  const lists = (body as { lists?: unknown }).lists === true;
+  return { ok: true, slugs: [...new Set(slugs)], topics, lists };
 }
 
 export interface RevalidateTargets {
@@ -50,17 +56,22 @@ export interface RevalidateTargets {
   paths: { path: string; type?: "page" | "layout" }[];
 }
 
-// Everything a changed article can appear on: its own page (and its data
+// What a change refreshes: the changed articles' own pages (and their data
 // fetch, whose tag also clears a not-found render for a slug that was just
-// published), plus every list: homepage, category pages, archive, feeds,
-// sitemaps, and the homepage share card.
-export function revalidateTargets(slugs: string[], topics: string[] = []): RevalidateTargets {
+// published) and the named topic hubs. Only when lists change too (a publish
+// or removal) does it also refresh every list: homepage, category pages,
+// archive, feeds, sitemaps, the topic index and the homepage share card.
+export function revalidateTargets(slugs: string[], topics: string[] = [], lists = false): RevalidateTargets {
+  const own = {
+    tags: [...slugs.map(articleTag), ...topics.map(topicTag)],
+    paths: [...slugs.map((slug) => ({ path: `/article/${slug}` })), ...topics.map((slug) => ({ path: `/topics/${slug}` }))],
+  };
+  if (!lists) return own;
   return {
-    tags: [...slugs.map(articleTag), ARTICLES_TAG, ...topics.map(topicTag), ...(topics.length ? [TOPICS_TAG] : [])],
+    tags: [...own.tags, ARTICLES_TAG, TOPICS_TAG],
     paths: [
-      ...slugs.map((slug) => ({ path: `/article/${slug}` })),
-      ...topics.map((slug) => ({ path: `/topics/${slug}` })),
-      ...(topics.length ? [{ path: "/topics" }] : []),
+      ...own.paths,
+      { path: "/topics" },
       { path: "/" },
       { path: "/archive" },
       { path: "/[category]", type: "page" },
@@ -91,7 +102,7 @@ export async function handleRevalidateRequest(request: Request, deps: Revalidate
   const parsed = parseRevalidateBody(body);
   if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
 
-  const targets = revalidateTargets(parsed.slugs, parsed.topics);
+  const targets = revalidateTargets(parsed.slugs, parsed.topics, parsed.lists);
   for (const tag of targets.tags) deps.revalidateTag(tag);
   for (const { path, type } of targets.paths) {
     if (type) deps.revalidatePath(path, type);
@@ -101,6 +112,7 @@ export async function handleRevalidateRequest(request: Request, deps: Revalidate
     revalidated: true,
     slugs: parsed.slugs,
     topics: parsed.topics,
+    lists: parsed.lists,
     tags: targets.tags,
     paths: targets.paths.map(({ path }) => path),
   });

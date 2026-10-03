@@ -46,7 +46,7 @@ test("the quiz page, sidebar card, footer and sitemap are wired up", () => {
   const footer = readFileSync(new URL("../components/Footer.tsx", import.meta.url), "utf8");
   const sitemap = readFileSync(new URL("../sitemap.ts", import.meta.url), "utf8");
   const api = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
-  assert.match(api, /apiFetch<\{ quiz: ApiQuiz \}>\("\/api\/quiz\/today"\)/);
+  assert.match(api, /apiFetch<\{ quiz: ApiQuiz \}>\("\/api\/quiz\/today", undefined, cache\)/);
   assert.match(page, /getTodayQuiz\(\)/);
   assert.match(page, /<QuizGame /);
   assert.match(sidebar, /<QuizCard /);

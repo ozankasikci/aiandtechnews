@@ -14,8 +14,8 @@ const revalidateSource = readFileSync(new URL("../lib/revalidate.ts", import.met
 // newly published slug. They are now cached for an hour (ISR) to save
 // server CPU, and that 404 is cleared on demand: publishing revalidates
 // /article/<slug> and its article:<slug> fetch tag via POST /api/revalidate.
-test("article routes are cached for an hour and render unknown slugs on demand", () => {
-  assert.match(pageSource, /export const revalidate\s*=\s*3600\b/);
+test("article routes are cached for a day and render unknown slugs on demand", () => {
+  assert.match(pageSource, /export const revalidate\s*=\s*86400\b/);
   assert.doesNotMatch(pageSource, /force-dynamic/);
   // An empty generateStaticParams is what makes Next 15 cache a dynamic
   // segment at all; it prebuilds nothing, and dynamicParams stays true so
@@ -26,7 +26,7 @@ test("article routes are cached for an hour and render unknown slugs on demand",
 
 test("the article fetch is tagged per slug so a publish can clear a cached 404", () => {
   assert.match(apiSource, /revalidate:\s*ARTICLE_REVALIDATE_SECONDS,\s*tags:\s*\[articleTag\(slug\)\]/);
-  assert.match(apiSource, /ARTICLE_REVALIDATE_SECONDS\s*=\s*3600/);
+  assert.match(apiSource, /ARTICLE_REVALIDATE_SECONDS\s*=\s*86400/);
   assert.match(revalidateSource, /path:\s*`\/article\/\$\{slug\}`/);
   assert.match(revalidateSource, /slugs\.map\(articleTag\)/);
 });

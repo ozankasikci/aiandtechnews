@@ -2,7 +2,7 @@ import { getArticlesUpTo } from "../lib/api";
 import { parseApiDate } from "../lib/dates";
 import { buildNewsSitemap, RECENT_NEWS_WINDOW_MS } from "./news-sitemap";
 
-export const revalidate = 300;
+export const revalidate = 1800;
 
 // Google News sitemaps allow up to 1,000 URLs; articles older than the
 // 48-hour window are filtered out by buildNewsSitemap.

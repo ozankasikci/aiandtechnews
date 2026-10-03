@@ -12,7 +12,7 @@ const BASE_URL = "https://www.aiandtech.news";
 
 // Same cache policy as article pages: cached for an hour, refreshed on
 // demand by POST /api/revalidate (topics: ["slug"]), nothing prebuilt.
-export const revalidate = 3600;
+export const revalidate = 86400;
 export const dynamicParams = true;
 export function generateStaticParams(): { slug: string }[] {
   return [];

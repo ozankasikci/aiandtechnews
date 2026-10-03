@@ -34,8 +34,15 @@ export function getPublicApiUrl(env: Record<string, string | undefined> = proces
 
 // Cache policy. Pages are refreshed on demand by POST /api/revalidate when
 // the API publishes or edits an article; these are only the fallbacks.
-export const ARTICLE_REVALIDATE_SECONDS = 3600;
-export const LIST_REVALIDATE_SECONDS = 300;
+// Every timer here is an ISR write on Vercel's free plan (200K a month), and
+// a page refreshes on its shortest fetch timer, so pages that show an article
+// use only the long timers.
+export const ARTICLE_REVALIDATE_SECONDS = 86400;
+export const LIST_REVALIDATE_SECONDS = 1800;
+// Lists shown inside article pages (read-next, Trending, quiz card): kept for
+// a day and untagged, so a publish does not rewrite every article page.
+export const ARTICLE_PAGE_LIST_REVALIDATE_SECONDS = 86400;
+export type ListCache = "list" | "article-page";
 export const ARTICLES_TAG = "articles";
 export function articleTag(slug: string) {
   return `article:${slug}`;
@@ -150,10 +157,15 @@ export function mapArticle(a: ApiArticle): Article {
   };
 }
 
-async function apiFetch<T>(path: string, tags?: string[]): Promise<T | null> {
+async function apiFetch<T>(path: string, tags?: string[], cache: ListCache = "list"): Promise<T | null> {
   try {
     const res = await fetch(`${API_URL}${path}`, {
-      next: tags ? { revalidate: LIST_REVALIDATE_SECONDS, tags } : { revalidate: LIST_REVALIDATE_SECONDS },
+      next:
+        cache === "article-page"
+          ? { revalidate: ARTICLE_PAGE_LIST_REVALIDATE_SECONDS }
+          : tags
+            ? { revalidate: LIST_REVALIDATE_SECONDS, tags }
+            : { revalidate: LIST_REVALIDATE_SECONDS },
     });
     if (!res.ok) return null;
     return res.json();
@@ -162,14 +174,14 @@ async function apiFetch<T>(path: string, tags?: string[]): Promise<T | null> {
   }
 }
 
-export async function getArticles(opts?: { page?: number; limit?: number; category?: string; search?: string }) {
+export async function getArticles(opts?: { page?: number; limit?: number; category?: string; search?: string }, cache: ListCache = "list") {
   const params = new URLSearchParams();
   if (opts?.page) params.set("page", String(opts.page));
   if (opts?.limit) params.set("limit", String(opts.limit));
   if (opts?.category) params.set("category", opts.category);
   if (opts?.search) params.set("search", opts.search);
   const qs = params.toString();
-  return apiFetch<{ articles: ApiArticle[]; total: number; page: number; totalPages: number }>(`/api/articles${qs ? `?${qs}` : ""}`, [ARTICLES_TAG]);
+  return apiFetch<{ articles: ApiArticle[]; total: number; page: number; totalPages: number }>(`/api/articles${qs ? `?${qs}` : ""}`, [ARTICLES_TAG], cache);
 }
 
 // The public API caps each page at 50 articles, so callers that need more
@@ -265,14 +277,14 @@ export interface ApiQuiz {
 }
 
 // The latest published daily quiz, or null when there is none yet.
-export async function getTodayQuiz() {
-  const data = await apiFetch<{ quiz: ApiQuiz }>("/api/quiz/today");
+export async function getTodayQuiz(cache: ListCache = "list") {
+  const data = await apiFetch<{ quiz: ApiQuiz }>("/api/quiz/today", undefined, cache);
   return data?.quiz ?? null;
 }
 
-export async function getTrendingArticles(limit = 5, window?: TrendingWindow) {
+export async function getTrendingArticles(limit = 5, window?: TrendingWindow, cache: ListCache = "list") {
   const windowParam = window ? `&window=${window}` : "";
-  return apiFetch<{ articles: ApiArticle[] }>(`/api/articles/trending?limit=${limit}${windowParam}`, [ARTICLES_TAG]);
+  return apiFetch<{ articles: ApiArticle[] }>(`/api/articles/trending?limit=${limit}${windowParam}`, [ARTICLES_TAG], cache);
 }
 
 export type ArticleLookupResult =
@@ -364,7 +376,7 @@ export async function getTopic(
 ): Promise<TopicLookupResult> {
   try {
     const res = await fetchImplementation(`${API_URL}/api/topics/${encodeURIComponent(slug)}`, {
-      next: { revalidate: LIST_REVALIDATE_SECONDS, tags: [TOPICS_TAG, topicTag(slug)] },
+      next: { revalidate: ARTICLE_REVALIDATE_SECONDS, tags: [TOPICS_TAG, topicTag(slug)] },
     });
     if (res.ok) {
       const data = (await res.json()) as { topic?: unknown; articles?: unknown };

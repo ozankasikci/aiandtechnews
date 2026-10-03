@@ -1,7 +1,7 @@
 import { getArticles } from "../lib/api";
 import { buildRssFeed } from "./rss";
 
-export const revalidate = 300;
+export const revalidate = 1800;
 
 const FEED_SIZE = 50;
 

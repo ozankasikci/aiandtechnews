@@ -127,14 +127,17 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		logger.Info("IndexNow disabled; published and dashboard-changed URLs will not be submitted")
 	}
 	dashboardIndexNow, drainIndexNow := newDashboardIndexNow(cfg, logger)
+	// Image and summary updates refresh only their own pages; publishes and
+	// dashboard edits (siteLists) refresh the list pages too.
 	siteRevalidate, drainSiteRevalidate := siterevalidate.New(cfg.SiteRevalidateURL, cfg.NewsletterCronSecret, logger)
+	siteLists, drainSiteLists := siterevalidate.NewForLists(cfg.SiteRevalidateURL, cfg.NewsletterCronSecret, logger)
 	if cfg.SiteRevalidateURL == "" {
 		logger.Info("site revalidation disabled (SITE_REVALIDATE_URL unset); cached site pages refresh only on their timers")
 	}
 	// Dashboard article changes refresh the site's cached pages and, when
 	// enabled, ping IndexNow for the same public slugs.
 	dashboardContent := content.NewAdminHandler(content.NewAdminService(contentStore, now),
-		siterevalidate.Multi{siteRevalidate, dashboardIndexNow}, logger)
+		siterevalidate.Multi{siteLists, dashboardIndexNow}, logger)
 	dashboardSettings := settings.NewHandler(settings.NewService(settings.NewSQLiteStore(db)), logger)
 	// The publisher and S3 media storage share one checked S3 client.
 	var objectAPI media.ObjectAPI
@@ -208,7 +211,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		})
 	}, uploads.MountStatic)
 	server := httpserver.NewServer(cfg.Address, handler, logger)
-	application := &App{address: cfg.Address, handler: handler, server: server, newsletter: newsletterService, logger: logger, drains: []func(){drainIndexNow, drainSiteRevalidate}}
+	application := &App{address: cfg.Address, handler: handler, server: server, newsletter: newsletterService, logger: logger, drains: []func(){drainIndexNow, drainSiteRevalidate, drainSiteLists}}
 	if feedCollector != nil {
 		application.feedCollector = feedCollector
 		application.background = append(application.background, func(ctx context.Context) {
@@ -255,7 +258,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			Topics:      topicTagger,
 			Illustrator: illustrator,
 			Articles:    publisher.NewSQLiteArticles(db, now),
-			Notifier:    revalidatingNotifier{site: siteRevalidate, next: newPublisherNotifier(cfg, logger)},
+			Notifier:    revalidatingNotifier{site: siteLists, next: newPublisherNotifier(cfg, logger)},
 			Now:         now,
 			Logger:      logger,
 			Wake:        newsroomService.Wakeups(),

@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { getTodayQuiz } from "../lib/api";
+import { getTodayQuiz, type ListCache } from "../lib/api";
 
 // A sidebar invitation to today's quiz; nothing when no quiz is published.
-export async function QuizCard() {
-  const quiz = await getTodayQuiz();
+export async function QuizCard({ cache = "list" }: { cache?: ListCache } = {}) {
+  const quiz = await getTodayQuiz(cache);
   if (!quiz) return null;
   return (
     <div className="mt-8 bg-bg-card border border-border rounded-sm p-5">

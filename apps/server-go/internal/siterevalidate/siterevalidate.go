@@ -63,6 +63,11 @@ type Client struct {
 	url    string
 	secret string
 	http   *http.Client
+	// lists asks the site to refresh its list pages too (homepage, category
+	// pages, archive, feeds, sitemaps). Only changes that alter lists (a
+	// publish, a dashboard edit) set it: every list refresh rewrites many
+	// cached pages, which counts against Vercel's ISR write limit.
+	lists bool
 }
 
 func NewClient(url, secret string, httpClient *http.Client) *Client {
@@ -87,7 +92,8 @@ func (c *Client) RevalidateWithTopics(ctx context.Context, slugs, topics []strin
 	body, err := json.Marshal(struct {
 		Slugs  []string `json:"slugs"`
 		Topics []string `json:"topics,omitempty"`
-	}{slugs, topics})
+		Lists  bool     `json:"lists,omitempty"`
+	}{slugs, topics, c.lists})
 	if err != nil {
 		return err
 	}
@@ -214,6 +220,18 @@ func New(url, secret string, logger *slog.Logger) (Notifier, func()) {
 		return Disabled{}, func() {}
 	}
 	queue := NewQueue(NewClient(strings.TrimSpace(url), secret, nil), logger)
+	return queue, queue.Close
+}
+
+// NewForLists is New for changes that alter the site's lists (a publish, a
+// dashboard edit or removal): its requests also refresh every list page.
+func NewForLists(url, secret string, logger *slog.Logger) (Notifier, func()) {
+	if strings.TrimSpace(url) == "" {
+		return Disabled{}, func() {}
+	}
+	client := NewClient(strings.TrimSpace(url), secret, nil)
+	client.lists = true
+	queue := NewQueue(client, logger)
 	return queue, queue.Close
 }
 

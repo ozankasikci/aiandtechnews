@@ -41,20 +41,30 @@ test("rejects requests without the cron secret and revalidates nothing", async (
   }
 });
 
-test("revalidates each article page and tag plus every list page", async () => {
+test("an image or summary update refreshes only the changed articles, never the lists", async () => {
+  const calls = recorder();
+  const response = await handleRevalidateRequest(post({ slugs: ["a", "b"] }, "Bearer cron-secret"), calls.deps);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).lists, false);
+  assert.deepEqual(calls.tags, ["article:a", "article:b"]);
+  assert.deepEqual(calls.paths, ["/article/a", "/article/b"]);
+});
+
+test("a publish (lists: true) revalidates each article page and tag plus every list page", async () => {
   const calls = recorder();
   const response = await handleRevalidateRequest(
-    post({ slugs: ["new-story", "old-story", "new-story"] }, "Bearer cron-secret"),
+    post({ slugs: ["new-story", "old-story", "new-story"], lists: true }, "Bearer cron-secret"),
     calls.deps,
   );
   assert.equal(response.status, 200);
   const json = await response.json();
   assert.equal(json.revalidated, true);
   assert.deepEqual(json.slugs, ["new-story", "old-story"]);
-  assert.deepEqual(calls.tags, ["article:new-story", "article:old-story", "articles"]);
+  assert.deepEqual(calls.tags, ["article:new-story", "article:old-story", "articles", "topics"]);
   assert.deepEqual(calls.paths, [
     "/article/new-story",
     "/article/old-story",
+    "/topics",
     "/",
     "/archive",
     "/[category] (page)",
@@ -65,11 +75,11 @@ test("revalidates each article page and tag plus every list page", async () => {
   ]);
 });
 
-test("an empty slug list still refreshes the list pages", async () => {
+test("an empty slug list with lists: true still refreshes the list pages", async () => {
   const calls = recorder();
-  const response = await handleRevalidateRequest(post({ slugs: [] }, "Bearer cron-secret"), calls.deps);
+  const response = await handleRevalidateRequest(post({ slugs: [], lists: true }, "Bearer cron-secret"), calls.deps);
   assert.equal(response.status, 200);
-  assert.deepEqual(calls.tags, ["articles"]);
+  assert.deepEqual(calls.tags, ["articles", "topics"]);
   assert.ok(calls.paths.includes("/"));
 });
 
@@ -109,20 +119,26 @@ test("accepts the slugs the API generates", () => {
     ok: true,
     slugs: ["openai-ships-gpt-6-to-everyone", "a1"],
     topics: [],
+    lists: false,
   });
   assert.equal(revalidateTargets(["x"]).tags[0], "article:x");
 });
 
-test("topics refresh each hub, its data tag, and the topics index", async () => {
+test("topics refresh each hub and its data tag; the topics index only with lists", async () => {
+  const only = recorder();
+  await handleRevalidateRequest(post({ slugs: [], topics: ["nvidia"] }, "Bearer cron-secret"), only.deps);
+  assert.deepEqual(only.tags, ["topic:nvidia"]);
+  assert.deepEqual(only.paths, ["/topics/nvidia"]);
+
   const calls = recorder();
   const response = await handleRevalidateRequest(
-    post({ slugs: ["new-story"], topics: ["nvidia", "gpt-6", "nvidia"] }, "Bearer cron-secret"),
+    post({ slugs: ["new-story"], topics: ["nvidia", "gpt-6", "nvidia"], lists: true }, "Bearer cron-secret"),
     calls.deps,
   );
   assert.equal(response.status, 200);
   const json = await response.json();
   assert.deepEqual(json.topics, ["nvidia", "gpt-6"]);
-  assert.deepEqual(calls.tags, ["article:new-story", "articles", "topic:nvidia", "topic:gpt-6", "topics"]);
+  assert.deepEqual(calls.tags, ["article:new-story", "topic:nvidia", "topic:gpt-6", "articles", "topics"]);
   assert.ok(calls.paths.includes("/topics/nvidia"));
   assert.ok(calls.paths.includes("/topics/gpt-6"));
   assert.ok(calls.paths.includes("/topics"));

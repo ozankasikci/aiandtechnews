@@ -22,7 +22,7 @@ const STICKER_COLORS = ["bg-accent-green", "bg-accent-magenta", "bg-accent-blue"
 
 // Cached for five minutes and refreshed on demand by POST /api/revalidate
 // whenever the API publishes or edits an article.
-export const revalidate = 300;
+export const revalidate = 1800;
 
 // The homepage shares as a large card of the latest stories. Setting
 // openGraph here replaces the layout's, so its fields are repeated.

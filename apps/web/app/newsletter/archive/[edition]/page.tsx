@@ -8,7 +8,7 @@ type Props = { params: Promise<{ edition: string }> };
 
 const BASE_URL = "https://www.aiandtech.news";
 
-export const revalidate = 300;
+export const revalidate = 1800;
 
 export async function generateMetadata({ params }: Props) {
   const { edition: editionKey } = await params;

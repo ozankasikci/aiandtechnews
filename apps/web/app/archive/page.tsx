@@ -8,7 +8,7 @@ type Props = { searchParams: Promise<{ page?: string | string[] }> };
 
 const BASE_URL = "https://www.aiandtech.news";
 
-export const revalidate = 300;
+export const revalidate = 1800;
 
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
   const { page: rawPage } = await searchParams;

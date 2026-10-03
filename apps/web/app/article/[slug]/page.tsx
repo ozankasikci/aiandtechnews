@@ -21,14 +21,14 @@ type Props = { params: Promise<{ slug: string }> };
 
 const BASE_URL = "https://www.aiandtech.news";
 
-// Article pages are cached (ISR) for an hour and regenerated on demand: the
+// Article pages are cached (ISR) for a day and regenerated on demand: the
 // API calls POST /api/revalidate when an article is published, illustrated,
 // edited, or deleted. A slug requested before it is published renders (and
 // caches) a 404; the publish revalidates /article/<slug>, so the story
 // appears at once instead of after the hour. An API outage throws, which is
 // never cached: a stale page keeps being served while regeneration fails.
 // Views are counted by ArticleViewBeacon in the browser, not by this render.
-export const revalidate = 3600;
+export const revalidate = 86400;
 
 // No article is prebuilt at deploy time; each one renders on its first
 // request and is then cached. Next 15 needs generateStaticParams (even an
@@ -97,7 +97,7 @@ export default async function ArticlePage({ params }: Props) {
 
   // Read next: one card before the last section (readNextSlot), then a "Keep reading" row,
   // picked from the last week's stories by shared headline words.
-  const recentData = await getArticles({ limit: 50 });
+  const recentData = await getArticles({ limit: 50 }, "article-page");
   const picks = recentData?.articles?.length
     ? pickReadNext(article, recentData.articles.map(mapArticle), { count: 10 })
     : fallbackArticlesByCategory(article.tag).filter((a) => a.slug !== slug).slice(0, 3);
@@ -196,7 +196,7 @@ export default async function ArticlePage({ params }: Props) {
           </article>
 
           <div className="lg:mt-32">
-            <TrendingSidebar />
+            <TrendingSidebar cache="article-page" />
           </div>
         </div>
       </div>
