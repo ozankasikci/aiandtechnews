@@ -160,12 +160,12 @@ Return only JSON with this exact shape: {"unsupported":["quote the unsupported s
 }
 
 func reportPrompt(input RewriteInput) string {
-	return fmt.Sprintf(`You are a reporter at TechNews Editorial. The document below was published by %s itself: an announcement, blog post, changelog or release note. Report it as an original news article for readers of an AI and technology news site.
+	return fmt.Sprintf(`You are a reporter at TechNews Editorial. The document below was published by %s itself: an announcement, press release, blog post, research write-up, changelog or release note. Report it as an original news article for readers of an AI and technology news site.
 
 Requirements:
 - Report what is new: what was announced or released, the key details and numbers, who it affects and when it is available.
 - Use only what the document says. Preserve every fact, name, number, date, and quotation accurately. Never invent quotations, statistics, reactions, motives, comparisons or consequences.
-- You are reporting on the company, not speaking for it. Attribute its claims ("the company says", "according to the release notes") and drop marketing language and superlatives.
+- You are reporting on the organisation, not speaking for it. Attribute its claims ("the company says", "the agency says", "according to the release notes") and drop marketing language and superlatives.
 - Lead with the one or two changes that matter most to readers and explain in plain words what each does. Do not list every item of a changelog; leave out minor fixes.
 - Never refer to "the document". Mention something that is missing only when a reader would expect it, such as the price of a new paid product, and say the company has not said.
 - Ignore page furniture in the document such as sign-in prompts, star and fork counts, menus and error messages.

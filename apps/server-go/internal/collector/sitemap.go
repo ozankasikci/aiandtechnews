@@ -25,6 +25,8 @@ var (
 	sitemapLastMod = regexp.MustCompile(`(?is)<lastmod>\s*(.*?)\s*</lastmod>`)
 	metaTag        = regexp.MustCompile(`(?is)<meta\b[^>]*>`)
 	titleTag       = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	// "datePublished":"2026-09-30T09:51:00.000Z", also when the quotes are escaped.
+	jsonLDPublished = regexp.MustCompile(`datePublished\\?"\s*:\s*\\?"([^"\\]+)`)
 )
 
 // SitemapPages returns the URLs under paths whose last-modified time is at
@@ -82,8 +84,9 @@ func underPaths(pageURL string, paths []string) bool {
 }
 
 // PageItem builds a feed item from a page's own metadata: og:title (or
-// <title>), og:description, og:image and article:published_time. It reports
-// false when the page has no title or no publish time.
+// <title>), og:description, og:image and article:published_time (or the
+// JSON-LD datePublished). It reports false when the page has no title or no
+// publish time.
 func PageItem(html, pageURL, source string) (FeedItem, bool) {
 	meta := map[string]string{}
 	for _, tag := range metaTag.FindAllString(html, -1) {
@@ -103,6 +106,12 @@ func PageItem(html, pageURL, source string) (FeedItem, bool) {
 		}
 	}
 	published, ok := parseFeedDate(meta["article:published_time"])
+	if !ok {
+		// Some sites only give the date in their JSON-LD.
+		if match := jsonLDPublished.FindStringSubmatch(html); match != nil {
+			published, ok = parseFeedDate(match[1])
+		}
+	}
 	if title == "" || !ok {
 		return FeedItem{}, false
 	}
