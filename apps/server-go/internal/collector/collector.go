@@ -138,15 +138,34 @@ func (c *Collector) Loop(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// feedConcurrency is how many feeds are fetched at once; feedRetryDelay is
+// the pause before the one retry of a feed that failed without an HTTP status.
+const feedConcurrency = 10
+
+var feedRetryDelay = 2 * time.Second
+
 func (c *Collector) collect(ctx context.Context) (Report, error) {
 	results := make([][]FeedItem, len(c.feeds))
 	var failures atomic.Int32
 	var wg sync.WaitGroup
+	// A burst of connections to every feed at once gets some reset; fetch a
+	// few at a time and try a failed feed once more.
+	slots := make(chan struct{}, feedConcurrency)
 	for i, feed := range c.feeds {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
 			items, err := FeedItems(ctx, c.fetcher, feed, c.now())
+			var status *StatusError
+			if err != nil && !errors.As(err, &status) && ctx.Err() == nil {
+				select {
+				case <-ctx.Done():
+				case <-time.After(feedRetryDelay):
+					items, err = FeedItems(ctx, c.fetcher, feed, c.now())
+				}
+			}
 			if err != nil {
 				failures.Add(1)
 				if ctx.Err() == nil {
