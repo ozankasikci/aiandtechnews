@@ -26,12 +26,22 @@ type Article struct {
 	// for a single article read by slug.
 	TLDR         []string `json:"tldr,omitempty"`
 	WhyItMatters string   `json:"why_it_matters,omitempty"`
+	// PrimarySource is set on a single article read when the article was
+	// reported from a primary document (a company's own announcement or
+	// release notes): the website links to it. Press sources are never shown.
+	PrimarySource *PrimarySourceRef `json:"primary_source,omitempty"`
 	// InlineImages are the ready illustrations inside the body, from
 	// article_images; also loaded only for a single article read by slug.
 	InlineImages []InlineImage `json:"inlineImages,omitempty"`
 	// Topics are the article's live topic hubs (at most MaxArticleTopics),
 	// loaded for public reads only. Absent when it has none.
 	Topics []TopicRef `json:"topics,omitempty"`
+}
+
+// PrimarySourceRef names the organisation behind a primary document and links to it.
+type PrimarySourceRef struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // InlineImage is an illustration placed after paragraph AfterParagraph

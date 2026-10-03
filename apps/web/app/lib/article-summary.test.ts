@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { parsePrimarySource } from "./api";
 
 const apiSource = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
 const typesSource = readFileSync(new URL("../data/articles.ts", import.meta.url), "utf8");
@@ -20,6 +21,26 @@ test("the website never reads or shows an article's source", () => {
   for (const source of [apiSource, typesSource, pageSource]) {
     assert.doesNotMatch(source, /source_url|sourceUrl/);
     assert.doesNotMatch(source, /\bsource\?: string/);
+  }
+});
+
+test("an original report links to the primary document it was written from, and only that", () => {
+  assert.match(apiSource, /primarySource: parsePrimarySource\(a\.primary_source\),/);
+  assert.match(typesSource, /primarySource\?: \{ name: string; url: string \};/);
+  const body = pageSource.indexOf('id="article-body"');
+  const link = pageSource.indexOf("{article.primarySource && (");
+  assert.ok(body >= 0 && link > body, "the source link comes after the body");
+  assert.match(pageSource, /href=\{article\.primarySource\.url\}/);
+  assert.match(pageSource, /isBasedOn: article\.primarySource\?\.url,/);
+});
+
+test("a primary source needs a name and an https link", () => {
+  assert.deepEqual(parsePrimarySource({ name: " Anthropic ", url: "https://www.anthropic.com/news/x" }), {
+    name: "Anthropic",
+    url: "https://www.anthropic.com/news/x",
+  });
+  for (const bad of [undefined, null, "x", {}, { name: "A" }, { name: "", url: "https://a.com" }, { name: "A", url: "http://a.com" }, { name: "A", url: "javascript:alert(1)" }]) {
+    assert.equal(parsePrimarySource(bad), undefined);
   }
 });
 

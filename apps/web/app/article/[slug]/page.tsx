@@ -118,6 +118,7 @@ export default async function ArticlePage({ params }: Props) {
     about: article.topics?.length
       ? article.topics.map((t) => ({ "@type": "Thing", name: t.name, url: `${BASE_URL}/topics/${t.slug}` }))
       : undefined,
+    isBasedOn: article.primarySource?.url,
     inLanguage: "en",
     isAccessibleForFree: true,
     author: [{ "@type": "Organization", name: "TechNews Editorial", url: `${BASE_URL}/about` }],
@@ -186,6 +187,19 @@ export default async function ArticlePage({ params }: Props) {
               {withMidCard && <ReadNext placement="mid" current={article.slug} picks={readNext} withMidCard />}
               {bodyRest && <div dangerouslySetInnerHTML={{ __html: bodyRest }} />}
             </div>
+            {article.primarySource && (
+              <p className="mt-2 mb-6 text-sm text-text-secondary">
+                Source:{" "}
+                <a
+                  href={article.primarySource.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 hover:text-white transition-colors"
+                >
+                  {article.primarySource.name}
+                </a>
+              </p>
+            )}
             <GlossaryPopover terms={glossaryTerms} />
             <ArticleReadTracker bodyId="article-body" slug={article.slug} category={article.tag} />
             <ArticleViewBeacon apiBase={getPublicApiUrl()} slug={article.slug} />

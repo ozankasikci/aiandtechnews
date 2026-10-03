@@ -23,6 +23,9 @@ type ApprovedFeed struct {
 	// version numbers.
 	Primary     bool
 	TitlePrefix string
+	// SitemapPaths marks URL as a sitemap, for a site with no feed: pages
+	// under these path prefixes that were published recently are the items.
+	SitemapPaths []string
 }
 
 type EditorialAuthorDetails struct {

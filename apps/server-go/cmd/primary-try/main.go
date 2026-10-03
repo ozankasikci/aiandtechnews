@@ -36,19 +36,15 @@ func main() {
 	now := time.Now()
 	var items []collector.JudgeItem
 	for _, feed := range content.PrimaryFeeds() {
-		body, _, err := fetcher.FetchText(ctx, feed.URL, "")
+		parsed, err := collector.FeedItems(ctx, fetcher, feed, now)
 		if err != nil {
 			fmt.Printf("%-34s FETCH FAILED %v\n", feed.Source, err)
 			continue
 		}
-		parsed := collector.ParseFeed(body, feed.Source)
 		fresh, mismatched := 0, 0
 		for _, item := range parsed {
-			if feed.TitlePrefix != "" {
-				if content.IsPrerelease(item.Title) {
-					continue
-				}
-				item.Title = feed.TitlePrefix + " " + item.Title
+			if item.Prerelease {
+				continue
 			}
 			if item.PublishedAt == nil || now.Sub(*item.PublishedAt) > *maxAge {
 				continue

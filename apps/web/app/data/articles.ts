@@ -28,6 +28,7 @@ export type Article = {
   image: string;
   tldr?: string[];
   whyItMatters?: string;
+  primarySource?: { name: string; url: string };
   inlineImages?: InlineImage[];
   topics?: { slug: string; name: string }[];
   metaTitle?: string;

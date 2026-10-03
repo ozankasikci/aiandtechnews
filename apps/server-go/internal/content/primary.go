@@ -19,6 +19,8 @@ const StalePrimaryItemReason = "primary source item is undated or older than 2 d
 
 var primaryFeeds = [...]ApprovedFeed{
 	{Source: "OpenAI", URL: "https://openai.com/news/rss.xml"},
+	// Anthropic has no feed; its sitemap is watched instead.
+	{Source: "Anthropic", URL: "https://www.anthropic.com/sitemap.xml", SitemapPaths: []string{"/news/", "/research/", "/engineering/"}},
 	{Source: "Google", URL: "https://blog.google/technology/ai/rss/"},
 	{Source: "Google DeepMind", URL: "https://deepmind.google/blog/rss.xml"},
 	{Source: "Google Research", URL: "https://research.google/blog/rss/"},
@@ -63,6 +65,7 @@ var primaryHosts = [...]struct {
 	path   string
 }{
 	{"OpenAI", "openai.com", ""},
+	{"Anthropic", "anthropic.com", ""},
 	{"Google", "blog.google", ""},
 	{"Google DeepMind", "deepmind.google", ""},
 	{"Google Research", "research.google", ""},

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -147,25 +146,13 @@ func (c *Collector) collect(ctx context.Context) (Report, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			body, _, err := c.fetcher.FetchText(ctx, feed.URL, "")
+			items, err := FeedItems(ctx, c.fetcher, feed, c.now())
 			if err != nil {
 				failures.Add(1)
 				if ctx.Err() == nil {
 					c.logger.WarnContext(ctx, "feed fetch failed", "source", feed.Source, "error", err)
 				}
 				return
-			}
-			items := ParseFeed(body, feed.Source)
-			for j := range items {
-				items[j].FeedURL = feed.URL
-				items[j].Primary = feed.Primary
-				if feed.TitlePrefix != "" {
-					// A release feed: titles are bare versions.
-					items[j].Prerelease = content.IsPrerelease(items[j].Title)
-					if !strings.HasPrefix(items[j].Title, feed.TitlePrefix) {
-						items[j].Title = feed.TitlePrefix + " " + items[j].Title
-					}
-				}
 			}
 			results[i] = items
 		}()

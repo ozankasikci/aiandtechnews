@@ -5,6 +5,7 @@ import "testing"
 func TestPrimarySourcesAreApprovedButNotNewsPublications(t *testing.T) {
 	cases := map[string]string{
 		"https://openai.com/index/some-launch/":                       "OpenAI",
+		"https://www.anthropic.com/news/claude-frontier-academy":      "Anthropic",
 		"https://github.com/ollama/ollama/releases/tag/v1.2.0":        "Ollama releases",
 		"https://github.com/comfyanonymous/ComfyUI/releases/tag/v0.9": "ComfyUI releases",
 		"https://www.microsoft.com/en-us/research/blog/a-result/":     "Microsoft Research",

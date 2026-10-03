@@ -66,6 +66,7 @@ export interface ApiArticle {
   meta_description?: string | null;
   tldr?: string[];
   why_it_matters?: string;
+  primary_source?: unknown;
   topics?: unknown;
   inlineImages?: {
     url: string;
@@ -129,6 +130,20 @@ function timeAgo(dateStr: string): string {
   return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
+// The primary document an original report was written from (a company's own
+// announcement or release notes). Only an https link with a name is shown.
+export function parsePrimarySource(value: unknown): { name: string; url: string } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { name, url } = value as { name?: unknown; url?: unknown };
+  if (typeof name !== "string" || !name.trim() || typeof url !== "string") return undefined;
+  try {
+    if (new URL(url).protocol !== "https:") return undefined;
+  } catch {
+    return undefined;
+  }
+  return { name: name.trim(), url };
+}
+
 export function mapArticle(a: ApiArticle): Article {
   const publishedDate = parseApiDate(a.published_at || a.created_at);
 
@@ -149,6 +164,7 @@ export function mapArticle(a: ApiArticle): Article {
     image: ownImageOr(a.featured_image),
     tldr: a.tldr?.length ? a.tldr : undefined,
     whyItMatters: a.why_it_matters || undefined,
+    primarySource: parsePrimarySource(a.primary_source),
     inlineImages: usableInlineImages(a.inlineImages),
     topics: parseTopicRefs(a.topics),
     metaTitle: a.meta_title || undefined,

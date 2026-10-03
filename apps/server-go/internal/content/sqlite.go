@@ -162,6 +162,9 @@ func (s *SQLiteStore) PublishedBySlug(ctx context.Context, slug string) (article
 	if err != nil {
 		return Article{}, err
 	}
+	if article.Source != nil && article.SourceURL != nil && IsPrimarySource(*article.Source) {
+		article.PrimarySource = &PrimarySourceRef{Name: PrimaryPublisher(*article.Source), URL: *article.SourceURL}
+	}
 	if err = loadSummary(ctx, tx, &article); err != nil {
 		return Article{}, err
 	}
