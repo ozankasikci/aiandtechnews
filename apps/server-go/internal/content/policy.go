@@ -18,6 +18,11 @@ const MaxArticlesPerRun = 1
 type ApprovedFeed struct {
 	Source string
 	URL    string
+	// Primary marks a primary source feed (see primary.go). TitlePrefix is
+	// put in front of each item title, for feeds whose titles are bare
+	// version numbers.
+	Primary     bool
+	TitlePrefix string
 }
 
 type EditorialAuthorDetails struct {
@@ -46,25 +51,25 @@ type ArticleValidationOptions struct {
 }
 
 var approvedFeeds = [...]ApprovedFeed{
-	{"TechCrunch", "https://techcrunch.com/feed/"},
-	{"The Verge", "https://www.theverge.com/rss/index.xml"},
-	{"Ars Technica", "https://feeds.arstechnica.com/arstechnica/index"},
-	{"WIRED", "https://www.wired.com/feed/rss"},
-	{"Engadget", "https://www.engadget.com/rss.xml"},
-	{"BleepingComputer", "https://www.bleepingcomputer.com/feed/"},
-	{"The Register", "https://www.theregister.com/headlines.atom"},
-	{"MIT Technology Review", "https://www.technologyreview.com/feed/"},
-	{"VentureBeat", "https://venturebeat.com/category/ai/feed"},
-	{"404 Media", "https://www.404media.co/rss/"},
-	{"Rest of World", "https://restofworld.org/feed/"},
-	{"Decrypt", "https://decrypt.co/feed"},
-	{"The Decoder", "https://the-decoder.com/feed/"},
-	{"ZDNET", "https://www.zdnet.com/topic/artificial-intelligence/rss.xml"},
-	{"InfoQ", "https://feed.infoq.com/ai-ml-data-eng/"},
-	{"IEEE Spectrum", "https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss"},
-	{"SiliconANGLE", "https://siliconangle.com/category/ai/feed/"},
-	{"AI Business", "https://aibusiness.com/rss.xml"},
-	{"ScienceDaily", "https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml"},
+	{Source: "TechCrunch", URL: "https://techcrunch.com/feed/"},
+	{Source: "The Verge", URL: "https://www.theverge.com/rss/index.xml"},
+	{Source: "Ars Technica", URL: "https://feeds.arstechnica.com/arstechnica/index"},
+	{Source: "WIRED", URL: "https://www.wired.com/feed/rss"},
+	{Source: "Engadget", URL: "https://www.engadget.com/rss.xml"},
+	{Source: "BleepingComputer", URL: "https://www.bleepingcomputer.com/feed/"},
+	{Source: "The Register", URL: "https://www.theregister.com/headlines.atom"},
+	{Source: "MIT Technology Review", URL: "https://www.technologyreview.com/feed/"},
+	{Source: "VentureBeat", URL: "https://venturebeat.com/category/ai/feed"},
+	{Source: "404 Media", URL: "https://www.404media.co/rss/"},
+	{Source: "Rest of World", URL: "https://restofworld.org/feed/"},
+	{Source: "Decrypt", URL: "https://decrypt.co/feed"},
+	{Source: "The Decoder", URL: "https://the-decoder.com/feed/"},
+	{Source: "ZDNET", URL: "https://www.zdnet.com/topic/artificial-intelligence/rss.xml"},
+	{Source: "InfoQ", URL: "https://feed.infoq.com/ai-ml-data-eng/"},
+	{Source: "IEEE Spectrum", URL: "https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss"},
+	{Source: "SiliconANGLE", URL: "https://siliconangle.com/category/ai/feed/"},
+	{Source: "AI Business", URL: "https://aibusiness.com/rss.xml"},
+	{Source: "ScienceDaily", URL: "https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml"},
 }
 
 var sourceHosts = [...]struct {
@@ -373,7 +378,22 @@ func validURLScheme(value string) bool {
 	return value != ""
 }
 
+// SourceForURL returns the approved source a URL belongs to: a news
+// publication or a primary source (see primary.go).
 func SourceForURL(value string) (string, bool) {
+	if source, ok := NewsSourceForURL(value); ok {
+		return source, true
+	}
+	parsed, err := parsePolicyURL(value)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", false
+	}
+	return primarySourceFor(strings.TrimPrefix(strings.ToLower(parsed.Hostname()), "www."), parsed.Path)
+}
+
+// NewsSourceForURL returns the approved news publication a URL belongs to.
+// Primary sources (companies' own sites) are not news publications.
+func NewsSourceForURL(value string) (string, bool) {
 	parsed, err := parsePolicyURL(value)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return "", false

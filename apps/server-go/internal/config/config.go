@@ -163,8 +163,19 @@ type Config struct {
 	// default 6h), queue the ones worth publishing and reject the rest.
 	AutopickEnabled  bool
 	AutopickInterval time.Duration
-	AutopickModel    string // AUTOPICK_MODEL, default gpt-6-sol
-	AutopickEffort   string // AUTOPICK_EFFORT, default medium
+	// AutopickOriginals (AUTOPICK_ORIGINALS) lets the automatic editor decide
+	// on primary source candidates too; off, they wait for a human.
+	AutopickOriginals bool
+	// PrimarySourcesEnabled (PRIMARY_SOURCES_ENABLED, needs
+	// NEWSROOM_RELEVANCE=ai) also collects company blogs, newsrooms and
+	// release feeds, which the site reports itself.
+	PrimarySourcesEnabled bool
+	// ReportModel and ReportEffort (PRIMARY_REPORT_MODEL, PRIMARY_REPORT_EFFORT;
+	// default gpt-6-sol, medium) are the Codex model that drafts original reports.
+	ReportModel    string
+	ReportEffort   string
+	AutopickModel  string // AUTOPICK_MODEL, default gpt-6-sol
+	AutopickEffort string // AUTOPICK_EFFORT, default medium
 	// CutoutBin (CUTOUT_BIN) is tools/cutout; empty disables the
 	// public-figure collage.
 	CutoutBin         string
@@ -410,6 +421,17 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 			return Config{}, fmt.Errorf("AUTOPICK_INTERVAL must be a duration of at least 10m, got %q", value)
 		}
 		cfg.AutopickInterval = interval
+	}
+	if cfg.AutopickOriginals, err = parseOnOff("AUTOPICK_ORIGINALS", lookup("AUTOPICK_ORIGINALS")); err != nil {
+		return Config{}, err
+	}
+	if cfg.PrimarySourcesEnabled, err = parseOnOff("PRIMARY_SOURCES_ENABLED", lookup("PRIMARY_SOURCES_ENABLED")); err != nil {
+		return Config{}, err
+	}
+	cfg.ReportModel = lookup("PRIMARY_REPORT_MODEL")
+	cfg.ReportEffort = lookup("PRIMARY_REPORT_EFFORT")
+	if cfg.PrimarySourcesEnabled && cfg.RelevanceMode != "ai" {
+		return Config{}, errors.New("PRIMARY_SOURCES_ENABLED needs NEWSROOM_RELEVANCE=ai")
 	}
 	cfg.AutopickModel = lookup("AUTOPICK_MODEL")
 	cfg.AutopickEffort = lookup("AUTOPICK_EFFORT")

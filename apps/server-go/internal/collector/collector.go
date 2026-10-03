@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -157,6 +158,14 @@ func (c *Collector) collect(ctx context.Context) (Report, error) {
 			items := ParseFeed(body, feed.Source)
 			for j := range items {
 				items[j].FeedURL = feed.URL
+				items[j].Primary = feed.Primary
+				if feed.TitlePrefix != "" {
+					// A release feed: titles are bare versions.
+					items[j].Prerelease = content.IsPrerelease(items[j].Title)
+					if !strings.HasPrefix(items[j].Title, feed.TitlePrefix) {
+						items[j].Title = feed.TitlePrefix + " " + items[j].Title
+					}
+				}
 			}
 			results[i] = items
 		}()
@@ -174,6 +183,20 @@ func (c *Collector) collect(ctx context.Context) (Report, error) {
 			rule := content.AutomaticItemRejectionReason
 			if c.judge != nil {
 				rule = content.StructuralItemRejectionReason
+			}
+			if item.Primary {
+				// Primary items are never decided by keywords: without a judge they are skipped.
+				rule = content.StructuralItemRejectionReason
+				if c.judge == nil || item.PublishedAt == nil || now.Sub(*item.PublishedAt) > content.PrimaryItemMaxAge {
+					report.Rejected++
+					report.Rejections[content.StalePrimaryItemReason]++
+					continue
+				}
+				if item.Prerelease {
+					report.Rejected++
+					report.Rejections[content.PrereleaseReason]++
+					continue
+				}
 			}
 			if reason := rule(item.Title, item.URL, item.Source, now); reason != "" {
 				report.Rejected++
@@ -294,6 +317,10 @@ func (c *Collector) applyJudge(ctx context.Context, items []FeedItem, report *Re
 		}
 	}
 	for _, item := range undecided {
+		if item.Primary {
+			// Not remembered, so the judge sees it again next run.
+			continue
+		}
 		if content.MentionsAI(item.Title, item.URL) {
 			kept = append(kept, item)
 		} else {

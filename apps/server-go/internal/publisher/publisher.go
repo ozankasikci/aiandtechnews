@@ -230,12 +230,16 @@ func (p *Publisher) publish(ctx context.Context, candidate newsroom.Candidate) (
 	if err := p.rejectDuplicate(ctx, canonicalURL, initialSlug); err != nil {
 		return 0, "", err
 	}
-	sourceText := ExtractSourceText(body)
-	if content.JavaScriptLength(sourceText) < MinSourceTextLength {
+	primary := content.IsPrimarySource(source)
+	sourceText, minLength := ExtractSourceText(body), MinSourceTextLength
+	if primary {
+		sourceText, minLength = ExtractDocumentText(body), MinDocumentTextLength
+	}
+	if content.JavaScriptLength(sourceText) < minLength {
 		return 0, "", Permanent(errors.New("source text is too short for an accurate rewrite"))
 	}
 
-	article, err := p.Rewriter.Rewrite(ctx, RewriteInput{Source: source, Title: candidate.Title, CanonicalURL: canonicalURL, SourceText: sourceText})
+	article, err := p.Rewriter.Rewrite(ctx, RewriteInput{Source: source, Title: candidate.Title, CanonicalURL: canonicalURL, SourceText: sourceText, Primary: primary})
 	if err != nil {
 		return 0, "", err
 	}

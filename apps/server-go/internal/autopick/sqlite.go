@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -16,15 +17,33 @@ const (
 )
 
 // SQLiteStore reads the newsroom tables and keeps the schedule in settings.
-type SQLiteStore struct{ db *sql.DB }
+type SQLiteStore struct {
+	db *sql.DB
+	// skipFeeds are feed URLs whose candidates are left for a human.
+	skipFeeds []string
+}
 
 func NewSQLiteStore(db *sql.DB) *SQLiteStore { return &SQLiteStore{db: db} }
 
+// LeavingFeeds makes Pending skip candidates from the given feeds, so they
+// stay pending for a human editor.
+func (s *SQLiteStore) LeavingFeeds(feedURLs []string) *SQLiteStore {
+	s.skipFeeds = feedURLs
+	return s
+}
+
 // Pending returns the newest pending candidates, oldest first.
 func (s *SQLiteStore) Pending(ctx context.Context, limit int) ([]Candidate, error) {
+	skip, args := "", make([]any, 0, len(s.skipFeeds)+1)
+	if len(s.skipFeeds) > 0 {
+		skip = ` AND feed_url NOT IN (` + strings.TrimSuffix(strings.Repeat("?,", len(s.skipFeeds)), ",") + `)`
+		for _, feedURL := range s.skipFeeds {
+			args = append(args, feedURL)
+		}
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id, source_name, title, COALESCE(feed_summary, ''), COALESCE(feed_published_at, '')
-		FROM (SELECT * FROM candidates WHERE status = 'pending' ORDER BY discovered_at DESC, id DESC LIMIT ?)
-		ORDER BY discovered_at, id`, limit)
+		FROM (SELECT * FROM candidates WHERE status = 'pending'`+skip+` ORDER BY discovered_at DESC, id DESC LIMIT ?)
+		ORDER BY discovered_at, id`, append(args, limit)...)
 	if err != nil {
 		return nil, fmt.Errorf("autopick pending: %w", err)
 	}

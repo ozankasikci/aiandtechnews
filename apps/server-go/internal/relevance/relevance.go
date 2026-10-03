@@ -47,6 +47,7 @@ type promptItem struct {
 	Title   string `json:"title"`
 	Summary string `json:"summary,omitempty"`
 	Article string `json:"article_start,omitempty"`
+	Primary bool   `json:"primary_source,omitempty"`
 }
 
 type answer struct {
@@ -74,7 +75,9 @@ Not a candidate:
 - product reviews, buying guides, deals, discounts, how-tos, listicles and roundups;
 - opinion or commentary without a news event, sponsored posts, event announcements, podcasts and videos.
 
-Judge by what the article is actually about (use the article text when given), not by keywords. When unsure, prefer candidate.`
+Judge by what the article is actually about (use the article text when given), not by keywords. When unsure, prefer candidate.
+
+Items marked "primary_source": true come straight from a company's own blog, newsroom, changelog or release feed, and the site would report them itself. Be stricter with these, and when unsure, prefer not a candidate. A primary item is a candidate only when it announces something new and concrete that an AI and tech news reader would want to know: a new model, product or major feature, a price or policy change, a deal, acquisition or funding, a significant research result, a security or safety disclosure, or a major software release with notable new capabilities. Not candidates: customer stories and case studies, marketing and thought leadership, tutorials and how-tos, event recaps and invitations, hiring and culture posts, minor or patch releases, bug-fix changelogs, and anything where AI is not central.`
 
 // Judge sends one batch to Codex and maps the answers back to item keys.
 func (j *CodexJudge) Judge(ctx context.Context, items []collector.JudgeItem) (map[string]collector.Verdict, error) {
@@ -88,7 +91,7 @@ func (j *CodexJudge) Judge(ctx context.Context, items []collector.JudgeItem) (ma
 	defer os.RemoveAll(dir)
 	list := make([]promptItem, len(items))
 	for i, item := range items {
-		list[i] = promptItem{ID: i + 1, Source: item.Source, Title: item.Title, Summary: clip(item.Summary, 600), Article: clip(item.Text, 2000)}
+		list[i] = promptItem{ID: i + 1, Source: item.Source, Title: item.Title, Summary: clip(item.Summary, 600), Article: clip(item.Text, 2000), Primary: item.Primary}
 	}
 	data, err := json.MarshalIndent(list, "", "  ")
 	if err != nil {

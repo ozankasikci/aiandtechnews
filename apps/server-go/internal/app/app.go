@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/autopick"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/codextext"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/collector"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/config"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
@@ -107,7 +108,12 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	var feedCollector *collector.Collector
 	var newsroomCollector newsroom.Collector
 	if cfg.CollectorEnabled {
-		feedCollector = collector.New(collector.NewFetcher(), newsroomStore, content.ApprovedFeeds(), now, logger)
+		feeds := content.ApprovedFeeds()
+		if cfg.PrimarySourcesEnabled {
+			feeds = append(feeds, content.PrimaryFeeds()...)
+			logger.Info("newsroom primary sources", "feeds", len(content.PrimaryFeeds()))
+		}
+		feedCollector = collector.New(collector.NewFetcher(), newsroomStore, feeds, now, logger)
 		if cfg.RelevanceMode == "ai" {
 			runner := &illustration.CodexRunner{Bin: cfg.CodexBin, NodeDir: cfg.CodexNodeDir, Timeout: relevance.DefaultTimeout}
 			feedCollector.WithJudge(relevance.New(runner, cfg.RelevanceModel, cfg.RelevanceEffort), newsroomStore)
@@ -120,7 +126,11 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	if cfg.AutopickEnabled {
 		runner := &illustration.CodexRunner{Bin: cfg.CodexBin, NodeDir: cfg.CodexNodeDir, Timeout: autopick.DefaultTimeout}
 		editor := autopick.NewCodexEditor(runner, cfg.AutopickModel, cfg.AutopickEffort)
-		editorLoop = &autopick.Picker{Store: autopick.NewSQLiteStore(db), Queue: newsroomService, Editor: editor,
+		pickStore := autopick.NewSQLiteStore(db)
+		if !cfg.AutopickOriginals {
+			pickStore.LeavingFeeds(content.PrimaryFeedURLs())
+		}
+		editorLoop = &autopick.Picker{Store: pickStore, Queue: newsroomService, Editor: editor,
 			Interval: cfg.AutopickInterval, Now: now, Logger: logger}
 		logger.Info("newsroom autopick", "interval", cfg.AutopickInterval, "model", editor.Model, "effort", editor.Effort)
 	}
@@ -254,7 +264,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		newsPublisher := publisher.New(publisher.Deps{
 			Store:       newsroomStore,
 			Fetcher:     collector.NewFetcher(),
-			Rewriter:    publisher.NewRewriter(geminiClient),
+			Rewriter:    newsRewriter(cfg, geminiClient, logger),
 			Subheadings: flash,
 			Topics:      topicTagger,
 			Illustrator: illustrator,
@@ -315,6 +325,20 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		})
 	}
 	return application, nil
+}
+
+// newsRewriter rewrites press stories with Gemini. With primary sources on
+// and Codex available, Codex drafts the original reports and Gemini fact
+// checks them.
+func newsRewriter(cfg config.Config, geminiClient *gemini.Client, logger *slog.Logger) *publisher.Rewriter {
+	rewriter := publisher.NewRewriter(geminiClient)
+	if cfg.PrimarySourcesEnabled && cfg.CodexBin != "" {
+		runner := &illustration.CodexRunner{Bin: cfg.CodexBin, NodeDir: cfg.CodexNodeDir, Timeout: codextext.DefaultTimeout}
+		writer := codextext.New(runner, cfg.ReportModel, cfg.ReportEffort)
+		rewriter.WithReporter(writer)
+		logger.Info("original reports", "writer", "codex", "model", writer.Model, "effort", writer.Effort)
+	}
+	return rewriter
 }
 
 // quizInterval is how often the quiz loop checks whether today's quiz is due.

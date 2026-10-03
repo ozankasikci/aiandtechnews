@@ -593,7 +593,7 @@ var blockedLabels = map[string]bool{"amazon": true, "ebay": true, "aliexpress": 
 // blockedSite reports whether a URL is on a site that cannot be a maker's
 // official site, including every approved news source.
 func blockedSite(raw string) bool {
-	if _, ok := content.SourceForURL(raw); ok {
+	if _, ok := content.NewsSourceForURL(raw); ok {
 		return true
 	}
 	parsed, err := url.Parse(raw)

@@ -32,13 +32,29 @@ type RewriteInput struct {
 	Title        string
 	CanonicalURL string
 	SourceText   string
+	// Primary means SourceText is a primary document (content.IsPrimarySource):
+	// the article is reported from it and fact-checked against it.
+	Primary bool
 }
+
+// Publisher is the organisation behind a primary document.
+func (i RewriteInput) Publisher() string { return content.PrimaryPublisher(i.Source) }
 
 type Rewriter struct {
 	text TextGenerator
+	// reporter drafts reports from primary documents; nil means text does.
+	// text always runs the fact check, so with a reporter set a second model
+	// checks the first.
+	reporter TextGenerator
 }
 
 func NewRewriter(text TextGenerator) *Rewriter { return &Rewriter{text: text} }
+
+// WithReporter makes reporter draft the reports written from primary documents.
+func (r *Rewriter) WithReporter(reporter TextGenerator) *Rewriter {
+	r.reporter = reporter
+	return r
+}
 
 var (
 	leadingFence  = regexp.MustCompile("(?i)^```(?:json)?\\s*")
@@ -49,6 +65,9 @@ var (
 // Rewrite ports rewriteArticle: up to two drafts, the second carrying a
 // correction for invalid JSON or failed validation.
 func (r *Rewriter) Rewrite(ctx context.Context, input RewriteInput) (content.RewrittenArticle, error) {
+	if input.Primary {
+		return r.report(ctx, input)
+	}
 	base := rewritePrompt(input)
 	correction := ""
 	var lastProblem string

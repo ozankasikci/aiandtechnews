@@ -71,6 +71,7 @@ paths:
                     last_error: null
                     article_slug: null
                     publish_now: false
+                    original: false
                 total: 1
                 page: 1
                 totalPages: 1
@@ -340,7 +341,7 @@ components:
     Candidate:
       type: object
       required: [id, title, feed_summary, source_name, source_url, source_image_url, feed_published_at,
-                 discovered_at, status, scheduled_for, attempts, last_error, article_slug, publish_now]
+                 discovered_at, status, scheduled_for, attempts, last_error, article_slug, publish_now, original]
       properties:
         id: { type: integer }
         title: { type: string }
@@ -358,3 +359,6 @@ components:
         publish_now:
           type: boolean
           description: True while a publish-now request is pending (the candidate is queued or processing with priority).
+        original:
+          type: boolean
+          description: True for a candidate from a primary source (a company's own announcement or release), which the site reports itself.

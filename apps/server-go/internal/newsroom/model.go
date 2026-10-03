@@ -57,6 +57,10 @@ type Candidate struct {
 	// the publisher claims the candidate ahead of the queue and without the
 	// minimum gap since the last publish.
 	PublishNow bool `json:"publish_now"`
+	// Original marks a candidate from a primary source (a company's own
+	// announcement or release): the site reports it itself instead of
+	// rewriting another outlet's story.
+	Original bool `json:"original"`
 }
 
 // NewCandidate is what the collector stores for a policy-passing feed item.

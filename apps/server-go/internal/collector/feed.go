@@ -21,6 +21,8 @@ type FeedItem struct {
 	URL         string
 	Source      string
 	FeedURL     string
+	Primary     bool // from a primary source feed (content.PrimaryFeeds)
+	Prerelease  bool // a release feed item for an alpha, rc, nightly or per-commit build
 	PublishedAt *time.Time
 	Summary     string
 	ImageURL    string

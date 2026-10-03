@@ -17,6 +17,8 @@ type JudgeItem struct {
 	Title   string
 	Summary string
 	Text    string
+	// Primary marks an item from a company's own blog, newsroom or release feed.
+	Primary bool
 }
 
 // Verdict is the judge's decision for one item.
@@ -89,7 +91,7 @@ func (c *Collector) judgeItems(ctx context.Context, items []FeedItem) (verdicts 
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, fetchConcurrency)
 	for i, item := range items {
-		judgeItems[i] = JudgeItem{Key: item.URL, Source: item.Source, Title: item.Title, Summary: item.Summary}
+		judgeItems[i] = JudgeItem{Key: item.URL, Source: item.Source, Title: item.Title, Summary: item.Summary, Primary: item.Primary}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

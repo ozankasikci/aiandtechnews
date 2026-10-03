@@ -28,7 +28,7 @@ func NewSQLiteStore(db *sql.DB) *SQLiteStore { return &SQLiteStore{db: db} }
 const candidateSelect = `SELECT c.id, c.title, c.feed_summary, c.source_name, c.source_url,
 	c.source_image_url, c.feed_published_at, c.discovered_at, c.status, c.scheduled_for,
 	c.attempts, c.last_error, a.slug,
-	EXISTS (SELECT 1 FROM candidate_publish_now p WHERE p.candidate_id = c.id)
+	EXISTS (SELECT 1 FROM candidate_publish_now p WHERE p.candidate_id = c.id), c.feed_url
 	FROM candidates c LEFT JOIN articles a ON a.id = c.article_id`
 
 // listOrder groups the queue view (processing, queued, failed) ahead of the
@@ -44,9 +44,11 @@ type rowScanner interface{ Scan(...any) error }
 
 func scanCandidate(row rowScanner) (Candidate, error) {
 	var c Candidate
+	var feedURL string
 	err := row.Scan(&c.ID, &c.Title, &c.FeedSummary, &c.SourceName, &c.SourceURL,
 		&c.SourceImageURL, &c.FeedPublishedAt, &c.DiscoveredAt, &c.Status, &c.ScheduledFor,
-		&c.Attempts, &c.LastError, &c.ArticleSlug, &c.PublishNow)
+		&c.Attempts, &c.LastError, &c.ArticleSlug, &c.PublishNow, &feedURL)
+	c.Original = content.IsPrimaryFeed(feedURL)
 	return c, err
 }
 
