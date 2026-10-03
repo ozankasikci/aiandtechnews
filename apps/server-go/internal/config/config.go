@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/telegram"
 )
 
 type Mode string
@@ -196,6 +198,21 @@ type Config struct {
 	ReimageEnabled  bool
 	ReimageInterval time.Duration
 
+	// TelegramEnabled (TELEGRAM_ENABLED, default off) runs the worker that
+	// posts each newly published article to TelegramChannel
+	// (TELEGRAM_CHANNEL, "@name" or a numeric chat id) through the bot whose
+	// token is TelegramBotToken (TELEGRAM_BOT_TOKEN, secret). It looks for an
+	// article every TelegramInterval (TELEGRAM_INTERVAL, default 1m, minimum
+	// 30s), posts nothing during TelegramQuietHours (TELEGRAM_QUIET_HOURS,
+	// default "00:00-08:00" in the TZ zone, empty for none) and leaves at
+	// least TelegramMinGap (TELEGRAM_MIN_GAP, default 5m) between posts.
+	TelegramEnabled    bool
+	TelegramBotToken   string
+	TelegramChannel    string
+	TelegramInterval   time.Duration
+	TelegramQuietHours string
+	TelegramMinGap     time.Duration
+
 	// TopicsEnabled (TOPICS_ENABLED, default off) tags each published
 	// article with its topics (1 to 4 entities, one Gemini call) and runs the
 	// loop that refreshes live topics' summaries and key facts every
@@ -222,11 +239,13 @@ func (c Config) String() string {
 	return fmt.Sprintf("Config{Mode:%q Address:%q TimeZone:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
 		"PublisherEnabled:%t PublisherInterval:%s InlineImagesEnabled:%t InlineImagesInterval:%s ReimageEnabled:%t ReimageInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q FeaturedImageChain:%q FeaturedImageAnalyzers:%q CodexBin:%q CodexNodeDir:%q CodexTimeout:%s CutoutBin:%q GeminiVisionModel:%q "+
 		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t SiteRevalidateURL:%q "+
-		"NewsletterSiteURL:%q NewsletterTokenSecret:[REDACTED] NewsletterCronSecret:[REDACTED] ResendAPIKey:[REDACTED] NewsletterFrom:%q NewsletterReplyTo:%q}",
+		"NewsletterSiteURL:%q NewsletterTokenSecret:[REDACTED] NewsletterCronSecret:[REDACTED] ResendAPIKey:[REDACTED] NewsletterFrom:%q NewsletterReplyTo:%q "+
+		"TelegramEnabled:%t TelegramBotToken:[REDACTED] TelegramChannel:%q TelegramInterval:%s TelegramQuietHours:%q TelegramMinGap:%s}",
 		c.Mode, c.Address, c.TimeZone, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
 		c.PublisherEnabled, c.PublisherInterval, c.InlineImagesEnabled, c.InlineImagesInterval, c.ReimageEnabled, c.ReimageInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.FeaturedImageChain, c.FeaturedImageAnalyzers, c.CodexBin, c.CodexNodeDir, c.CodexTimeout, c.CutoutBin, c.GeminiVisionModel,
 		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled, c.SiteRevalidateURL,
-		c.NewsletterSiteURL, c.NewsletterFrom, c.NewsletterReplyTo)
+		c.NewsletterSiteURL, c.NewsletterFrom, c.NewsletterReplyTo,
+		c.TelegramEnabled, c.TelegramChannel, c.TelegramInterval, c.TelegramQuietHours, c.TelegramMinGap)
 }
 
 func (c Config) GoString() string { return c.String() }
@@ -453,6 +472,36 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	cfg.NewsletterFrom = lookup("NEWSLETTER_FROM")
 	cfg.NewsletterReplyTo = lookup("NEWSLETTER_REPLY_TO")
 
+	telegramEnabled, err := parseOnOff("TELEGRAM_ENABLED", lookup("TELEGRAM_ENABLED"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.TelegramEnabled = telegramEnabled
+	cfg.TelegramBotToken = strings.TrimSpace(lookup("TELEGRAM_BOT_TOKEN"))
+	cfg.TelegramChannel = strings.TrimSpace(lookup("TELEGRAM_CHANNEL"))
+	cfg.TelegramInterval = telegram.DefaultInterval
+	if value := lookup("TELEGRAM_INTERVAL"); value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("TELEGRAM_INTERVAL: %w", err)
+		}
+		cfg.TelegramInterval = interval
+	}
+	// Empty (like every unset variable here) means the default window; "off"
+	// means none.
+	cfg.TelegramQuietHours = telegram.DefaultQuietHours
+	if value := strings.TrimSpace(lookup("TELEGRAM_QUIET_HOURS")); value != "" {
+		cfg.TelegramQuietHours = value
+	}
+	cfg.TelegramMinGap = telegram.DefaultMinGap
+	if value := lookup("TELEGRAM_MIN_GAP"); value != "" {
+		gap, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("TELEGRAM_MIN_GAP: %w", err)
+		}
+		cfg.TelegramMinGap = gap
+	}
+
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -495,6 +544,20 @@ func (c Config) Validate() error {
 		if c.ReimageInterval < time.Minute {
 			return errors.New("REIMAGE_INTERVAL must be at least 1m")
 		}
+	}
+	if c.TelegramEnabled {
+		if c.TelegramBotToken == "" || c.TelegramChannel == "" {
+			return errors.New("TELEGRAM_ENABLED needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL")
+		}
+		if c.TelegramInterval < telegram.MinInterval {
+			return errors.New("TELEGRAM_INTERVAL must be at least 30s")
+		}
+		if c.TelegramMinGap < 0 {
+			return errors.New("TELEGRAM_MIN_GAP must not be negative")
+		}
+	}
+	if _, err := telegram.ParseQuietHours(c.TelegramQuietHours); err != nil {
+		return fmt.Errorf("TELEGRAM_QUIET_HOURS: %w", err)
 	}
 	if c.TopicsEnabled {
 		if !c.PublisherEnabled {

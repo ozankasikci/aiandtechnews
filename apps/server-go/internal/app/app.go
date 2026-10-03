@@ -36,6 +36,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/relevance"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/settings"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/siterevalidate"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/telegram"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/topics"
 )
 
@@ -292,6 +293,27 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			})
 		}
 	}
+	if cfg.TelegramEnabled {
+		// Posts whatever is published, by this publisher or any other, so it
+		// does not need PUBLISHER_ENABLED. Links use the newsletter's site.
+		siteURL, err := newsletter.SiteOrigin(cfg.NewsletterSiteURL)
+		if err != nil {
+			return nil, fmt.Errorf("telegram: %w", err)
+		}
+		quietHours, err := telegram.ParseQuietHours(cfg.TelegramQuietHours)
+		if err != nil {
+			return nil, fmt.Errorf("telegram: %w", err)
+		}
+		channel := telegram.NewWorker(telegram.NewSQLiteStore(db, now, nil),
+			telegram.NewClient(cfg.TelegramBotToken, telegramBaseURL, nil),
+			telegram.WorkerConfig{Chat: cfg.TelegramChannel, SiteURL: siteURL, QuietHours: quietHours, MinGap: cfg.TelegramMinGap, Now: now},
+			logger)
+		logger.Info("telegram channel posts", "channel", cfg.TelegramChannel, "interval", cfg.TelegramInterval,
+			"quiet_hours", quietHours.String(), "min_gap", cfg.TelegramMinGap)
+		application.background = append(application.background, func(ctx context.Context) {
+			channel.Loop(ctx, cfg.TelegramInterval)
+		})
+	}
 	return application, nil
 }
 
@@ -312,6 +334,10 @@ var (
 	newResendHTTPClient                             = func() *http.Client { return nil }
 	newsletterPace      func(context.Context) error = nil
 )
+
+// telegramBaseURL is the Bot API address; a variable so app tests can point
+// the channel worker at an httptest server.
+var telegramBaseURL = telegram.DefaultBaseURL
 
 // newPublicHTTPClient builds the client that verifies uploaded objects
 // through their public URL. It is a variable so app tests can stay offline.

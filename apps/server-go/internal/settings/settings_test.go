@@ -115,7 +115,7 @@ func TestSettingsEmptyTableAndDatabaseFailure(t *testing.T) {
 // not in the allowlist.
 func TestSettingsHideNewsroomKeys(t *testing.T) {
 	handler, db := settingsServer(t)
-	if _, err := db.Exec(`INSERT INTO settings (key, value) VALUES ('newsroom.publish_delay_min_minutes','30'),('newsroom.publish_delay_max_minutes','40')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO settings (key, value) VALUES ('newsroom.publish_delay_min_minutes','30'),('newsroom.publish_delay_max_minutes','40'),('telegram.start_after','2026-10-01T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 	if response := serve(t, handler, "GET", "", ""); response.Body.String() != unchanged {

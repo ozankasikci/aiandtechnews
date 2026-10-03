@@ -30,6 +30,9 @@ var topicsSchema string
 //go:embed migrations/015_featured_reimage.sql
 var featuredReimageSchema string
 
+//go:embed migrations/016_telegram_posts.sql
+var telegramPostsSchema string
+
 // Migrations returns a fresh slice containing content's immutable schema descriptors.
 func Migrations() []migrate.Descriptor {
 	return []migrate.Descriptor{
@@ -41,5 +44,6 @@ func Migrations() []migrate.Descriptor {
 		{Version: 13, Name: "article image credits", SQL: articleImageCreditsSchema},
 		{Version: 14, Name: "topics", SQL: topicsSchema},
 		{Version: 15, Name: "featured image reimage retries", SQL: featuredReimageSchema},
+		{Version: 16, Name: "telegram channel posts", SQL: telegramPostsSchema},
 	}
 }

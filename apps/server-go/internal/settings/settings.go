@@ -43,9 +43,13 @@ var allowedKeys = [...]string{
 	"newsletter_webhook_url",
 }
 
-// newsroomKeyPrefix marks settings rows that belong to newsroom, not the
+// newsroomKeyPrefix and telegramKeyPrefix mark settings rows that belong to
+// newsroom and to the Telegram channel worker (internal/telegram), not the
 // dashboard site settings surface. Hidden from GET, never written by PUT.
-const newsroomKeyPrefix = "newsroom."
+const (
+	newsroomKeyPrefix = "newsroom."
+	telegramKeyPrefix = "telegram."
+)
 
 // Entry is one settings row.
 type Entry struct {
@@ -156,7 +160,7 @@ func (s *Service) Get(ctx context.Context) (Values, error) {
 	}
 	visible := make(Values, 0, len(values))
 	for _, entry := range values {
-		if strings.HasPrefix(entry.Key, newsroomKeyPrefix) {
+		if strings.HasPrefix(entry.Key, newsroomKeyPrefix) || strings.HasPrefix(entry.Key, telegramKeyPrefix) {
 			continue
 		}
 		visible = append(visible, entry)

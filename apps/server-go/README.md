@@ -59,6 +59,12 @@ Review contract changes in this order:
 | `INLINE_IMAGES_INTERVAL` | `5m` | How often the inline image worker picks one article (minimum `1m`) |
 | `REIMAGE_ENABLED` | off | Runs the job that replaces featured images that are a news source's photo (older articles; the site no longer shows them) with an image of our own: drawn by the generating providers only (never the `source` step, no reference photo, no collage), stored in S3, the article's `featured_image` switched and its site page refreshed. Newest first, 3 tries per article (`featured_reimage` table). Needs `PUBLISHER_ENABLED=1`; shares the pipeline's one-image-at-a-time lock |
 | `REIMAGE_INTERVAL` | `10m` | How often the re-image job picks one article (minimum `1m`) |
+| `TELEGRAM_ENABLED` | off | Runs the worker that posts each newly published article to a Telegram channel: our featured image (WebP converted to JPEG) with an HTML caption (title, why it matters, up to 3 TL;DR points, tracked "Read more" link to `NEWSLETTER_SITE_URL`), or a text message when there is no usable image. Only articles published after the first run are posted (settings key `telegram.start_after`); outcomes in `telegram_posts`, 5 tries per article. Needs `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL` |
+| `TELEGRAM_BOT_TOKEN` | none | Bot token from @BotFather (secret); the bot must be an admin of the channel |
+| `TELEGRAM_CHANNEL` | none | Channel to post to: `@name` or a numeric chat id |
+| `TELEGRAM_INTERVAL` | `1m` | How often the worker looks for an article to post, one per tick (minimum `30s`) |
+| `TELEGRAM_QUIET_HOURS` | `00:00-08:00` | Daily `HH:MM-HH:MM` window (in `TZ`) with no posts; may wrap midnight; `off` for none |
+| `TELEGRAM_MIN_GAP` | `5m` | Shortest time between two posts, which spreads out the backlog after quiet hours |
 | `TOPICS_ENABLED` | off | Tags each published article with 1-4 topics (company, product, person, theme) and runs the loop that refreshes live topics' summaries and key facts (at most daily per topic, only when new articles arrived, verified by a second model call). A topic is live (public at `/api/topics`) once it has 3 published articles. Needs `PUBLISHER_ENABLED=1`; tag existing articles with `cmd/topics-backfill` |
 | `TOPICS_INTERVAL` | `1h` | How often the topic summary loop looks for due topics (minimum `1m`) |
 | `GEMINI_API_KEY` | none | Required when `PUBLISHER_ENABLED=1`; Gemini API key used for rewriting and illustration |
@@ -281,3 +287,10 @@ opens the database read-only, generates nothing, uploads nothing and writes
 nothing. An article is selected when it is published and its `featured_image` is
 empty or not ours (`internal/ownimage`, the Go twin of the site's
 `own-image.ts`), and it has failed fewer than 3 times.
+
+### Send a test Telegram post
+
+`TELEGRAM_BOT_TOKEN=… go run ./cmd/telegram-post -db <technews.db> -slug <slug> -chat @mychannel`
+posts one published article exactly as the channel worker would and prints the
+message id. `-chat` defaults to `TELEGRAM_CHANNEL`. It opens the database
+read-only and records nothing in `telegram_posts`.
