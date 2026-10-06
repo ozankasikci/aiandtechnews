@@ -48,6 +48,8 @@ Drop a story when:
 - it is not really news: opinion, explainers, how-tos, listicles, reviews, deals, podcasts, event announcements, sponsored posts;
 - AI and technology are only a side note;
 - it is stale (the event is several days old and has been widely covered).
+- it is local or procedural: a city, county or school board dispute, a public records request or its fees, a local lawsuit or permit fight, an administrative quarrel. Publish these only when the outcome matters nationally or to the AI industry as a whole.
+- it would bore a general tech reader: nothing new is launched, decided, discovered, broken or changed, and no well-known company, product or person is at the centre of it.
 
 Keep the mix varied: do not publish many stories about the same company or topic in one batch unless each is genuinely separate news.
 
@@ -67,7 +69,11 @@ func Prompt(candidates []Candidate, history History) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return Brief + "\n\nInput (JSON):\n" + string(data) +
+	brief := Brief
+	if history.Notes != "" {
+		brief += "\n\nStanding instructions from the site's owner. They come from stories the owner did not want published; follow them over your own judgement and apply them to similar stories, not only to the exact example:\n" + history.Notes
+	}
+	return brief + "\n\nInput (JSON):\n" + string(data) +
 		"\n\nAnswer with one decision per candidate id. Do not run any commands.", nil
 }
 

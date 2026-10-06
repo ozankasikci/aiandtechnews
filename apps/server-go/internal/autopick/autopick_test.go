@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,5 +140,19 @@ func TestParseAnswer(t *testing.T) {
 	decisions, err := ParseAnswer([]byte("noise {\"decisions\":[{\"id\":7,\"publish\":true,\"priority\":1,\"reason\":\" big \"}]}"))
 	if err != nil || len(decisions) != 1 || decisions[0].ID != 7 || decisions[0].Reason != "big" {
 		t.Fatalf("%+v %v", decisions, err)
+	}
+}
+
+func TestPromptCarriesTheOwnersStandingInstructions(t *testing.T) {
+	prompt, err := Prompt([]Candidate{{ID: 1, Title: "A story"}}, History{Notes: "- No local records disputes."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "Standing instructions from the site's owner") || !strings.Contains(prompt, "No local records disputes.") {
+		t.Fatalf("prompt: %s", prompt)
+	}
+	plain, _ := Prompt([]Candidate{{ID: 1}}, History{})
+	if strings.Contains(plain, "Standing instructions") {
+		t.Fatal("no notes, no instructions section")
 	}
 }

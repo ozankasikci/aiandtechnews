@@ -49,6 +49,9 @@ type Story struct {
 type History struct {
 	Published []Story
 	Rejected  []Story
+	// Notes are the owner's standing instructions (what not to publish, what
+	// to favor), one per line; empty when there are none.
+	Notes string
 }
 
 // Decision is the editor's verdict on one candidate. Priority orders the

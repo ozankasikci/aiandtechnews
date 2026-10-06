@@ -14,6 +14,9 @@ import (
 const (
 	nextRunKey = "newsroom.autopick_next_run"
 	lastRunKey = "newsroom.autopick_last_run"
+	// notesKey holds the owner's standing instructions for the editor, one
+	// per line. It is edited by hand (there is no screen for it yet).
+	notesKey = "newsroom.autopick_notes"
 )
 
 // SQLiteStore reads the newsroom tables and keeps the schedule in settings.
@@ -73,7 +76,12 @@ func (s *SQLiteStore) History(ctx context.Context, since time.Time, limit int) (
 	if err != nil {
 		return History{}, err
 	}
-	return History{Published: published, Rejected: rejected}, nil
+	var notes string
+	err = s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, notesKey).Scan(&notes)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return History{}, fmt.Errorf("autopick notes: %w", err)
+	}
+	return History{Published: published, Rejected: rejected, Notes: strings.TrimSpace(notes)}, nil
 }
 
 func (s *SQLiteStore) stories(ctx context.Context, query string, args ...any) ([]Story, error) {
