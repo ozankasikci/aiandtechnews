@@ -316,15 +316,31 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		}
 		channel := telegram.NewWorker(telegram.NewSQLiteStore(db, now, nil),
 			telegram.NewClient(cfg.TelegramBotToken, telegramBaseURL, nil),
-			telegram.WorkerConfig{Chat: cfg.TelegramChannel, SiteURL: siteURL, QuietHours: quietHours, MinGap: cfg.TelegramMinGap, Now: now},
+			telegram.WorkerConfig{Chat: cfg.TelegramChannel, SiteURL: siteURL, QuietHours: quietHours, MinGap: cfg.TelegramMinGap, Now: now,
+				Selector: telegramSelector(cfg, geminiClient)},
 			logger)
 		logger.Info("telegram channel posts", "channel", cfg.TelegramChannel, "interval", cfg.TelegramInterval,
-			"quiet_hours", quietHours.String(), "min_gap", cfg.TelegramMinGap)
+			"quiet_hours", quietHours.String(), "min_gap", cfg.TelegramMinGap, "selective", telegramSelector(cfg, geminiClient) != nil)
 		application.background = append(application.background, func(ctx context.Context) {
 			channel.Loop(ctx, cfg.TelegramInterval)
 		})
 	}
 	return application, nil
+}
+
+// telegramSelector picks the model that decides which articles the channel
+// carries: Codex when available, else Gemini, else nil (post everything).
+func telegramSelector(cfg config.Config, geminiClient *gemini.Client) telegram.Selector {
+	switch {
+	case !cfg.TelegramSelective:
+		return nil
+	case cfg.CodexBin != "":
+		runner := &illustration.CodexRunner{Bin: cfg.CodexBin, NodeDir: cfg.CodexNodeDir, Timeout: 3 * time.Minute}
+		return telegram.TextSelector{Text: codextext.New(runner, "", "low")}
+	case geminiClient != nil:
+		return telegram.TextSelector{Text: geminiClient}
+	}
+	return nil
 }
 
 // newsRewriter rewrites press stories with Gemini. With primary sources on

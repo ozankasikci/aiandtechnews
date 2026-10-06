@@ -223,6 +223,10 @@ type Config struct {
 	TelegramInterval   time.Duration
 	TelegramQuietHours string
 	TelegramMinGap     time.Duration
+	// TelegramSelective (TELEGRAM_SELECTIVE, default on) posts only the
+	// significant AI and high tech stories, chosen by a model (Codex when
+	// CODEX_BIN is set, else Gemini); off posts every article.
+	TelegramSelective bool
 
 	// TopicsEnabled (TOPICS_ENABLED, default off) tags each published
 	// article with its topics (1 to 4 entities, one Gemini call) and runs the
@@ -514,6 +518,14 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	cfg.TelegramQuietHours = telegram.DefaultQuietHours
 	if value := strings.TrimSpace(lookup("TELEGRAM_QUIET_HOURS")); value != "" {
 		cfg.TelegramQuietHours = value
+	}
+	cfg.TelegramSelective = true
+	if value := lookup("TELEGRAM_SELECTIVE"); value != "" {
+		selective, err := parseOnOff("TELEGRAM_SELECTIVE", value)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.TelegramSelective = selective
 	}
 	cfg.TelegramMinGap = telegram.DefaultMinGap
 	if value := lookup("TELEGRAM_MIN_GAP"); value != "" {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -13,6 +14,15 @@ import (
 // StartAfterKey is the settings row holding the moment the channel started:
 // only articles published at or after it are ever posted.
 const StartAfterKey = "telegram.start_after"
+
+// Settings rows of the channel's selection: the articles it decided not to
+// post (a JSON object of article id to reason, newest skippedKeep kept), and
+// the owner's standing instructions for the selector, one per line.
+const (
+	skippedKey     = "telegram.skipped"
+	SelectNotesKey = "telegram.select_notes"
+	skippedKeep    = 600
+)
 
 // candidateLimit bounds how many of the newest unposted articles NextDue
 // reads; the worker posts far faster than that many can pile up.
@@ -78,6 +88,11 @@ func (s *SQLiteStore) StartAfter(ctx context.Context) (time.Time, error) {
 // maxAttempts times, or nil. published_at is stored in several formats, so
 // the newest candidates are read and compared in Go.
 func (s *SQLiteStore) NextDue(ctx context.Context, startAfter time.Time, maxAttempts int) (*Post, error) {
+	// Read before the article rows: the pool may have a single connection.
+	skipped, err := s.skipped(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT a.id, a.slug, a.title, COALESCE(a.excerpt, ''), COALESCE(c.name, ''),
 		COALESCE(a.featured_image, ''), COALESCE(sm.why_it_matters, ''), COALESCE(sm.tldr, ''),
 		COALESCE(a.published_at, ''), COALESCE(t.attempts, 0)
@@ -104,6 +119,9 @@ func (s *SQLiteStore) NextDue(ctx context.Context, startAfter time.Time, maxAtte
 		}
 		published, ok := parseTimestamp(publishedAt, s.local)
 		if !ok || published.Before(startAfter) || published.After(now) {
+			continue
+		}
+		if _, skip := skipped[post.ID]; skip {
 			continue
 		}
 		post.PublishedAt = published.UTC()
@@ -221,4 +239,58 @@ func parseTimestamp(value string, local *time.Location) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
+}
+
+func (s *SQLiteStore) skipped(ctx context.Context) (map[int64]string, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, skippedKey).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return map[int64]string{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read telegram skips: %w", err)
+	}
+	skipped := map[int64]string{}
+	if err := json.Unmarshal([]byte(raw), &skipped); err != nil {
+		return map[int64]string{}, nil
+	}
+	return skipped, nil
+}
+
+// MarkSkipped records that the channel will not carry an article.
+func (s *SQLiteStore) MarkSkipped(ctx context.Context, articleID int64, reason string) error {
+	skipped, err := s.skipped(ctx)
+	if err != nil {
+		return err
+	}
+	skipped[articleID] = reason
+	if len(skipped) > skippedKeep {
+		ids := make([]int64, 0, len(skipped))
+		for id := range skipped {
+			ids = append(ids, id)
+		}
+		slices.Sort(ids)
+		for _, id := range ids[:len(ids)-skippedKeep] {
+			delete(skipped, id)
+		}
+	}
+	data, err := json.Marshal(skipped)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, skippedKey, string(data)); err != nil {
+		return fmt.Errorf("record telegram skip: %w", err)
+	}
+	return nil
+}
+
+// SelectNotes returns the owner's standing instructions for the selector.
+func (s *SQLiteStore) SelectNotes(ctx context.Context) (string, error) {
+	var notes string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, SelectNotesKey).Scan(&notes)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("read telegram select notes: %w", err)
+	}
+	return notes, nil
 }

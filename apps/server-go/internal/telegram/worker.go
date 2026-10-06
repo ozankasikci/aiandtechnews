@@ -27,7 +27,9 @@ const (
 	DefaultMinGap = 5 * time.Minute
 
 	bookkeepingTimeout = 15 * time.Second
-	maxErrorLength     = 500
+	// selectRetryDelay is the pause after the selector's model failed.
+	selectRetryDelay = 10 * time.Minute
+	maxErrorLength   = 500
 )
 
 // Store is the worker's view of the database (SQLiteStore).
@@ -37,6 +39,8 @@ type Store interface {
 	NextDue(ctx context.Context, startAfter time.Time, maxAttempts int) (*Post, error)
 	MarkSent(ctx context.Context, articleID, messageID int64, now time.Time) error
 	MarkFailed(ctx context.Context, articleID int64, message string, now time.Time) (int, error)
+	MarkSkipped(ctx context.Context, articleID int64, reason string) error
+	SelectNotes(ctx context.Context) (string, error)
 }
 
 // Poster sends one post to a chat (Client.Post).
@@ -56,6 +60,8 @@ type WorkerConfig struct {
 	Location *time.Location
 	// Now is the clock (nil means time.Now).
 	Now func() time.Time
+	// Selector decides which articles the channel carries; nil posts all.
+	Selector Selector
 }
 
 type Worker struct {
@@ -129,6 +135,30 @@ func (w *Worker) RunOnce(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	logger := w.logger.With("article", post.ID, "slug", post.Slug, "attempt", post.Attempts+1)
+	if w.cfg.Selector != nil && post.Attempts == 0 {
+		notes, err := w.store.SelectNotes(ctx)
+		if err != nil {
+			return false, err
+		}
+		wanted, reason, err := w.cfg.Selector.Select(ctx, *post, notes)
+		if err != nil {
+			if ctx.Err() != nil {
+				return false, ctx.Err()
+			}
+			// The model is to blame, not the article: ask again later.
+			w.notBefore = now.Add(selectRetryDelay)
+			logger.WarnContext(ctx, "telegram selection postponed", "error", err)
+			return false, nil
+		}
+		if !wanted {
+			if err := w.store.MarkSkipped(ctx, post.ID, reason); err != nil {
+				return false, err
+			}
+			logger.InfoContext(ctx, "telegram post skipped", "title", post.Title, "reason", reason)
+			return false, nil
+		}
+		logger.InfoContext(ctx, "telegram post selected", "reason", reason)
+	}
 	messageID, err := w.poster.Post(ctx, w.cfg.Chat, Caption(*post, w.cfg.SiteURL), PhotoURL(post.FeaturedImage, w.cfg.SiteURL))
 	bookkeeping, cancel := context.WithTimeout(context.WithoutCancel(ctx), bookkeepingTimeout)
 	defer cancel()

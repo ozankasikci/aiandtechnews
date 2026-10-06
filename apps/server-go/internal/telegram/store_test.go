@@ -167,3 +167,32 @@ func TestArticleBySlug(t *testing.T) {
 		t.Fatal("a draft was found")
 	}
 }
+
+func TestSkippedArticlesAreNeverDueAndNotesAreRead(t *testing.T) {
+	db, store := openStore(t)
+	ctx := context.Background()
+	if got := nextSlug(t, store); got != "first" {
+		t.Fatalf("next = %q, want first", got)
+	}
+	if err := store.MarkSkipped(ctx, 3, "local news"); err != nil {
+		t.Fatal(err)
+	}
+	if got := nextSlug(t, store); got != "offset" {
+		t.Fatalf("next = %q, want offset", got)
+	}
+	if err := store.MarkSkipped(ctx, 4, "minor update"); err != nil {
+		t.Fatal(err)
+	}
+	if got := nextSlug(t, store); got != "second" {
+		t.Fatalf("next = %q, want second", got)
+	}
+	if notes, err := store.SelectNotes(ctx); err != nil || notes != "" {
+		t.Fatalf("notes = %q err = %v", notes, err)
+	}
+	if _, err := db.Exec(`INSERT INTO settings (key, value) VALUES (?, ?)`, telegram.SelectNotesKey, "- no crypto"); err != nil {
+		t.Fatal(err)
+	}
+	if notes, err := store.SelectNotes(ctx); err != nil || notes != "- no crypto" {
+		t.Fatalf("notes = %q err = %v", notes, err)
+	}
+}

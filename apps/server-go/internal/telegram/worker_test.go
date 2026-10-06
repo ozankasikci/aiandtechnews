@@ -18,6 +18,8 @@ type memoryStore struct {
 	due        []*telegram.Post
 	sent       map[int64]int64
 	attempts   map[int64]int
+	skipped    map[int64]string
+	notes      string
 }
 
 func (s *memoryStore) StartAfter(context.Context) (time.Time, error) { return s.startAfter, nil }
@@ -45,6 +47,17 @@ func (s *memoryStore) MarkFailed(_ context.Context, articleID int64, _ string, _
 	s.attempts[articleID]++
 	return s.attempts[articleID], nil
 }
+
+func (s *memoryStore) MarkSkipped(_ context.Context, articleID int64, reason string) error {
+	if s.skipped == nil {
+		s.skipped = map[int64]string{}
+	}
+	s.skipped[articleID] = reason
+	s.sent[articleID] = 0 // never due again
+	return nil
+}
+
+func (s *memoryStore) SelectNotes(context.Context) (string, error) { return s.notes, nil }
 
 type fakePoster struct {
 	posts []string // "chat|imageURL"
@@ -180,5 +193,83 @@ func TestWorkerKeepsAttemptsOnTransientErrorsAndHonoursRetryAfter(t *testing.T) 
 	now.now = now.now.Add(30 * time.Second)
 	if !runOnce(t, worker) {
 		t.Fatal("did not post after retry_after")
+	}
+}
+
+type scriptedSelector struct {
+	answers map[int64]bool
+	err     error
+	notes   []string
+}
+
+func (s *scriptedSelector) Select(_ context.Context, post telegram.Post, notes string) (bool, string, error) {
+	s.notes = append(s.notes, notes)
+	if s.err != nil {
+		return false, "", s.err
+	}
+	return s.answers[post.ID], "because", nil
+}
+
+func selectiveWorker(store *memoryStore, poster *fakePoster, now *clock, selector telegram.Selector) *telegram.Worker {
+	return telegram.NewWorker(store, poster, telegram.WorkerConfig{
+		Chat: "@channel", SiteURL: site, MinGap: 5 * time.Minute, Location: istanbul, Now: now.Now, Selector: selector,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func TestOnlySelectedArticlesArePosted(t *testing.T) {
+	_, store, poster, now := newWorker(t, 1, 2)
+	store.notes = "- no local news"
+	selector := &scriptedSelector{answers: map[int64]bool{1: false, 2: true}}
+	worker := selectiveWorker(store, poster, now, selector)
+	if posted, err := worker.RunOnce(context.Background()); err != nil || posted {
+		t.Fatalf("article 1 must be skipped: posted=%v err=%v", posted, err)
+	}
+	if store.skipped[1] != "because" || len(poster.posts) != 0 {
+		t.Fatalf("skipped=%v posts=%v", store.skipped, poster.posts)
+	}
+	// A skip does not start the gap between posts: the next article goes out at once.
+	if posted, err := worker.RunOnce(context.Background()); err != nil || !posted {
+		t.Fatalf("article 2 must be posted: posted=%v err=%v", posted, err)
+	}
+	if len(poster.posts) != 1 || selector.notes[0] != "- no local news" {
+		t.Fatalf("posts=%v notes=%v", poster.posts, selector.notes)
+	}
+}
+
+func TestSelectorFailurePostsNothingAndWaits(t *testing.T) {
+	_, store, poster, now := newWorker(t, 1)
+	selector := &scriptedSelector{err: errors.New("model at capacity")}
+	worker := selectiveWorker(store, poster, now, selector)
+	for i := 0; i < 2; i++ {
+		if posted, err := worker.RunOnce(context.Background()); err != nil || posted {
+			t.Fatalf("posted=%v err=%v", posted, err)
+		}
+		now.now = now.now.Add(time.Minute)
+	}
+	if len(selector.notes) != 1 || len(poster.posts) != 0 || len(store.skipped) != 0 {
+		t.Fatalf("asked %d times, posts=%v skipped=%v", len(selector.notes), poster.posts, store.skipped)
+	}
+	selector.err, selector.answers = nil, map[int64]bool{1: true}
+	now.now = now.now.Add(10 * time.Minute)
+	if posted, err := worker.RunOnce(context.Background()); err != nil || !posted {
+		t.Fatalf("posted=%v err=%v", posted, err)
+	}
+}
+
+type fixedText struct{ answer string }
+
+func (f fixedText) GenerateJSON(context.Context, string) (string, error) { return f.answer, nil }
+
+func TestTextSelectorReadsTheAnswer(t *testing.T) {
+	post := telegram.Post{ID: 1, Title: "OpenAI releases a model"}
+	ok, reason, err := telegram.TextSelector{Text: fixedText{"sure: {\"post\":true,\"reason\":\"A new model.\"}"}}.Select(context.Background(), post, "")
+	if err != nil || !ok || reason != "A new model." {
+		t.Fatalf("ok=%v reason=%q err=%v", ok, reason, err)
+	}
+	if _, _, err := (telegram.TextSelector{Text: fixedText{"no idea"}}).Select(context.Background(), post, ""); err == nil {
+		t.Fatal("an unreadable answer must be an error, not a decision")
+	}
+	if !strings.Contains(telegram.SelectPrompt(post, "- no crypto"), "- no crypto") {
+		t.Fatal("notes missing from the prompt")
 	}
 }
