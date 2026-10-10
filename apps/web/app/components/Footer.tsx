@@ -9,6 +9,7 @@ const ABOUT_LINKS = [
   { label: "Daily Quiz", href: "/quiz" },
   { label: "Corrections", href: "/about#corrections" },
   { label: "Contact", href: "/about#contact" },
+  { label: "Privacy Policy", href: "/privacy" },
 ];
 
 export function Footer() {

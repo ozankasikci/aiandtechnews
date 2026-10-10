@@ -14,6 +14,8 @@ import { toAbsoluteUrl } from "../../lib/dates";
 import { pickReadNext, readNextSlot, splitAfterParagraph } from "../../lib/read-next";
 import { insertInlineImages } from "../../lib/inline-images";
 import { glossaryTerm, linkGlossaryTerms } from "../../lib/glossary";
+import { AdSlot } from "../../components/AdSlot";
+import { AD_SLOT_ARTICLE_TOP } from "../../lib/adsense";
 import { linkTopicMentions } from "../../lib/topics";
 import { GlossaryPopover } from "../../components/GlossaryPopover";
 
@@ -175,6 +177,8 @@ export default async function ArticlePage({ params }: Props) {
             <ShareButtons title={article.headline} />
 
             <ArticleSummary tldr={article.tldr} whyItMatters={article.whyItMatters} />
+
+            <AdSlot slot={AD_SLOT_ARTICLE_TOP} />
 
             <div
               id="article-body"

@@ -30,6 +30,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: BASE_URL },
     { url: `${BASE_URL}/archive` },
     { url: `${BASE_URL}/about` },
+    { url: `${BASE_URL}/privacy` },
     { url: `${BASE_URL}/newsletter/archive` },
     { url: `${BASE_URL}/quiz` },
   ];

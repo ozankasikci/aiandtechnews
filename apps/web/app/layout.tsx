@@ -5,6 +5,7 @@ import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
 import { Analytics } from "./components/Analytics";
 import { GA_ID, GA_INIT_SCRIPT } from "./lib/googleAnalytics";
+import { ADSENSE_CLIENT, ADSENSE_SCRIPT_URL } from "./lib/adsense";
 
 const BASE_URL = "https://www.aiandtech.news";
 
@@ -72,6 +73,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+        <meta name="google-adsense-account" content={ADSENSE_CLIENT} />
+        <script async src={ADSENSE_SCRIPT_URL} crossOrigin="anonymous" />
       </head>
       <body>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(siteJsonLd) }} />

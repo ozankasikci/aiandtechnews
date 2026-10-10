@@ -82,3 +82,12 @@ a:hover {
   color: #fff;
   text-decoration-style: solid;
 }
+
+/* An AdSense slot takes no space until an ad is actually served into it. */
+.ad-slot {
+  display: none;
+}
+.ad-slot:has(ins.adsbygoogle[data-ad-status="filled"]) {
+  display: block;
+  margin: 0 0 2rem;
+}

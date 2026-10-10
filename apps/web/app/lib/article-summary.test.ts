@@ -59,3 +59,20 @@ test("the summary leads with why it matters as a pull quote, then the facts, and
   assert.match(summarySource, /<li key=\{point\}/);
   assert.doesNotMatch(summarySource, /border-l-4/, "no left-border callout");
 });
+
+test("the article page shows one ad between the summary and the body, hidden until it is filled", () => {
+  const adSource = readFileSync(new URL("../components/AdSlot.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../globals.css", import.meta.url), "utf8");
+  const layout = readFileSync(new URL("../layout.tsx", import.meta.url), "utf8");
+  const adsTxt = readFileSync(new URL("../../public/ads.txt", import.meta.url), "utf8");
+  const summary = pageSource.indexOf("<ArticleSummary tldr={article.tldr} whyItMatters={article.whyItMatters} />");
+  const ad = pageSource.indexOf("<AdSlot slot={AD_SLOT_ARTICLE_TOP} />");
+  const body = pageSource.indexOf('id="article-body"');
+  assert.ok(summary >= 0 && ad > summary && body > ad, "order: summary, ad, body");
+  assert.equal(pageSource.split("<AdSlot").length - 1, 1, "one ad on the article page");
+  assert.match(adSource, /className="ad-slot"/);
+  assert.match(css, /\.ad-slot \{\s*display: none;/);
+  assert.match(css, /\.ad-slot:has\(ins\.adsbygoogle\[data-ad-status="filled"\]\)/);
+  assert.match(layout, /<script async src=\{ADSENSE_SCRIPT_URL\} crossOrigin="anonymous" \/>/);
+  assert.equal(adsTxt.trim(), "google.com, pub-4199226001427614, DIRECT, f08c47fec0942fa0");
+});
