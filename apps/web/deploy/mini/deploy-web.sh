@@ -23,7 +23,9 @@ rm -rf $NEW
 cp -R .next/standalone $NEW
 mkdir -p $NEW/.next
 cp -R .next/static $NEW/.next/static
-cp -R public $NEW/public
+# The standalone output may already hold a public/ (traced files); copy into it.
+mkdir -p $NEW/public
+cp -R public/. $NEW/public/
 git -C $CHECKOUT rev-parse HEAD > $NEW/COMMIT
 
 rm -rf $RT/web.prev
