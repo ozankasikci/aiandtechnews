@@ -26,6 +26,8 @@ const (
 	historyLimit = 150
 	// maxCandidates caps one run; older pending candidates wait for the next.
 	maxCandidates = 200
+	// MinScore is the lowest significance score (1 to 10) that is published.
+	MinScore = 7
 	// maxPicks caps how many one run may queue.
 	maxPicks = 25
 )
@@ -57,8 +59,11 @@ type History struct {
 // Decision is the editor's verdict on one candidate. Priority orders the
 // picks (1 first); it is ignored when Publish is false.
 type Decision struct {
-	ID       int64  `json:"id"`
-	Publish  bool   `json:"publish"`
+	ID      int64 `json:"id"`
+	Publish bool  `json:"publish"`
+	// Score is the story's significance, 1 to 10. A pick below MinScore is
+	// dropped even when Publish is true.
+	Score    int    `json:"score"`
 	Priority int    `json:"priority"`
 	Reason   string `json:"reason"`
 }
@@ -147,7 +152,7 @@ func (p *Picker) Plan(ctx context.Context) (Run, []int64, error) {
 			continue
 		}
 		decided[decision.ID] = true
-		if decision.Publish {
+		if decision.Publish && decision.Score >= MinScore {
 			picks = append(picks, decision)
 		} else {
 			rejected = append(rejected, decision.ID)

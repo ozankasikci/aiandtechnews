@@ -172,10 +172,14 @@ type Config struct {
 	PrimarySourcesEnabled bool
 	// ReportModel and ReportEffort (PRIMARY_REPORT_MODEL, PRIMARY_REPORT_EFFORT;
 	// default gpt-6-sol, medium) are the Codex model that drafts original reports.
-	ReportModel    string
-	ReportEffort   string
-	AutopickModel  string // AUTOPICK_MODEL, default gpt-6-sol
-	AutopickEffort string // AUTOPICK_EFFORT, default medium
+	ReportModel  string
+	ReportEffort string
+	// PressWriterCodex (PRESS_WRITER_CODEX, default on) has the same Codex
+	// writer draft press rewrites, fact-checked by Gemini; off, Gemini
+	// rewrites them unchecked as before.
+	PressWriterCodex bool
+	AutopickModel    string // AUTOPICK_MODEL, default gpt-6-sol
+	AutopickEffort   string // AUTOPICK_EFFORT, default medium
 	// CutoutBin (CUTOUT_BIN) is tools/cutout; empty disables the
 	// public-figure collage.
 	CutoutBin         string
@@ -431,6 +435,12 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 	}
 	if cfg.PrimarySourcesEnabled, err = parseOnOff("PRIMARY_SOURCES_ENABLED", lookup("PRIMARY_SOURCES_ENABLED")); err != nil {
 		return Config{}, err
+	}
+	cfg.PressWriterCodex = true
+	if value := lookup("PRESS_WRITER_CODEX"); value != "" {
+		if cfg.PressWriterCodex, err = parseOnOff("PRESS_WRITER_CODEX", value); err != nil {
+			return Config{}, err
+		}
 	}
 	cfg.ReportModel = lookup("PRIMARY_REPORT_MODEL")
 	cfg.ReportEffort = lookup("PRIMARY_REPORT_EFFORT")

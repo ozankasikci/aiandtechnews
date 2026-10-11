@@ -72,15 +72,19 @@ func extractDocumentBlocks(scope string) string {
 	return truncateJS(strings.Join(blocks, "\n"), maxSourceTextLength)
 }
 
-// report writes an original news report from a primary document and checks
-// every claim against it. A draft with unsupported claims is rewritten once
+// report drafts the article with the reporter (an original report for a
+// primary document, a rewrite for a press story) and checks every claim
+// against the source. A draft with unsupported claims is rewritten once
 // with the checker's findings; a second failure is permanent.
 func (r *Rewriter) report(ctx context.Context, input RewriteInput) (content.RewrittenArticle, error) {
 	writer := r.reporter
 	if writer == nil {
 		writer = r.text
 	}
-	base := reportPrompt(input)
+	base := rewritePrompt(input)
+	if input.Primary {
+		base = reportPrompt(input)
+	}
 	correction := ""
 	var lastProblem string
 	for attempt := 1; attempt <= rewriteAttempts+1; attempt++ {
@@ -129,9 +133,9 @@ func (r *Rewriter) factCheck(ctx context.Context, article content.RewrittenArtic
 	if err != nil {
 		return nil, err
 	}
-	raw, err := r.text.GenerateJSON(ctx, fmt.Sprintf(`You are a fact checker. Below are a primary document and a news report written from it.
+	raw, err := r.text.GenerateJSON(ctx, fmt.Sprintf(`You are a fact checker. Below are a source document and a news report written from it.
 
-List every statement in the report that states as fact something the document does not say: a name, number, date, price, quotation, feature, comparison, cause, reaction or consequence that is not in the document. Widely known background about a company or product (what it is, who makes it) is fine. Clearly labelled interpretation ("this suggests", "this could") is fine when it follows from the document. Do not list wording or style issues.
+List every statement in the report that states as fact something the document does not say, or says differently: a name, number, date, price, quotation, feature, comparison, cause, reaction or consequence that is not in the document, and any word that changes the meaning (such as "suspended" where the document says "suspected"). Widely known background about a company or product (what it is, who makes it) is fine. Clearly labelled interpretation ("this suggests", "this could") is fine when it follows from the document. Do not list wording or style issues.
 
 Document:
 %s

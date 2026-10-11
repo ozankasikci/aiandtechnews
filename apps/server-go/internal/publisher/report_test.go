@@ -2,6 +2,7 @@ package publisher_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -82,5 +83,41 @@ func TestReportExplainsWhyAnExcerptIsNotOneSentence(t *testing.T) {
 	}
 	if !strings.Contains(text.prompts[1], "The model goes on sale Oct. 23 at a lower price.") || !strings.Contains(text.prompts[1], "write the words out") {
 		t.Fatalf("correction: %s", text.prompts[1][len(text.prompts[1])-500:])
+	}
+}
+
+func TestPressStoriesAreDraftedByTheReporterAndFactChecked(t *testing.T) {
+	reporter := &scriptedText{responses: []string{validArticleJSON()}}
+	checker := &scriptedText{responses: []string{`{"unsupported":[]}`}}
+	if _, err := publisher.NewRewriter(checker).WithReporter(reporter).ForPress().Rewrite(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	if len(reporter.prompts) != 1 || !strings.Contains(reporter.prompts[0], "Rewrite the source reporting below") {
+		t.Fatalf("reporter prompts: %v", len(reporter.prompts))
+	}
+	if len(checker.prompts) != 1 || !strings.Contains(checker.prompts[0], "fact checker") {
+		t.Fatalf("checker prompts: %v", len(checker.prompts))
+	}
+}
+
+func TestPressStoriesFallBackToTheTextModelWhenTheReporterIsDown(t *testing.T) {
+	reporter := &scriptedText{errs: []error{errors.New("model at capacity")}}
+	text := &scriptedText{responses: []string{validArticleJSON()}}
+	if _, err := publisher.NewRewriter(text).WithReporter(reporter).ForPress().Rewrite(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	if len(text.prompts) != 1 || !strings.Contains(text.prompts[0], "Rewrite the source reporting below") {
+		t.Fatalf("text prompts: %d", len(text.prompts))
+	}
+}
+
+func TestWithoutForPressTheTextModelRewritesPressStories(t *testing.T) {
+	reporter := &scriptedText{}
+	text := &scriptedText{responses: []string{validArticleJSON()}}
+	if _, err := publisher.NewRewriter(text).WithReporter(reporter).Rewrite(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	if len(reporter.prompts) != 0 || len(text.prompts) != 1 {
+		t.Fatalf("reporter %d text %d", len(reporter.prompts), len(text.prompts))
 	}
 }

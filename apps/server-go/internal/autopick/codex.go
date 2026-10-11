@@ -53,9 +53,16 @@ Drop a story when:
 
 Keep the mix varied: do not publish many stories about the same company or topic in one batch unless each is genuinely separate news.
 
-Match the taste of the site's human editor shown in "Published lately" and "Rejected lately": over the last days they published roughly 4 in 10 candidates and typically 20 to 30 stories a day. There is no quota; publish none if nothing is worth it.
+Quality comes before volume. The site would rather publish 10 strong stories a day than 30 mixed ones, and nothing at all rather than filler.
 
-Give every candidate a decision. For published ones set priority 1, 2, 3... in the order they should go out (most important first); use 0 for dropped ones. Keep each reason to one short sentence.`
+Score every candidate's significance from 1 to 10:
+- 9-10: major news most tech readers will hear about: a flagship model or product from a leading AI or tech company, a multi-billion deal, a serious incident at a major company, a landmark ruling or law.
+- 7-8: clearly significant: a notable launch, model or capability from a known company or lab, a research result with real impact, a funding round or acquisition of roughly $100 million or more, a real security incident, a decisive move by a major company.
+- 5-6: real but minor: a small startup's launch or funding, a niche product update, a routine partnership, a survey or poll, a story where the company or product is little known.
+- 1-4: not worth a reader's time: human interest, local items, opinion, promotion, thin or speculative stories.
+Publish only candidates that score 7 or more and are not dropped by a rule above. "Published lately" and "Rejected lately" show what the site did before; use them to avoid repeats, not as a target to match.
+
+Give every candidate a decision and its score. For published ones set priority 1, 2, 3... in the order they should go out (most important first); use 0 for dropped ones. Keep each reason to one short sentence.`
 
 type promptInput struct {
 	Candidates []Candidate `json:"candidates"`
@@ -126,4 +133,4 @@ func ParseAnswer(raw []byte) ([]Decision, error) {
 	return parsed.Decisions, nil
 }
 
-const schema = `{"type":"object","additionalProperties":false,"required":["decisions"],"properties":{"decisions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","publish","priority","reason"],"properties":{"id":{"type":"integer"},"publish":{"type":"boolean"},"priority":{"type":"integer"},"reason":{"type":"string"}}}}}}`
+const schema = `{"type":"object","additionalProperties":false,"required":["decisions"],"properties":{"decisions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","publish","score","priority","reason"],"properties":{"id":{"type":"integer"},"publish":{"type":"boolean"},"score":{"type":"integer"},"priority":{"type":"integer"},"reason":{"type":"string"}}}}}}`

@@ -352,7 +352,10 @@ func newsRewriter(cfg config.Config, geminiClient *gemini.Client, logger *slog.L
 		runner := &illustration.CodexRunner{Bin: cfg.CodexBin, NodeDir: cfg.CodexNodeDir, Timeout: codextext.DefaultTimeout}
 		writer := codextext.New(runner, cfg.ReportModel, cfg.ReportEffort)
 		rewriter.WithReporter(writer)
-		logger.Info("original reports", "writer", "codex", "model", writer.Model, "effort", writer.Effort)
+		if cfg.PressWriterCodex {
+			rewriter.ForPress()
+		}
+		logger.Info("original reports", "writer", "codex", "model", writer.Model, "effort", writer.Effort, "press_too", cfg.PressWriterCodex)
 	}
 	return rewriter
 }

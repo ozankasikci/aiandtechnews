@@ -46,9 +46,19 @@ type Rewriter struct {
 	// text always runs the fact check, so with a reporter set a second model
 	// checks the first.
 	reporter TextGenerator
+	// press makes the reporter draft press rewrites too, fact-checked the
+	// same way; a reporter outage falls back to the text model.
+	press bool
 }
 
 func NewRewriter(text TextGenerator) *Rewriter { return &Rewriter{text: text} }
+
+// ForPress makes the reporter (when set) also draft the rewrites of press
+// stories, each fact-checked against its source by the text model.
+func (r *Rewriter) ForPress() *Rewriter {
+	r.press = true
+	return r
+}
 
 // WithReporter makes reporter draft the reports written from primary documents.
 func (r *Rewriter) WithReporter(reporter TextGenerator) *Rewriter {
@@ -67,6 +77,13 @@ var (
 func (r *Rewriter) Rewrite(ctx context.Context, input RewriteInput) (content.RewrittenArticle, error) {
 	if input.Primary {
 		return r.report(ctx, input)
+	}
+	if r.press && r.reporter != nil {
+		article, err := r.report(ctx, input)
+		if err == nil || IsPermanent(err) || ctx.Err() != nil {
+			return article, err
+		}
+		// The reporter's model is unavailable: the text model writes it.
 	}
 	base := rewritePrompt(input)
 	correction := ""

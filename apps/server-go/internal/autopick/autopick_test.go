@@ -70,10 +70,10 @@ func TestRunQueuesPicksInPriorityOrderAndRejectsTheRest(t *testing.T) {
 	queue := &fakeQueue{}
 	editor := fakeEditor{decisions: []Decision{
 		{ID: 1, Publish: false},
-		{ID: 2, Publish: true, Priority: 2},
-		{ID: 3, Publish: true, Priority: 1},
+		{ID: 2, Publish: true, Score: 8, Priority: 2},
+		{ID: 3, Publish: true, Score: 8, Priority: 1},
 		{ID: 4, Publish: false},
-		{ID: 99, Publish: true, Priority: 1}, // not a candidate
+		{ID: 99, Publish: true, Score: 8, Priority: 1}, // not a candidate
 		// 5 has no answer and stays pending
 	}}
 	run, err := picker(store, queue, editor).RunOnce(context.Background())
@@ -154,5 +154,21 @@ func TestPromptCarriesTheOwnersStandingInstructions(t *testing.T) {
 	plain, _ := Prompt([]Candidate{{ID: 1}}, History{})
 	if strings.Contains(plain, "Standing instructions") {
 		t.Fatal("no notes, no instructions section")
+	}
+}
+
+func TestPicksBelowTheMinimumScoreAreRejected(t *testing.T) {
+	store := &fakeStore{pending: []Candidate{{ID: 1}, {ID: 2}, {ID: 3}}}
+	queue := &fakeQueue{}
+	editor := fakeEditor{decisions: []Decision{
+		{ID: 1, Publish: true, Score: 6, Priority: 1},
+		{ID: 2, Publish: true, Score: 7, Priority: 2},
+		{ID: 3, Publish: true, Priority: 3}, // no score
+	}}
+	if _, err := picker(store, queue, editor).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(queue.published, []int64{2}) || !slices.Equal(queue.rejected, []int64{1, 3}) {
+		t.Fatalf("published %v rejected %v", queue.published, queue.rejected)
 	}
 }
