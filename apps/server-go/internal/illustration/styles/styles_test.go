@@ -15,7 +15,8 @@ func TestEmbeddedStylesLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := catalog.Names()
-	want := []string{"blueprint", "collage", "graphic", "isometric", "ligneclaire", "midcentury", "neon", "papercut", "pixel", "risograph", "swiss"}
+	// blueprint, ligneclaire, papercut, pixel and swiss are retired.
+	want := []string{"collage", "graphic", "isometric", "midcentury", "neon", "risograph"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("names = %v", names)
 	}
