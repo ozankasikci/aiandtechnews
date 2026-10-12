@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration"
@@ -59,5 +60,29 @@ func TestVarietyAvoidsTheLatestShots(t *testing.T) {
 	v := illustration.VarietyFrom([]illustration.Choice{shot("wide"), shot("close-up"), {Style: "graphic"}, shot("split"), shot("inset")})
 	if !slices.Equal(v.AvoidShots, []string{"split", "inset"}) {
 		t.Fatalf("avoid shots = %v", v.AvoidShots)
+	}
+}
+
+func TestVarietyCarriesRecentScenes(t *testing.T) {
+	v := illustration.VarietyFrom([]illustration.Choice{{Style: "graphic", Scene: "a woman at a desk"}, {Style: "neon"}, {Style: "graphic", Scene: "a burning data centre"}})
+	if !slices.Equal(v.RecentScenes, []string{"a woman at a desk", "a burning data centre"}) {
+		t.Fatalf("recent scenes = %v", v.RecentScenes)
+	}
+}
+
+func TestSceneNoteIsBounded(t *testing.T) {
+	note := illustration.SceneNote(illustration.Brief{Foreground: strings.Repeat("word ", 100), Background: "a hall"})
+	if len(note) > 240 || !strings.HasPrefix(note, "word word") {
+		t.Fatalf("note = %q (%d)", note, len(note))
+	}
+}
+
+func TestRecentScenesRule(t *testing.T) {
+	if rule := illustration.RecentScenesRule(nil); rule != "" {
+		t.Fatalf("rule without scenes = %q", rule)
+	}
+	rule := illustration.RecentScenesRule([]string{"a woman at a desk"})
+	if !strings.Contains(rule, "- a woman at a desk\n") || !strings.Contains(rule, "clearly different") {
+		t.Fatalf("rule = %q", rule)
 	}
 }

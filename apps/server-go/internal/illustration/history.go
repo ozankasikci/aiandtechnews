@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Choice is the look of one published featured image.
@@ -14,6 +15,9 @@ type Choice struct {
 	Palette     string `json:"palette"`
 	Composition string `json:"composition"`
 	Shot        string `json:"shot,omitempty"`
+	// Scene is a short description of what the image shows, so later images
+	// can be told to show something else.
+	Scene string `json:"scene,omitempty"`
 }
 
 // History remembers the latest choices, so consecutive articles vary in
@@ -71,6 +75,18 @@ func (h *SettingsHistory) Record(ctx context.Context, choice Choice) error {
 	return nil
 }
 
+// maxSceneNote bounds the scene description kept per image.
+const maxSceneNote = 240
+
+// SceneNote is the short description of a brief kept in the history.
+func SceneNote(brief Brief) string {
+	note := strings.Join(strings.Fields(brief.Foreground+" "+brief.Background), " ")
+	if len(note) > maxSceneNote {
+		note = strings.TrimSpace(note[:maxSceneNote])
+	}
+	return note
+}
+
 // How far back each kind of repeat is avoided.
 const (
 	avoidRecentStyles   = 2
@@ -85,6 +101,8 @@ type Variety struct {
 	AvoidPalettes     []string
 	PreferComposition string
 	AvoidShots        []string
+	// RecentScenes are what the latest images show, newest last.
+	RecentScenes []string
 }
 
 func VarietyFrom(recent []Choice) Variety {
@@ -108,6 +126,11 @@ func VarietyFrom(recent []Choice) Variety {
 	for _, choice := range last(avoidRecentShots) {
 		if choice.Shot != "" {
 			v.AvoidShots = append(v.AvoidShots, choice.Shot)
+		}
+	}
+	for _, choice := range recent {
+		if choice.Scene != "" {
+			v.RecentScenes = append(v.RecentScenes, choice.Scene)
 		}
 	}
 	if run := last(balanceRun); len(run) == balanceRun {

@@ -57,6 +57,9 @@ type IllustrationRequest struct {
 	PreferComposition string
 	// AvoidShots names camera framings used by the latest articles.
 	AvoidShots []string
+	// RecentScenes describe the latest featured images, newest last; the
+	// new image must show something visibly different from them.
+	RecentScenes []string
 }
 
 // Illustration is a stored featured image. Discard removes it when the

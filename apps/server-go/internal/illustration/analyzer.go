@@ -38,6 +38,9 @@ type AnalyzeInput struct {
 	// passage instead of a featured one; Excerpt is then unused and Source
 	// is the article's featured image.
 	Section string
+	// RecentScenes are what the latest featured images show, newest last;
+	// the brief must show something visibly different.
+	RecentScenes []string
 }
 
 // prompt is the analyzer prompt for this input.
@@ -45,7 +48,21 @@ func (input AnalyzeInput) prompt(catalog styles.Catalog) string {
 	if input.Section != "" {
 		return BuildInlineAnalyzePrompt(input.Title, input.Section, catalog, input.Source != nil, input.Compositions, input.Shots)
 	}
-	return BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition, input.Shots, input.Brands)
+	return BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition, input.Shots, input.Brands) + RecentScenesRule(input.RecentScenes)
+}
+
+// RecentScenesRule tells the analyzer what the homepage's latest images
+// already show, so the new one does not repeat them. Empty without scenes.
+func RecentScenesRule(scenes []string) string {
+	if len(scenes) == 0 {
+		return ""
+	}
+	var lines strings.Builder
+	for _, scene := range scenes {
+		fmt.Fprintf(&lines, "- %s\n", scene)
+	}
+	return "\n\nThis image will sit on the homepage next to the site's latest images, which show:\n" + lines.String() +
+		"The new image must look clearly different from every one of them at a glance: a different main subject, a different setting and a different pose or action. If several of them show the same kind of scene (for example a person at a desk with papers, a handshake, someone at a keyboard), that kind of scene is used up: do not use it again, and find another true, concrete moment of this story (another place, another object, another person involved, outdoors rather than indoors, the consequence rather than the cause)."
 }
 
 func (input AnalyzeInput) catalog(fallback styles.Catalog) styles.Catalog {

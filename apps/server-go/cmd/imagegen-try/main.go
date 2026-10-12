@@ -91,6 +91,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 	compositions := flags.String("compositions", "", "comma-separated compositions allowed (scene,simple); default both")
 	avoidStyles := flags.String("avoid-styles", "", "comma-separated styles to avoid, as if the latest articles used them")
 	avoidShots := flags.String("avoid-shots", "", "comma-separated camera framings to avoid (as the history would after recent images)")
+	recentScenes := flags.String("recent-scenes", "", "file with one line per recent featured image saying what it shows, newest last (as the history would give)")
 	avoid := flags.String("avoid", "", "comma-separated palettes to avoid, as if the latest articles used them")
 	analyzeOnly := flags.Bool("analyze-only", false, "only run the analyzers and print the brief")
 	inline := flags.String("inline", "", "make the inline (in-article) illustration of this published article's slug")
@@ -172,7 +173,19 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 	if *inline != "" {
 		return runInline(ctx, pipeline, photos, *photosOnly, *inline, *dbPath, *outDir, chain, analyzers, getenv)
 	}
-	request := publisher.IllustrationRequest{AvoidPalettes: splitList(*avoid), AvoidStyles: splitList(*avoidStyles), Compositions: splitList(*compositions), PreferComposition: *prefer, AvoidShots: splitList(*avoidShots), Slug: "imagegen-try-" + label, Title: *title, Excerpt: *excerpt, ReferenceImageURL: *imageURL}
+	var scenes []string
+	if *recentScenes != "" {
+		raw, err := os.ReadFile(*recentScenes)
+		if err != nil {
+			return fmt.Errorf("-recent-scenes: %w", err)
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				scenes = append(scenes, line)
+			}
+		}
+	}
+	request := publisher.IllustrationRequest{RecentScenes: scenes, AvoidPalettes: splitList(*avoid), AvoidStyles: splitList(*avoidStyles), Compositions: splitList(*compositions), PreferComposition: *prefer, AvoidShots: splitList(*avoidShots), Slug: "imagegen-try-" + label, Title: *title, Excerpt: *excerpt, ReferenceImageURL: *imageURL}
 	if *analyzeOnly {
 		report, err := pipeline.AnalyzeOnly(ctx, request)
 		encoded, _ := json.MarshalIndent(report, "", "  ")

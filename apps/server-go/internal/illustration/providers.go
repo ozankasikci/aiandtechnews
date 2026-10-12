@@ -30,7 +30,7 @@ func logoRules(logos []brands.Brand) string {
 		names = append(names, logo.Name)
 		files = append(files, logoFileName(logo))
 	}
-	return fmt.Sprintf("Exception to the no-logo and no-text rules: include the real %s logo, from the attached image %s, exactly as given: same shape, spelling and colours, not redrawn or distorted. Place it once, where it would naturally appear in this scene (on the robot, a device, a building, a sign, a badge or a screen), large enough to recognise at thumbnail size. No other logos or text.",
+	return fmt.Sprintf("Exception to the no-logo and no-text rules: include the real %s logo, from the attached image %s, exactly as given: same shape, spelling and colours, not redrawn or distorted. Place it once, small and flat in one corner of the frame like a printed tag on a plain patch of background, large enough to recognise at thumbnail size. Never put it on an object, device, machine, garment, screen, sheet of paper or building in the scene, unless that exact product or building carries this logo in real life. No other logos or text.",
 		strings.Join(names, " and "), strings.Join(files, " and "))
 }
 
