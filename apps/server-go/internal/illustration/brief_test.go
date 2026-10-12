@@ -100,8 +100,8 @@ func TestAnalyzePromptOffersEveryStyleAndForbidsBrands(t *testing.T) {
 }
 
 func TestBriefTextAddsTheFraming(t *testing.T) {
-	brief := illustration.Brief{Scene: "s", Foreground: "f", Background: "b", Mood: "m", Shot: illustration.ShotWide}
-	if text := brief.Text(); !strings.Contains(text, "Framing: a very wide establishing view") {
+	brief := illustration.Brief{Scene: "s", Foreground: "f", Background: "b", Mood: "m", Shot: illustration.ShotHero}
+	if text := brief.Text(); !strings.Contains(text, "Framing: a hero shot") {
 		t.Fatalf("text = %q", text)
 	}
 	if text := (illustration.Brief{Scene: "s", Shot: "dutch-angle"}).Text(); strings.Contains(text, "Framing") {

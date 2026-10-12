@@ -237,7 +237,7 @@ func analyzeKeys(catalog styles.Catalog, palettes []styles.Palette, compositions
 		brandKey = fmt.Sprintf("- \"brands\": a list of up to %d ids of the companies this story is centrally about, whose real logos will be placed in the image, chosen from: %s. Use [] when none of them is central.\n", MaxBrands, strings.TrimSuffix(lines.String(), ", "))
 	}
 	return fmt.Sprintf(`Return only a JSON object with exactly these keys:
-- "scene": one or two sentences showing literally what happened in the story, as an action in progress with a visible result: the actual kinds of people, machines, products and places involved, and what they are doing. A reader must understand the news from the image alone. Never replace the story with a visual metaphor or symbol (no puzzles, bridges, ribbons, chess pieces or similar).
+- "scene": one or two sentences showing literally what happened in the story, as an action in progress with a visible result: the actual kinds of people, machines, products and places involved, and what they are doing. A reader must understand the news from the image alone, even when it is shown as a small card about 300 pixels wide: build it around ONE dominant subject that fills at least half of the frame, with at most three figures and no small details that carry the meaning. Never replace the story with a visual metaphor or symbol (no puzzles, bridges, ribbons, chess pieces or similar).
 - "foreground": one sentence, the main subject. For a "scene", the people and the action or reaction that carries the story: who is affected or acting, and their visible reaction (a gesture, a posture, an expression). For a "simple" image, the one object or machine the story is about.
 - "background": one sentence, the setting (for a "simple" image, a plain backdrop and at most two small supporting elements).
 - "mood": a few words, the emotional tone.
@@ -267,33 +267,33 @@ var Compositions = []string{CompositionScene, CompositionSimple}
 
 var compositionGuide = map[string]string{
 	CompositionScene:  "people in a setting, built around a human moment. Required when people are central to the news.",
-	CompositionSimple: "no people; a clean, uncluttered image with a plain backdrop and lots of empty space, where the actor of the story (the AI drawn as a robot or agent, a machine, a product) performs the headline's action and its result is visible. Only when people are not central to the news.",
+	CompositionSimple: "no people; a clean, uncluttered image with a plain backdrop, where the thing the story is about (the product, device, chip, machine, building, document or interface, drawn large) is caught in the headline's action and its result is visible. Only when people are not central to the news.",
 }
 
 // Shots are camera framings, rotated so consecutive images are not all the
 // same eye-level group shot.
 const (
-	ShotWide      = "wide"
-	ShotSplit     = "split"
-	ShotIsometric = "isometric"
-	ShotInset     = "inset"
-	ShotFramed    = "framed"
+	ShotHero     = "hero"
+	ShotCloseUp  = "closeup"
+	ShotMedium   = "medium"
+	ShotLowAngle = "lowangle"
+	ShotTopDown  = "topdown"
 )
 
 // Shots lists every framing.
-var Shots = []string{ShotSplit, ShotWide, ShotIsometric, ShotInset, ShotFramed}
+var Shots = []string{ShotHero, ShotCloseUp, ShotMedium, ShotLowAngle, ShotTopDown}
 
 var shotGuide = map[string]string{
-	ShotWide:      "a very wide establishing view: a vast space (a hall, a city, a landscape, a data centre) with small figures or machines, lots of empty space, the action readable from its scale.",
-	ShotSplit:     "a split frame: two halves side by side showing two sides of the story or before and after, one clear subject in each half.",
-	ShotIsometric: "an isometric cutaway, like an architectural diagram: a building, device or system cut open to show the action inside, tiny figures, no perspective vanishing point.",
-	ShotInset:     "a main view of the setting with one large circular inset, like a magnifying glass, showing a close-up of the key detail that makes the news.",
-	ShotFramed:    "a frame within a frame: the action seen through a doorway, window, glass wall or gap between objects, with dark foreground edges around it.",
+	ShotHero:     "a hero shot: the one subject large and centred, filling most of the frame against a plain or softly blurred backdrop, seen slightly from the side.",
+	ShotCloseUp:  "a close-up: the frame is filled by the key detail that makes the news (hands on an object, a part of a machine, a face in reaction), everything else cropped out.",
+	ShotMedium:   "a medium shot at eye level: one to three figures from the waist up, or one machine at the same size, caught mid-action, with a simple setting behind.",
+	ShotLowAngle: "a low angle looking up at the subject so it towers in the frame, with a plain sky, ceiling or wall behind it.",
+	ShotTopDown:  "a view from directly above onto a desk, table, floor or site: a few large objects laid out clearly, the action readable from their arrangement.",
 }
 
 // compositionRule is how the analyzer decides between a scene and a simple image.
 const compositionRule = `Decide first whether people are central to this news. They are when people are the subject or the ones acting or affected: workers push back, a court rules, researchers quit, staff are laid off, users are harmed, a study of people's jobs. They are not when the story is about a thing: a product, model, chip, price, deal, outage, leak or research result, where people would only be decoration (staff looking at a screen). People central: "scene". Not central: "simple".
-Every image, with or without people, must tell the story in one frame: an actor, the action from the headline, and its visible result. Build it on the element that makes the headline news (a price, a size, a first, a failure, a ruling), not a background detail: for a leaked $500 plan the news is the steep price, not the leak. Never an arrangement of objects where nothing happens: that carries no message. For a "simple" image the actor is the AI (drawn as a small robot or agent), a machine or a product, caught in the act: an AI agent carrying private photos out of a folder and pinning them onto a public wall; a robot inspector crawling through a website's structure as a crack lights up where it found the flaw; a new subscription card towering far above the familiar ones, roped off like a luxury item; huge cables being plugged from an AI system into an endless hall of servers. Stay literal to the story (no puzzles, bridges or unrelated symbols), and never use a generic monitor, laptop or phone screen unless the story is about that device.`
+Every image, with or without people, must tell the story in one frame: an actor, the action from the headline, and its visible result. Build it on the element that makes the headline news (a price, a size, a first, a failure, a ruling), not a background detail: for a leaked $500 plan the news is the steep price, not the leak. Never an arrangement of objects where nothing happens: that carries no message. For a "simple" image the actor is the thing the story is about, drawn large and caught in the act: a new subscription card towering far above the familiar ones, roped off like a luxury item; one huge cable being plugged into a wall of servers; a stack of printed research reports where the top one is stamped as failed; a single chip on a test bench glowing as it outruns the older one beside it. Software and AI models have no body: show what they produce or act on (the documents, images, code, messages, money or machines involved), the hardware they run on, or their interface as large simple shapes without text. Never draw a humanoid or cute robot, android or mascot to stand for AI, software or an "agent"; draw a robot only when the story is about a physical robot. Never a split frame, a grid of panels, a magnifying-glass inset or a cutaway full of tiny figures. Stay literal to the story (no puzzles, bridges or unrelated symbols), and never use a generic monitor, laptop or phone screen unless the story is about that device.`
 
 func brandIDs(list []brands.Brand) []string {
 	ids := make([]string, len(list))
