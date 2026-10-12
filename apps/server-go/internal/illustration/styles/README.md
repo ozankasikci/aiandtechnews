@@ -50,10 +50,3 @@ and the source image; `graphic` is the fallback when nothing more specific fits.
 
 `gouache` and `anime` were removed in Sep 2026: the owner found them unappealing
 and their metaphor-driven scenes lost the story.
-
-## Retired styles
-
-A style with `"retired": true` in its `style.json` is kept in the repository
-but never offered for new images. Retired on 2026-10-12 to give the homepage a
-recognisable look: `blueprint`, `ligneclaire`, `papercut`, `pixel`, `swiss`.
-Remove the flag to bring one back.

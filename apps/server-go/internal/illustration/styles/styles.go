@@ -71,9 +71,6 @@ type definition struct {
 	Prompt  string   `json:"prompt"`
 	Collage bool     `json:"collage"`
 	Anchors []string `json:"anchors"`
-	// Retired styles stay in the repository but are not offered for new
-	// images; remove the flag to bring one back.
-	Retired bool `json:"retired"`
 }
 
 // Load reads the embedded styles and validates them.
@@ -103,9 +100,6 @@ func load(fsys fs.FS) (Catalog, error) {
 		var def definition
 		if err := json.Unmarshal(raw, &def); err != nil {
 			return Catalog{}, fmt.Errorf("style %s: %w", folder, err)
-		}
-		if def.Retired {
-			continue
 		}
 		if def.Name != folder {
 			return Catalog{}, fmt.Errorf("style %s: name %q must match its folder", folder, def.Name)

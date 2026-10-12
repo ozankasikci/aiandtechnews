@@ -1,7 +1,6 @@
 {
   "name": "swiss",
   "version": 1,
-  "retired": true,
   "summary": "Modernist geometric poster. Fits funding rounds, markets, earnings, prices, benchmarks, rankings, policy and regulation: business or numbers stories where a bold abstract image works.",
   "prompt": "Swiss modernist poster: big geometric shapes on a strict grid, flat colours of the given palette plus cream, abstracted but readable figures and objects, lots of negative space, no type.",
   "anchors": [
