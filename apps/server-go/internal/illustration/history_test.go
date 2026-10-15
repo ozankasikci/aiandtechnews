@@ -86,3 +86,28 @@ func TestRecentScenesRule(t *testing.T) {
 		t.Fatalf("rule = %q", rule)
 	}
 }
+
+func TestSettingsHistoryAtKeepsItsOwnKey(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	covers := illustration.NewSettingsHistory(db)
+	inline := illustration.NewSettingsHistoryAt(db, illustration.InlineHistoryKey)
+	if err := covers.Record(ctx, illustration.Choice{Style: "graphic", Scene: "a cover"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := inline.Record(ctx, illustration.Choice{Style: "neon", Scene: "an inline image"}); err != nil {
+		t.Fatal(err)
+	}
+	gotCovers, _ := covers.Recent(ctx)
+	gotInline, _ := inline.Recent(ctx)
+	if len(gotCovers) != 1 || gotCovers[0].Scene != "a cover" || len(gotInline) != 1 || gotInline[0].Scene != "an inline image" {
+		t.Fatalf("covers = %+v, inline = %+v", gotCovers, gotInline)
+	}
+}

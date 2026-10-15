@@ -30,17 +30,28 @@ type History interface {
 const (
 	historyKey  = "newsroom.featured_image_history"
 	historySize = 10
+	// InlineHistoryKey holds the latest in-article illustrations.
+	InlineHistoryKey = "newsroom.inline_image_history"
 )
 
 // SettingsHistory keeps the history as JSON in the settings table, under a
 // "newsroom." key the dashboard never shows. Newest last.
-type SettingsHistory struct{ db *sql.DB }
+type SettingsHistory struct {
+	db  *sql.DB
+	key string
+}
 
-func NewSettingsHistory(db *sql.DB) *SettingsHistory { return &SettingsHistory{db: db} }
+// NewSettingsHistory is the featured (cover) image history.
+func NewSettingsHistory(db *sql.DB) *SettingsHistory { return NewSettingsHistoryAt(db, historyKey) }
+
+// NewSettingsHistoryAt keeps a history under another settings key.
+func NewSettingsHistoryAt(db *sql.DB, key string) *SettingsHistory {
+	return &SettingsHistory{db: db, key: key}
+}
 
 func (h *SettingsHistory) Recent(ctx context.Context) ([]Choice, error) {
 	var raw string
-	err := h.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, historyKey).Scan(&raw)
+	err := h.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, h.key).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -68,7 +79,7 @@ func (h *SettingsHistory) Record(ctx context.Context, choice Choice) error {
 	if err != nil {
 		return err
 	}
-	_, err = h.db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, historyKey, string(raw))
+	_, err = h.db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, h.key, string(raw))
 	if err != nil {
 		return fmt.Errorf("record featured image history: %w", err)
 	}
