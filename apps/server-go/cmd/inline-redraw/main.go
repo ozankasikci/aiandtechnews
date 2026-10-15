@@ -54,6 +54,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 	slugsFile := flags.String("slugs", "", "file with one article slug per line (required)")
 	dryRun := flags.Bool("dry-run", false, "draw to -out only; change nothing")
 	outDir := flags.String("out", "inline-redraw-out", "folder for dry-run images")
+	fromDir := flags.String("from", "", "live run: store <dir>/<slug>.png from an approved dry run instead of drawing again; alt text from <dir>/alts.txt (\"slug | alt\" lines)")
 	undoPath := flags.String("undo", "inline-redraw-undo.json", "file the current images are saved to before a live run")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -160,7 +161,15 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 	}, s3.NewFromConfig(awsCfg), &http.Client{Timeout: 30 * time.Second}, time.Now)
 	pipeline := illustration.NewPipeline(illustration.BuildPipelineDeps(pipelineConfig))
 
-	deps := Deps{Articles: articles, Drawer: pipelineDrawer{pipeline}}
+	var drawer Drawer = pipelineDrawer{pipeline}
+	if *fromDir != "" {
+		alts, err := readAlts(filepath.Join(*fromDir, "alts.txt"))
+		if err != nil {
+			return err
+		}
+		drawer = fileDrawer{pipeline: pipeline, dir: *fromDir, alts: alts}
+	}
+	deps := Deps{Articles: articles, Drawer: drawer}
 	if url := getenv("SITE_REVALIDATE_URL"); url != "" {
 		deps.Refresher = siterevalidate.NewClient(url, getenv("NEWSLETTER_CRON_SECRET"), &http.Client{Timeout: 60 * time.Second})
 	}
@@ -216,4 +225,46 @@ func (s *sqliteArticles) Current(ctx context.Context, slug string) (Current, err
 
 func (s *sqliteArticles) Replace(ctx context.Context, current Current, url, alt string) error {
 	return s.store.MarkReady(ctx, current.ID, url, alt, current.AfterParagraph, 1, nil)
+}
+
+// fileDrawer stores an image approved in a dry run instead of drawing a new
+// one: <dir>/<slug>.png, with its alt text from the dry run's output.
+type fileDrawer struct {
+	pipeline *illustration.Pipeline
+	dir      string
+	alts     map[string]string
+}
+
+func (d fileDrawer) Draw(ctx context.Context, current Current) (illustration.InlineIllustration, error) {
+	alt, ok := d.alts[current.Slug]
+	if !ok || alt == "" {
+		return illustration.InlineIllustration{}, fmt.Errorf("no alt text for %s in alts.txt", current.Slug)
+	}
+	image, err := os.ReadFile(filepath.Join(d.dir, current.Slug+".png"))
+	if err != nil {
+		return illustration.InlineIllustration{}, err
+	}
+	stored, err := d.pipeline.StoreInlinePhoto(ctx, current.Slug, image)
+	if err != nil {
+		return illustration.InlineIllustration{}, err
+	}
+	stored.Alt = alt
+	return stored, nil
+}
+
+// readAlts reads "slug | alt" lines (the dry run prints them as "ok slug | alt").
+func readAlts(path string) (map[string]string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	alts := map[string]string{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimPrefix(strings.TrimSpace(line), "ok ")
+		slug, alt, found := strings.Cut(line, " | ")
+		if found {
+			alts[strings.TrimSpace(slug)] = strings.TrimSpace(alt)
+		}
+	}
+	return alts, nil
 }
