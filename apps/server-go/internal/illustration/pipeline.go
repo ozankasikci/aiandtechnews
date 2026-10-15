@@ -57,6 +57,9 @@ type PipelineDeps struct {
 	Brands    brands.Catalog // logos the brief may ask for; empty disables logos
 	Store     ImageStore     // only Illustrate uses it
 	History   History        // only Illustrate uses it; nil disables variety
+	// InlineHistory remembers the latest in-article illustrations; nil
+	// disables it. Only the inline path reads and writes it.
+	InlineHistory History
 	// Vision checks that an inline image's style reference is one of our
 	// drawn illustrations; nil makes every inline image fail that check.
 	Vision VisionModel

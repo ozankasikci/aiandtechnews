@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"slices"
 	"strings"
 	"testing"
 
@@ -30,9 +31,12 @@ func (f *fakeDrawnCheck) ReviewImage(_ context.Context, prompt string, _ []byte,
 	return f.answer, f.err
 }
 
-type fakeHistory struct{ recorded []illustration.Choice }
+type fakeHistory struct {
+	recent   []illustration.Choice
+	recorded []illustration.Choice
+}
 
-func (f *fakeHistory) Recent(context.Context) ([]illustration.Choice, error) { return nil, nil }
+func (f *fakeHistory) Recent(context.Context) ([]illustration.Choice, error) { return f.recent, nil }
 func (f *fakeHistory) Record(_ context.Context, choice illustration.Choice) error {
 	f.recorded = append(f.recorded, choice)
 	return nil
@@ -334,5 +338,36 @@ func TestStoreInlinePhotoStoresAScaledWebPWithoutDrawing(t *testing.T) {
 	}
 	if len(fixture.provider.requests) != 0 || fixture.vision.calls != 0 {
 		t.Fatal("storing a photo generated or checked an image")
+	}
+}
+
+func TestIllustrateInlineUsesAndRecordsSceneHistory(t *testing.T) {
+	fixture := newInlineFixture(t)
+	fixture.history.recent = []illustration.Choice{{Style: "graphic", Scene: "a cover scene"}}
+	inline := &fakeHistory{recent: []illustration.Choice{{Style: "neon", Scene: "an inline scene"}}}
+	fixture.deps.InlineHistory = inline
+	if _, err := illustration.NewPipeline(fixture.deps).IllustrateInline(context.Background(), fixture.request); err != nil {
+		t.Fatal(err)
+	}
+	if got := fixture.analyzer.input.RecentScenes; !slices.Equal(got, []string{"a cover scene", "an inline scene"}) {
+		t.Fatalf("recent scenes = %v", got)
+	}
+	if len(inline.recorded) != 1 || inline.recorded[0].Scene != "Two engineers push the rack. Rows of servers." {
+		t.Fatalf("inline history recorded %+v", inline.recorded)
+	}
+	if len(fixture.history.recorded) != 0 {
+		t.Fatalf("inline image recorded in the cover history: %+v", fixture.history.recorded)
+	}
+}
+
+func TestProduceInlineKeepsTheRequestScenes(t *testing.T) {
+	fixture := newInlineFixture(t)
+	fixture.history.recent = []illustration.Choice{{Scene: "a cover scene"}}
+	fixture.request.RecentScenes = []string{"given scene"}
+	if _, err := illustration.NewPipeline(fixture.deps).ProduceInline(context.Background(), fixture.request); err != nil {
+		t.Fatal(err)
+	}
+	if got := fixture.analyzer.input.RecentScenes; !slices.Equal(got, []string{"given scene"}) {
+		t.Fatalf("recent scenes = %v", got)
 	}
 }
