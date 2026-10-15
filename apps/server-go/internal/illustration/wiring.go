@@ -28,8 +28,10 @@ type PipelineConfig struct {
 	Gemini       GeminiClient
 	Store        ImageStore
 	History      History
-	HTTP         *http.Client
-	Logger       *slog.Logger
+	// InlineHistory remembers the latest in-article illustrations.
+	InlineHistory History
+	HTTP          *http.Client
+	Logger        *slog.Logger
 }
 
 // BuildPipelineDeps turns configuration into pipeline dependencies. Names
@@ -38,14 +40,15 @@ func BuildPipelineDeps(cfg PipelineConfig) PipelineDeps {
 	catalog := styles.MustLoad()
 	runner := &CodexRunner{Bin: cfg.CodexBin, NodeDir: cfg.CodexNodeDir, Timeout: cfg.CodexTimeout}
 	deps := PipelineDeps{
-		Reviewer: NewGeminiReviewer(cfg.Gemini),
-		Vision:   cfg.Gemini,
-		Styles:   catalog,
-		Brands:   brands.MustLoad(),
-		Store:    cfg.Store,
-		History:  cfg.History,
-		HTTP:     cfg.HTTP,
-		Logger:   cfg.Logger,
+		Reviewer:      NewGeminiReviewer(cfg.Gemini),
+		Vision:        cfg.Gemini,
+		Styles:        catalog,
+		Brands:        brands.MustLoad(),
+		Store:         cfg.Store,
+		History:       cfg.History,
+		InlineHistory: cfg.InlineHistory,
+		HTTP:          cfg.HTTP,
+		Logger:        cfg.Logger,
 	}
 	for _, name := range cfg.Chain {
 		switch name {

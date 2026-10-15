@@ -236,17 +236,18 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		imageStore := media.NewStore(media.Config{Region: cfg.AWSRegion, Bucket: cfg.S3Bucket, Prefix: cfg.S3Prefix, PublicBaseURL: cfg.S3PublicURL},
 			objectAPI, newPublicHTTPClient(), now)
 		illustrator := illustration.NewPipeline(illustration.BuildPipelineDeps(illustration.PipelineConfig{
-			Chain:        cfg.FeaturedImageChain,
-			Analyzers:    cfg.FeaturedImageAnalyzers,
-			CodexBin:     cfg.CodexBin,
-			CodexNodeDir: cfg.CodexNodeDir,
-			CodexTimeout: cfg.CodexTimeout,
-			CutoutBin:    cfg.CutoutBin,
-			Gemini:       geminiClient,
-			Store:        imageStore,
-			History:      illustration.NewSettingsHistory(db),
-			HTTP:         illustration.NewReferenceClient(),
-			Logger:       logger,
+			Chain:         cfg.FeaturedImageChain,
+			Analyzers:     cfg.FeaturedImageAnalyzers,
+			CodexBin:      cfg.CodexBin,
+			CodexNodeDir:  cfg.CodexNodeDir,
+			CodexTimeout:  cfg.CodexTimeout,
+			CutoutBin:     cfg.CutoutBin,
+			Gemini:        geminiClient,
+			Store:         imageStore,
+			History:       illustration.NewSettingsHistory(db),
+			InlineHistory: illustration.NewSettingsHistoryAt(db, illustration.InlineHistoryKey),
+			HTTP:          illustration.NewReferenceClient(),
+			Logger:        logger,
 		}))
 		logger.Info("featured image pipeline", "chain", cfg.FeaturedImageChain, "analyzers", cfg.FeaturedImageAnalyzers, "collage", cfg.CutoutBin != "")
 		// Flash writes both the subheading pass and the topics.
