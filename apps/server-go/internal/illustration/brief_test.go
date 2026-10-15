@@ -108,3 +108,19 @@ func TestBriefTextAddsTheFraming(t *testing.T) {
 		t.Fatalf("unknown shot framed: %q", text)
 	}
 }
+
+func TestInlinePromptAsksForTheNextMoment(t *testing.T) {
+	prompt := illustration.BuildInlineAnalyzePrompt("Big news", "The racks arrive.", styles.MustLoad(), true, illustration.Compositions, illustration.Shots)
+	for _, want := range []string{"next concrete moment", "a person at a desk with papers", "a handshake"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("inline prompt lacks %q", want)
+		}
+	}
+}
+
+func TestInlineAnalyzeInputCarriesRecentScenes(t *testing.T) {
+	input := illustration.AnalyzeInput{Title: "Big news", Section: "The racks arrive.", RecentScenes: []string{"a woman at a desk"}}
+	if prompt := illustration.AnalyzePromptFor(input, styles.MustLoad()); !strings.Contains(prompt, "- a woman at a desk\n") {
+		t.Fatalf("inline prompt lacks the recent scenes:\n%s", prompt)
+	}
+}

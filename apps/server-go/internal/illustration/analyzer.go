@@ -43,12 +43,20 @@ type AnalyzeInput struct {
 	RecentScenes []string
 }
 
-// prompt is the analyzer prompt for this input.
+// prompt is the analyzer prompt for this input, with the recent scenes rule.
 func (input AnalyzeInput) prompt(catalog styles.Catalog) string {
+	var base string
 	if input.Section != "" {
-		return BuildInlineAnalyzePrompt(input.Title, input.Section, catalog, input.Source != nil, input.Compositions, input.Shots)
+		base = BuildInlineAnalyzePrompt(input.Title, input.Section, catalog, input.Source != nil, input.Compositions, input.Shots)
+	} else {
+		base = BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition, input.Shots, input.Brands)
 	}
-	return BuildAnalyzePrompt(input.Title, input.Excerpt, input.ImageURL, catalog, input.Source != nil, input.Palettes, input.Compositions, input.PreferComposition, input.Shots, input.Brands) + RecentScenesRule(input.RecentScenes)
+	return base + RecentScenesRule(input.RecentScenes)
+}
+
+// AnalyzePromptFor is the analyzer prompt an input produces (for tests and tools).
+func AnalyzePromptFor(input AnalyzeInput, catalog styles.Catalog) string {
+	return input.prompt(catalog)
 }
 
 // RecentScenesRule tells the analyzer what the homepage's latest images

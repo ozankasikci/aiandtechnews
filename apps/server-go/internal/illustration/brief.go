@@ -181,7 +181,7 @@ Passage:
 %s
 
 %s
-Build the scene on what this passage describes (a concrete detail, a consequence, the next step, the people or machines involved), not on the headline. Wherever the keys below say "the story", "the news" or "the headline", read "this passage". There will be no photo collage and no logos in this image.
+Show the next concrete moment of this passage: its consequence, the people it affects or the place where it happens, caught in action. It must not repeat the featured illustration's subject, setting, characters or framing. Unless the passage is literally about it, never show a person at a desk with papers, a person at a keyboard or screen, a handshake, a humanoid robot, or an app window or dashboard. Wherever the keys below say "the story", "the news" or "the headline", read "this passage". There will be no photo collage and no logos in this image.
 
 `, title, section, imageLine) + analyzeKeys(catalog, nil, compositions, "", shots, nil, inlineAltKey)
 }
