@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
@@ -49,16 +50,33 @@ type Deps struct {
 type Report struct {
 	Redrawn []string
 	Skipped []string
+	// Failed holds "slug: error" for articles whose drawing failed.
+	Failed []string
 }
 
-// Redraw replaces the inline illustration of each slug. It writes every
-// redrawable article's current url and alt to undoPath before changing
-// anything, skips real photos and articles with no inline image, and stops
-// at the first failure (articles already replaced stay replaced).
+// dedupe drops repeated slugs, keeping the first occurrence.
+func dedupe(slugs []string) []string {
+	seen := make(map[string]bool, len(slugs))
+	var out []string
+	for _, slug := range slugs {
+		if !seen[slug] {
+			seen[slug] = true
+			out = append(out, slug)
+		}
+	}
+	return out
+}
+
+// Redraw replaces the inline illustration of each slug. It refuses an
+// existing undoPath, then writes every redrawable article's current url and
+// alt there before changing anything. Real photos and articles with no
+// inline image are skipped; a failed draw is reported and the next article
+// goes on; a failed database write stops the run. Articles already replaced
+// are always revalidated before returning.
 func Redraw(ctx context.Context, deps Deps, slugs []string, undoPath string) (Report, error) {
 	var report Report
 	var todo []Current
-	for _, slug := range slugs {
+	for _, slug := range dedupe(slugs) {
 		current, err := deps.Articles.Current(ctx, slug)
 		if err != nil {
 			return report, err
@@ -73,26 +91,46 @@ func Redraw(ctx context.Context, deps Deps, slugs []string, undoPath string) (Re
 	if err != nil {
 		return report, err
 	}
-	if err := os.WriteFile(undoPath, raw, 0o644); err != nil {
+	file, err := os.OpenFile(undoPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return report, fmt.Errorf("undo file %s already exists; pick another -undo path", undoPath)
+		}
 		return report, fmt.Errorf("write undo file: %w", err)
 	}
+	if _, err := file.Write(raw); err != nil {
+		_ = file.Close()
+		return report, fmt.Errorf("write undo file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return report, fmt.Errorf("write undo file: %w", err)
+	}
+	var runErr error
 	for _, current := range todo {
 		drawn, err := deps.Drawer.Draw(ctx, current)
 		if err != nil {
-			return report, fmt.Errorf("draw %s: %w", current.Slug, err)
+			report.Failed = append(report.Failed, fmt.Sprintf("%s: %v", current.Slug, err))
+			continue
 		}
 		if err := deps.Articles.Replace(ctx, current, drawn.URL, drawn.Alt); err != nil {
 			if drawn.Discard != nil {
 				drawn.Discard(ctx)
 			}
-			return report, fmt.Errorf("replace %s: %w", current.Slug, err)
+			runErr = fmt.Errorf("replace %s: %w", current.Slug, err)
+			break
 		}
 		report.Redrawn = append(report.Redrawn, current.Slug)
 	}
 	if deps.Refresher != nil && len(report.Redrawn) > 0 {
 		if err := deps.Refresher.Revalidate(ctx, report.Redrawn); err != nil {
-			return report, fmt.Errorf("refresh site: %w", err)
+			return report, errors.Join(runErr, fmt.Errorf("refresh site: %w", err))
 		}
+	}
+	if runErr != nil {
+		return report, runErr
+	}
+	if len(report.Failed) > 0 {
+		return report, fmt.Errorf("%d of %d draws failed: %v", len(report.Failed), len(todo), report.Failed)
 	}
 	return report, nil
 }

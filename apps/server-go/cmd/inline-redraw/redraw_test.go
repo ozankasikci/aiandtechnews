@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,10 +29,16 @@ func (f *fakeArticles) Replace(_ context.Context, c Current, url, alt string) er
 	return nil
 }
 
-type fakeDrawer struct{ drawn []string }
+type fakeDrawer struct {
+	drawn []string
+	fail  map[string]bool
+}
 
 func (f *fakeDrawer) Draw(_ context.Context, c Current) (illustration.InlineIllustration, error) {
 	f.drawn = append(f.drawn, c.Slug)
+	if f.fail[c.Slug] {
+		return illustration.InlineIllustration{}, errors.New("model down")
+	}
 	return illustration.InlineIllustration{URL: "https://img.test/" + c.Slug + "-new.webp", Alt: "new alt"}, nil
 }
 
@@ -70,5 +77,63 @@ func TestRedrawSkipsPhotosAndWritesUndoFirst(t *testing.T) {
 	}
 	if len(report.Skipped) != 2 {
 		t.Fatalf("skipped = %v", report.Skipped)
+	}
+}
+
+func TestRedrawRefusesAnExistingUndoFile(t *testing.T) {
+	undo := filepath.Join(t.TempDir(), "undo.json")
+	if err := os.WriteFile(undo, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	articles := &fakeArticles{undoPath: undo, rows: map[string]Current{
+		"drawn": {ID: 1, Slug: "drawn", URL: "https://img.test/drawn-old.webp"},
+	}}
+	drawer := &fakeDrawer{}
+	_, err := Redraw(context.Background(), Deps{Articles: articles, Drawer: drawer}, []string{"drawn"}, undo)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if len(drawer.drawn) != 0 || len(articles.updated) != 0 {
+		t.Fatalf("drawn %v updated %v", drawer.drawn, articles.updated)
+	}
+	if raw, _ := os.ReadFile(undo); string(raw) != "keep me" {
+		t.Fatalf("undo file overwritten: %s", raw)
+	}
+}
+
+func TestRedrawContinuesAfterADrawFailureAndStillRefreshes(t *testing.T) {
+	undo := filepath.Join(t.TempDir(), "undo.json")
+	articles := &fakeArticles{undoPath: undo, rows: map[string]Current{
+		"a": {ID: 1, Slug: "a", URL: "https://img.test/a.webp"},
+		"b": {ID: 2, Slug: "b", URL: "https://img.test/b.webp"},
+		"c": {ID: 3, Slug: "c", URL: "https://img.test/c.webp"},
+	}}
+	drawer, refresher := &fakeDrawer{fail: map[string]bool{"b": true}}, &fakeRefresher{}
+	report, err := Redraw(context.Background(), Deps{Articles: articles, Drawer: drawer, Refresher: refresher}, []string{"a", "b", "c"}, undo)
+	if err == nil {
+		t.Fatal("expected an error for the failed draw")
+	}
+	if len(articles.updated) != 2 || articles.updated[0] != "a=https://img.test/a-new.webp" || articles.updated[1] != "c=https://img.test/c-new.webp" {
+		t.Fatalf("updated = %v", articles.updated)
+	}
+	if len(report.Failed) != 1 {
+		t.Fatalf("failed = %v", report.Failed)
+	}
+	if len(refresher.slugs) != 2 || refresher.slugs[0] != "a" || refresher.slugs[1] != "c" {
+		t.Fatalf("refreshed %v", refresher.slugs)
+	}
+}
+
+func TestRedrawDedupesSlugs(t *testing.T) {
+	undo := filepath.Join(t.TempDir(), "undo.json")
+	articles := &fakeArticles{undoPath: undo, rows: map[string]Current{
+		"drawn": {ID: 1, Slug: "drawn", URL: "https://img.test/drawn-old.webp"},
+	}}
+	drawer := &fakeDrawer{}
+	if _, err := Redraw(context.Background(), Deps{Articles: articles, Drawer: drawer}, []string{"drawn", "drawn"}, undo); err != nil {
+		t.Fatal(err)
+	}
+	if len(drawer.drawn) != 1 {
+		t.Fatalf("drawn = %v", drawer.drawn)
 	}
 }

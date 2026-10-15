@@ -1,8 +1,12 @@
 // Command inline-redraw redraws the in-article illustration of chosen
 // published articles with the current rules. Real photos (credited) are
 // kept. -dry-run writes <slug>.png per article into -out and changes
-// nothing; a live run writes -undo first, then stores each new image,
-// updates article_images in place and refreshes the site pages.
+// nothing; a live run writes -undo first (the file must not exist; it is
+// never overwritten), then stores each new image, updates article_images in
+// place and refreshes the site pages. A failed draw is skipped and reported
+// at the end (the exit status is then non-zero); the articles that did
+// change are still refreshed. Run it while the API's inline worker is idle
+// (INLINE_IMAGES_ENABLED off or no new long article pending).
 //
 //	inline-redraw -db ~/aiandtechnews/data/technews.db -slugs slugs.txt -dry-run -out ./redraw
 //	inline-redraw -db ~/aiandtechnews/data/technews.db -slugs slugs.txt -undo ./undo.json
@@ -67,6 +71,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 			slugs = append(slugs, line)
 		}
 	}
+	slugs = dedupe(slugs)
 	chain, err := config.ParseImageChain(getenv("FEATURED_IMAGE_CHAIN"))
 	if err != nil {
 		return err
@@ -106,6 +111,15 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 		if err := os.MkdirAll(*outDir, 0o755); err != nil {
 			return err
 		}
+		// Like the live pipeline: the covers' and inline images' scenes,
+		// plus what this run has drawn so far, at most the last 20.
+		var base []string
+		for _, history := range []illustration.History{pipelineConfig.History, pipelineConfig.InlineHistory} {
+			if recent, err := history.Recent(ctx); err == nil {
+				base = append(base, illustration.VarietyFrom(recent).RecentScenes...)
+			}
+		}
+		var seen []string
 		for _, slug := range slugs {
 			current, err := articles.Current(ctx, slug)
 			if err != nil {
@@ -115,13 +129,18 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 				fmt.Printf("skip %s (no inline image or a real photo)\n", slug)
 				continue
 			}
-			result, err := pipeline.ProduceInline(ctx, inlineRequest(current))
+			request := inlineRequest(current)
+			request.RecentScenes = lastScenes(base, seen, 20)
+			result, err := pipeline.ProduceInline(ctx, request)
 			if err != nil {
 				fmt.Printf("FAIL %s: %v\n", slug, err)
 				continue
 			}
 			if err := os.WriteFile(filepath.Join(*outDir, slug+".png"), result.Image, 0o644); err != nil {
 				return err
+			}
+			if result.Report.Brief != nil {
+				seen = append(seen, illustration.SceneNote(*result.Report.Brief))
 			}
 			fmt.Printf("ok %s | %s\n", slug, result.Alt)
 		}
@@ -146,8 +165,17 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 		deps.Refresher = siterevalidate.NewClient(url, getenv("NEWSLETTER_CRON_SECRET"), &http.Client{Timeout: 60 * time.Second})
 	}
 	report, err := Redraw(ctx, deps, slugs, *undoPath)
-	fmt.Printf("redrawn %d: %v\nskipped %d: %v\nundo file: %s\n", len(report.Redrawn), report.Redrawn, len(report.Skipped), report.Skipped, *undoPath)
+	fmt.Printf("redrawn %d: %v\nskipped %d: %v\nfailed %d: %v\nundo file: %s\n", len(report.Redrawn), report.Redrawn, len(report.Skipped), report.Skipped, len(report.Failed), report.Failed, *undoPath)
 	return err
+}
+
+// lastScenes is base followed by seen, trimmed from the front to max entries.
+func lastScenes(base, seen []string, max int) []string {
+	all := append(append([]string{}, base...), seen...)
+	if len(all) > max {
+		all = all[len(all)-max:]
+	}
+	return all
 }
 
 func inlineRequest(current Current) illustration.InlineRequest {
