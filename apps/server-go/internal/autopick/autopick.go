@@ -26,8 +26,10 @@ const (
 	historyLimit = 150
 	// maxCandidates caps one run; older pending candidates wait for the next.
 	maxCandidates = 200
-	// MinScore is the lowest significance score (1 to 10) that is published.
+	// MinScore is the lowest significance score (1 to 10) for an original report.
 	MinScore = 7
+	// PressMinScore reserves press rewrites for major stories.
+	PressMinScore = 9
 	// maxPicks caps how many one run may queue.
 	maxPicks = 25
 )
@@ -36,6 +38,7 @@ const (
 type Candidate struct {
 	ID          int64  `json:"id"`
 	Source      string `json:"source"`
+	Original    bool   `json:"original"`
 	Title       string `json:"title"`
 	Summary     string `json:"summary,omitempty"`
 	PublishedAt string `json:"published_at,omitempty"`
@@ -61,8 +64,8 @@ type History struct {
 type Decision struct {
 	ID      int64 `json:"id"`
 	Publish bool  `json:"publish"`
-	// Score is the story's significance, 1 to 10. A pick below MinScore is
-	// dropped even when Publish is true.
+	// Score is the story's significance, 1 to 10. A pick below MinScore (or
+	// PressMinScore for press rewrites) is dropped even when Publish is true.
 	Score    int    `json:"score"`
 	Priority int    `json:"priority"`
 	Reason   string `json:"reason"`
@@ -152,7 +155,11 @@ func (p *Picker) Plan(ctx context.Context) (Run, []int64, error) {
 			continue
 		}
 		decided[decision.ID] = true
-		if decision.Publish && decision.Score >= MinScore {
+		minScore := PressMinScore
+		if byID[decision.ID].Original {
+			minScore = MinScore
+		}
+		if decision.Publish && decision.Score >= minScore {
 			picks = append(picks, decision)
 		} else {
 			rejected = append(rejected, decision.ID)

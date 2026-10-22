@@ -8,6 +8,8 @@ This file is the source of truth for every article added to this repository, whe
 
 - Collection never publishes. The collector fetches the approved feeds below, applies this policy, and stores every item that passes as a pending candidate for review. A rejected candidate is never collected again.
 - An editor selects candidates for publishing in the Omni Control app.
+- The automatic editor prefers original reports from primary sources already recognized by `internal/content.IsPrimaryFeed`. Those candidates carry `original: true` in its input. Press rewrites are reserved for major stories.
+- Automatic picks require both a publish decision and a significance score of at least 7 for original reports, or 9 for press rewrites. All other selection rules still apply.
 - Selected candidates publish one at a time, spaced by a random delay (default 30-40 minutes, configurable) from the previous publish, and the publisher additionally enforces a minimum gap equal to the configured minimum since the last publish before it will claim the next candidate.
 - The Node importer and its external scheduler (see "Daily automation contract" below) remain the active publisher in production until the Go publisher is enabled there, a later phase. **The two must never run at the same time**, since running both concurrently risks duplicate or conflicting publishes.
 

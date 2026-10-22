@@ -66,7 +66,7 @@ func picker(store *fakeStore, queue *fakeQueue, editor Editor) *Picker {
 }
 
 func TestRunQueuesPicksInPriorityOrderAndRejectsTheRest(t *testing.T) {
-	store := &fakeStore{pending: []Candidate{{ID: 1}, {ID: 2}, {ID: 3}, {ID: 4}, {ID: 5}}}
+	store := &fakeStore{pending: []Candidate{{ID: 1}, {ID: 2, Original: true}, {ID: 3, Original: true}, {ID: 4}, {ID: 5}}}
 	queue := &fakeQueue{}
 	editor := fakeEditor{decisions: []Decision{
 		{ID: 1, Publish: false},
@@ -158,7 +158,7 @@ func TestPromptCarriesTheOwnersStandingInstructions(t *testing.T) {
 }
 
 func TestPicksBelowTheMinimumScoreAreRejected(t *testing.T) {
-	store := &fakeStore{pending: []Candidate{{ID: 1}, {ID: 2}, {ID: 3}}}
+	store := &fakeStore{pending: []Candidate{{ID: 1, Original: true}, {ID: 2, Original: true}, {ID: 3, Original: true}}}
 	queue := &fakeQueue{}
 	editor := fakeEditor{decisions: []Decision{
 		{ID: 1, Publish: true, Score: 6, Priority: 1},
@@ -170,5 +170,54 @@ func TestPicksBelowTheMinimumScoreAreRejected(t *testing.T) {
 	}
 	if !slices.Equal(queue.published, []int64{2}) || !slices.Equal(queue.rejected, []int64{1, 3}) {
 		t.Fatalf("published %v rejected %v", queue.published, queue.rejected)
+	}
+}
+
+func TestPlanRequiresMajorNewsForPressRewrites(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		original bool
+		publish  bool
+		score    int
+		picked   bool
+	}{
+		{name: "original at minimum", original: true, publish: true, score: 7, picked: true},
+		{name: "original below minimum", original: true, publish: true, score: 6},
+		{name: "press below minimum", publish: true, score: 8},
+		{name: "press at minimum", publish: true, score: 9, picked: true},
+		{name: "original declined", original: true, score: 10},
+		{name: "press declined", score: 10},
+		{name: "press without score", publish: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeStore{pending: []Candidate{{ID: 1, Original: tt.original}}}
+			editor := fakeEditor{decisions: []Decision{{ID: 1, Publish: tt.publish, Score: tt.score}}}
+			run, rejected, err := picker(store, &fakeQueue{}, editor).Plan(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.picked {
+				if len(run.Picked) != 1 || run.Picked[0].ID != 1 || len(rejected) != 0 || run.Rejected != 0 {
+					t.Fatalf("run %+v rejected %v", run, rejected)
+				}
+			} else if len(run.Picked) != 0 || !slices.Equal(rejected, []int64{1}) || run.Rejected != 1 {
+				t.Fatalf("run %+v rejected %v", run, rejected)
+			}
+			if run.Undecided != 0 {
+				t.Fatalf("undecided = %d, want 0", run.Undecided)
+			}
+		})
+	}
+}
+
+func TestPromptMarksOriginalsAndPrefersPrimarySources(t *testing.T) {
+	prompt, err := Prompt([]Candidate{{ID: 1, Original: true}, {ID: 2}}, History{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"original": true`, `"original": false`, "Prefer original reports from primary sources", "press rewrites only for major stories"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q", want)
+		}
 	}
 }

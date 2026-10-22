@@ -4,7 +4,7 @@ import { FooterNewsletterForm } from "./Newsletter";
 
 const ABOUT_LINKS = [
   { label: "About", href: "/about" },
-  { label: "Editorial Standards", href: "/about#editorial-standards" },
+  { label: "Editorial policy", href: "/about#editorial-standards" },
   { label: "AI Glossary", href: "/glossary" },
   { label: "Daily Quiz", href: "/quiz" },
   { label: "Corrections", href: "/about#corrections" },

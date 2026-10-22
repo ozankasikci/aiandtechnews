@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
 )
 
 // Settings keys. The dashboard hides "newsroom." settings.
@@ -44,7 +46,7 @@ func (s *SQLiteStore) Pending(ctx context.Context, limit int) ([]Candidate, erro
 			args = append(args, feedURL)
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, source_name, title, COALESCE(feed_summary, ''), COALESCE(feed_published_at, '')
+	rows, err := s.db.QueryContext(ctx, `SELECT id, source_name, feed_url, title, COALESCE(feed_summary, ''), COALESCE(feed_published_at, '')
 		FROM (SELECT * FROM candidates WHERE status = 'pending'`+skip+` ORDER BY discovered_at DESC, id DESC LIMIT ?)
 		ORDER BY discovered_at, id`, append(args, limit)...)
 	if err != nil {
@@ -54,9 +56,11 @@ func (s *SQLiteStore) Pending(ctx context.Context, limit int) ([]Candidate, erro
 	var candidates []Candidate
 	for rows.Next() {
 		var c Candidate
-		if err := rows.Scan(&c.ID, &c.Source, &c.Title, &c.Summary, &c.PublishedAt); err != nil {
+		var feedURL string
+		if err := rows.Scan(&c.ID, &c.Source, &feedURL, &c.Title, &c.Summary, &c.PublishedAt); err != nil {
 			return nil, err
 		}
+		c.Original = content.IsPrimaryFeed(feedURL)
 		c.Summary = clip(c.Summary, 500)
 		candidates = append(candidates, c)
 	}
