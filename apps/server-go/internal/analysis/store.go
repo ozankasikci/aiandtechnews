@@ -50,6 +50,7 @@ func (r *Reader) Latest(ctx context.Context, limit int) ([]Article, error) {
 
 // Related returns at most five earlier published articles sharing a topic.
 // EXISTS prevents duplicate results when two articles share several topics.
+// Outlet-named items are filtered before the five-article cap.
 func (r *Reader) Related(ctx context.Context, articleID int64) ([]Related, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT a.slug, a.title, a.excerpt, a.published_at, COALESCE(a.source,'')
  FROM articles a JOIN articles current ON current.id = ?
@@ -58,16 +59,19 @@ func (r *Reader) Related(ctx context.Context, articleID int64) ([]Related, error
       OR (datetime(a.published_at) = datetime(current.published_at) AND a.id < current.id))
  AND EXISTS (SELECT 1 FROM article_topics x JOIN article_topics y ON y.topic_id = x.topic_id
  WHERE x.article_id = current.id AND y.article_id = a.id)
- ORDER BY datetime(a.published_at) DESC, a.id DESC LIMIT 5`, articleID)
+ ORDER BY datetime(a.published_at) DESC, a.id DESC`, articleID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	related := make([]Related, 0)
-	for rows.Next() {
+	for len(related) < 5 && rows.Next() {
 		var a Related
 		if err := rows.Scan(&a.Slug, &a.Title, &a.Excerpt, &a.PublishedAt, &a.Source); err != nil {
 			return nil, err
+		}
+		if namesOutlet(a) {
+			continue
 		}
 		related = append(related, a)
 	}

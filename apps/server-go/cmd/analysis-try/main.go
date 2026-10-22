@@ -77,17 +77,25 @@ func run(ctx context.Context, args []string, out io.Writer, getenv func(string) 
 		for _, r := range related {
 			fmt.Fprintf(out, "  %s (%s, %s): %s\n", r.Title, r.Slug, r.PublishedAt, r.Excerpt)
 		}
-		draft, verdict, result, err := analysis.Evaluate(ctx, analysis.Writer{Text: text}, analysis.Checker{Text: text}, article, related)
-		fmt.Fprintf(out, "Draft: %+v\n", draft)
-		if verdict == nil {
-			fmt.Fprintln(out, "Checker: not run or no valid verdict")
-		} else {
-			fmt.Fprintf(out, "Checker: ok=%t reason=%s\n", verdict.OK, verdict.Reason)
-		}
-		fmt.Fprintf(out, "Final: %s %s\n", result.Status, result.Reason)
+		attempts, result, err := analysis.Evaluate(ctx, analysis.Writer{Text: text}, analysis.Checker{Text: text}, article, related)
+		printEvaluation(out, attempts, result)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", article.Slug, err))
 		}
 	}
 	return errors.Join(failures...)
+}
+
+// printEvaluation keeps every draft and verdict visible, including a rejected
+// first pass when the revision succeeds. It never stores diagnostic drafts.
+func printEvaluation(out io.Writer, attempts []analysis.Attempt, result analysis.Result) {
+	for i, attempt := range attempts {
+		fmt.Fprintf(out, "Draft %d: %+v\n", i+1, attempt.Draft)
+		if attempt.Verdict == nil {
+			fmt.Fprintf(out, "Checker %d: not run or no valid verdict\n", i+1)
+		} else {
+			fmt.Fprintf(out, "Checker %d: ok=%t reason=%s\n", i+1, attempt.Verdict.OK, attempt.Verdict.Reason)
+		}
+	}
+	fmt.Fprintf(out, "Final: %s %s\n", result.Status, result.Reason)
 }

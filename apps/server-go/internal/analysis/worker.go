@@ -56,7 +56,7 @@ func (w *Worker) RunOnce(ctx context.Context) (bool, error) {
 	related, err := w.store.Related(ctx, article.ID)
 	result := Result{Status: "failed"}
 	if err == nil {
-		_, _, result, err = Evaluate(ctx, w.writer, w.checker, article, related)
+		_, result, err = Evaluate(ctx, w.writer, w.checker, article, related)
 	} else {
 		result.Reason = err.Error()
 	}
