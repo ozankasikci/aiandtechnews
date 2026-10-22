@@ -4,6 +4,7 @@ import { parseApiDate } from "./lib/dates";
 import { fallbackArticles } from "./lib/fallback";
 import { CATEGORIES } from "./data/articles";
 import { GLOSSARY } from "./data/glossary";
+import { isIndexable } from "./lib/indexing";
 
 const BASE_URL = "https://www.aiandtech.news";
 
@@ -56,7 +57,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     const articles = await getAllArticlesForSitemap();
     if (articles) {
-      article_pages = articles.map((a) => ({
+      article_pages = articles.filter(isIndexable).map((a) => ({
         url: `${BASE_URL}/article/${a.slug}`,
         lastModified: articleLastModified(a),
       }));

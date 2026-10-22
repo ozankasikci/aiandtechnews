@@ -18,6 +18,7 @@ import { AdSlot } from "../../components/AdSlot";
 import { AD_SLOT_ARTICLE_TOP } from "../../lib/adsense";
 import { linkTopicMentions } from "../../lib/topics";
 import { GlossaryPopover } from "../../components/GlossaryPopover";
+import { isIndexable } from "../../lib/indexing";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -61,6 +62,8 @@ export async function generateMetadata({ params }: Props) {
     title: metaTitle,
     description: metaDescription,
     alternates: { canonical: canonicalUrl },
+    // Short articles stay readable but out of search indexes.
+    ...(isIndexable(lookup.article) ? {} : { robots: { index: false, follow: true } }),
     openGraph: {
       title: metaTitle,
       description: metaDescription,
