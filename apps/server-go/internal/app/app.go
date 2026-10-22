@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/analysis"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/autopick"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/codextext"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/collector"
@@ -231,6 +232,12 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	}
 	if editorLoop != nil {
 		application.background = append(application.background, editorLoop.Loop)
+	}
+	if cfg.AnalysisEnabled {
+		flash := subheadingModel(cfg)
+		worker := analysis.NewWorker(analysis.NewSQLiteStore(db, now), analysis.Writer{Text: flash}, analysis.Checker{Text: flash}, now, logger).WithRevalidator(siteRevalidate)
+		logger.Info("article analysis", "interval", cfg.AnalysisInterval)
+		application.background = append(application.background, func(ctx context.Context) { worker.Loop(ctx, cfg.AnalysisInterval) })
 	}
 	if cfg.PublisherEnabled {
 		imageStore := media.NewStore(media.Config{Region: cfg.AWSRegion, Bucket: cfg.S3Bucket, Prefix: cfg.S3Prefix, PublicBaseURL: cfg.S3PublicURL},

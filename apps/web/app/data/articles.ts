@@ -26,6 +26,11 @@ export type Article = {
   updatedAt?: string;
   readTime: string;
   image: string;
+  analysis?: {
+    kind: "context" | "implications" | "watch";
+    text: string;
+    links: { slug: string; title: string }[];
+  };
   tldr?: string[];
   whyItMatters?: string;
   primarySource?: { name: string; url: string };

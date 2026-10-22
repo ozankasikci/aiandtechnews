@@ -83,6 +83,14 @@ Rewrite the source into an original, human-sounding article. Do not copy the sou
 
 If the available reporting cannot support a complete, accurate article, skip the item. Never publish a raw feed excerpt, an unrevised source body, or an AI response that fails validation.
 
+## Original article analysis
+
+- `ANALYSIS_ENABLED` defaults off. A separate worker checks one published article from the last 14 days every `ANALYSIS_INTERVAL` (default 10 minutes), with at most two failed attempts per article.
+- Optional "What this means" blocks contain 80-150 words in 2-4 sentences: context from our earlier same-topic coverage, supported implications, or the next concrete milestone already reported.
+- Analysis must add something beyond the TL;DR, why-it-matters line and first paragraph. No unsupported claims, predictions without a stated basis, invented numbers, names or quotes, hype, em dashes, or source outlet names.
+- An independent second model call verifies every sentence against the article and up to five earlier published same-topic excerpts. Any rejection or style violation records a final skip without analysis text. Generation/check errors record a failed attempt.
+- Only ready analysis reaches the public single-article API and page. It may link to 0-3 of the supplied past articles, resolved to published titles; context requires a supporting link. There are no source links or credits in analysis.
+
 ## Attribution and publication
 
 - Preserve the publication name in `source`.

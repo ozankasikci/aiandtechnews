@@ -788,6 +788,16 @@ var (
 	sourceFooter  = regexp.MustCompile(`(?i)^(?:source|sources)` + javascriptWhitespacePattern + `*:`)
 )
 
+// CopyStyleReason returns the first house-style violation in plain copy.
+func CopyStyleReason(text string) string {
+	for _, forbidden := range forbiddenCopy {
+		if forbidden.pattern.MatchString(text) {
+			return "copy contains prohibited " + forbidden.label
+		}
+	}
+	return ""
+}
+
 func ValidateRewrittenArticle(article RewrittenArticle, options ArticleValidationOptions) []string {
 	title := trimJavaScriptWhitespace(article.Title)
 	excerpt := trimJavaScriptWhitespace(article.Excerpt)

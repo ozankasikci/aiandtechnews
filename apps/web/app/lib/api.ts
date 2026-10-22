@@ -64,6 +64,7 @@ export interface ApiArticle {
   updated_at: string;
   meta_title?: string | null;
   meta_description?: string | null;
+  analysis?: Article["analysis"];
   tldr?: string[];
   why_it_matters?: string;
   primary_source?: unknown;
@@ -162,6 +163,7 @@ export function mapArticle(a: ApiArticle): Article {
     updatedAt: toIsoDate(a.updated_at || a.published_at || a.created_at),
     readTime: readingTimeLabel(a.content),
     image: ownImageOr(a.featured_image),
+    analysis: a.analysis,
     tldr: a.tldr?.length ? a.tldr : undefined,
     whyItMatters: a.why_it_matters || undefined,
     primarySource: parsePrimarySource(a.primary_source),

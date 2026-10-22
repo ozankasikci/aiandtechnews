@@ -57,6 +57,9 @@ const (
 	// DefaultInlineImagesInterval is how often the inline image worker picks
 	// an article when INLINE_IMAGES_INTERVAL is unset.
 	DefaultInlineImagesInterval = 5 * time.Minute
+
+	// DefaultAnalysisInterval is how often one recent article gets checked analysis.
+	DefaultAnalysisInterval = 10 * time.Minute
 	// DefaultReimageInterval is how often the featured-image replacement job
 	// picks an article when REIMAGE_INTERVAL is unset.
 	DefaultReimageInterval = 10 * time.Minute
@@ -206,6 +209,10 @@ type Config struct {
 	// (INLINE_IMAGES_INTERVAL, default 5m). It needs the publisher.
 	InlineImagesEnabled  bool
 	InlineImagesInterval time.Duration
+
+	// AnalysisEnabled runs original analysis as a separate background worker.
+	AnalysisEnabled  bool
+	AnalysisInterval time.Duration
 	// ReimageEnabled (REIMAGE_ENABLED, default off) runs the job that gives
 	// articles whose featured image is a news source's photo an image of
 	// our own (drawn, never copied), one article every ReimageInterval
@@ -256,12 +263,12 @@ type Config struct {
 
 func (c Config) String() string {
 	return fmt.Sprintf("Config{Mode:%q Address:%q TimeZone:%q DatabasePath:%q UploadsDir:%q MediaStorage:%q MediaS3Prefix:%q JWTSecret:[REDACTED] CollectorEnabled:%t CollectorInterval:%s "+
-		"PublisherEnabled:%t PublisherInterval:%s InlineImagesEnabled:%t InlineImagesInterval:%s ReimageEnabled:%t ReimageInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q FeaturedImageChain:%q FeaturedImageAnalyzers:%q CodexBin:%q CodexNodeDir:%q CodexTimeout:%s CutoutBin:%q GeminiVisionModel:%q "+
+		"PublisherEnabled:%t PublisherInterval:%s AnalysisEnabled:%t AnalysisInterval:%s InlineImagesEnabled:%t InlineImagesInterval:%s ReimageEnabled:%t ReimageInterval:%s GeminiAPIKey:[REDACTED] GeminiTextModel:%q GeminiImageModel:%q GeminiImageSize:%q FeaturedImageSource:%q FeaturedImageChain:%q FeaturedImageAnalyzers:%q CodexBin:%q CodexNodeDir:%q CodexTimeout:%s CutoutBin:%q GeminiVisionModel:%q "+
 		"AWSRegion:%q S3Bucket:%q S3Prefix:%q S3PublicURL:%q IndexNowEnabled:%t SiteRevalidateURL:%q "+
 		"NewsletterSiteURL:%q NewsletterTokenSecret:[REDACTED] NewsletterCronSecret:[REDACTED] ResendAPIKey:[REDACTED] NewsletterFrom:%q NewsletterReplyTo:%q "+
 		"TelegramEnabled:%t TelegramBotToken:[REDACTED] TelegramChannel:%q TelegramInterval:%s TelegramQuietHours:%q TelegramMinGap:%s}",
 		c.Mode, c.Address, c.TimeZone, c.DatabasePath, c.UploadsDir, c.MediaStorage, c.MediaS3Prefix, c.CollectorEnabled, c.CollectorInterval,
-		c.PublisherEnabled, c.PublisherInterval, c.InlineImagesEnabled, c.InlineImagesInterval, c.ReimageEnabled, c.ReimageInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.FeaturedImageChain, c.FeaturedImageAnalyzers, c.CodexBin, c.CodexNodeDir, c.CodexTimeout, c.CutoutBin, c.GeminiVisionModel,
+		c.PublisherEnabled, c.PublisherInterval, c.AnalysisEnabled, c.AnalysisInterval, c.InlineImagesEnabled, c.InlineImagesInterval, c.ReimageEnabled, c.ReimageInterval, c.GeminiTextModel, c.GeminiImageModel, c.GeminiImageSize, c.FeaturedImageSource, c.FeaturedImageChain, c.FeaturedImageAnalyzers, c.CodexBin, c.CodexNodeDir, c.CodexTimeout, c.CutoutBin, c.GeminiVisionModel,
 		c.AWSRegion, c.S3Bucket, c.S3Prefix, c.S3PublicURL, c.IndexNowEnabled, c.SiteRevalidateURL,
 		c.NewsletterSiteURL, c.NewsletterFrom, c.NewsletterReplyTo,
 		c.TelegramEnabled, c.TelegramChannel, c.TelegramInterval, c.TelegramQuietHours, c.TelegramMinGap)
@@ -333,6 +340,19 @@ func Load(lookup func(string) string, worktreeRoot string) (Config, error) {
 			return Config{}, fmt.Errorf("PUBLISHER_INTERVAL: %w", err)
 		}
 		cfg.PublisherInterval = interval
+	}
+	analysisEnabled, err := parseOnOff("ANALYSIS_ENABLED", lookup("ANALYSIS_ENABLED"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.AnalysisEnabled = analysisEnabled
+	cfg.AnalysisInterval = DefaultAnalysisInterval
+	if value := lookup("ANALYSIS_INTERVAL"); value != "" {
+		interval, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("ANALYSIS_INTERVAL: %w", err)
+		}
+		cfg.AnalysisInterval = interval
 	}
 	inlineImagesEnabled, err := parseOnOff("INLINE_IMAGES_ENABLED", lookup("INLINE_IMAGES_ENABLED"))
 	if err != nil {
@@ -572,6 +592,14 @@ func (c Config) Validate() error {
 	}
 	if c.CollectorEnabled && c.CollectorInterval < time.Minute {
 		return errors.New("COLLECTOR_INTERVAL must be at least 1m")
+	}
+	if c.AnalysisEnabled {
+		if strings.TrimSpace(c.GeminiAPIKey) == "" {
+			return errors.New("ANALYSIS_ENABLED needs GEMINI_API_KEY")
+		}
+		if c.AnalysisInterval < time.Minute {
+			return errors.New("ANALYSIS_INTERVAL must be at least 1m")
+		}
 	}
 	if c.InlineImagesEnabled {
 		if !c.PublisherEnabled {

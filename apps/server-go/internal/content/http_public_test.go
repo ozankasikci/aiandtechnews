@@ -227,3 +227,46 @@ func TestPublicArticleBySlugIncludesAnInlinePhotoCredit(t *testing.T) {
 		t.Fatalf("by slug = %s", body)
 	}
 }
+
+func TestPublicArticleAnalysisOnlyWhenReady(t *testing.T) {
+	handler, closer := newArticleHandler(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	db := closer.(*sql.DB)
+	// Resolve current titles, and never expose an unpublished or unknown link.
+	if _, err := db.Exec(`INSERT INTO article_analysis(article_id,status,kind,text,links_json,attempts,created_at,updated_at)
+ VALUES(301,'ready','context','Checked original context.','["synthetic-published-null-options","synthetic-draft","missing"]',1,'x','x')`); err != nil {
+		t.Fatal(err)
+	}
+	body := request(t, handler, "/api/articles/synthetic-published-newer").Body.String()
+	var payload struct {
+		Article struct {
+			Analysis *struct {
+				Kind  string
+				Text  string
+				Links []struct {
+					Slug  string
+					Title string
+				}
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	a := payload.Article.Analysis
+	if a == nil || a.Kind != "context" || a.Text != "Checked original context." || len(a.Links) != 1 || a.Links[0].Slug != "synthetic-published-null-options" || a.Links[0].Title == "" {
+		t.Fatalf("ready analysis=%s", body)
+	}
+	for _, target := range []string{"/api/articles", "/api/articles/trending", "/api/articles/id/301", "/api/articles/synthetic-published-null-options"} {
+		if body := request(t, handler, target).Body.String(); strings.Contains(body, `"analysis"`) {
+			t.Errorf("%s leaks analysis: %s", target, body)
+		}
+	}
+	for _, status := range []string{"skipped", "failed"} {
+		if _, err := db.Exec(`UPDATE article_analysis SET status=? WHERE article_id=301`, status); err != nil {
+			t.Fatal(err)
+		}
+		if body := request(t, handler, "/api/articles/synthetic-published-newer").Body.String(); strings.Contains(body, `"analysis"`) {
+			t.Errorf("%s analysis=%s", status, body)
+		}
+	}
+}
