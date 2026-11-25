@@ -36,6 +36,19 @@ const (
 	MinQuality = 7
 )
 
+// Slots a photo can fill.
+const (
+	SlotInline   = "inline"
+	SlotFeatured = "featured"
+)
+
+// MinFeaturedQuality is the lowest vision quality score for the featured slot.
+const MinFeaturedQuality = 8
+
+// KindPerson is the plan kind of a person. In the featured slot a person may
+// be shown in front of another organisation's backdrop (a conference stage).
+const KindPerson = "person"
+
 // TextModel is the Gemini text call (JSON output).
 type TextModel interface {
 	GenerateJSON(ctx context.Context, prompt string) (string, error)
@@ -60,6 +73,11 @@ type Request struct {
 	Title     string
 	Text      string
 	SourceURL string
+	// Slot is where the photo will be shown: SlotInline (the default) or
+	// SlotFeatured, which has stricter checks and may use a stand-in subject.
+	Slot string
+	// Exclude lists photo URLs (Candidate.ImageURL) that must not be chosen.
+	Exclude []string
 }
 
 // Credit is how a chosen photo is credited on the site.
@@ -308,7 +326,7 @@ func (f *Finder) verifyAll(ctx context.Context, plan Plan, request Request, mode
 			continue
 		}
 		candidate.Verdict = &verdict
-		if ok, why := verdict.usable(mode); ok {
+		if ok, why := verdict.usableFor(request.Slot, plan.Kind); ok {
 			candidate.Usable = true
 		} else {
 			candidate.Reason = why
