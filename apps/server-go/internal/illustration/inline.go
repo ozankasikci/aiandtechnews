@@ -40,6 +40,9 @@ type InlineRequest struct {
 	// SourceImageURL is the news source's own image, when known: a featured
 	// image that looks the same is a copy of it and is refused.
 	SourceImageURL string
+	// RecentScenes, when set, replaces the scene notes read from the
+	// histories (for dry runs).
+	RecentScenes []string
 }
 
 // InlineResult is an inline image (PNG) and its alt text, not yet stored.
@@ -72,7 +75,31 @@ func (p *Pipeline) IllustrateInline(ctx context.Context, request InlineRequest) 
 	if err != nil {
 		return InlineIllustration{}, fmt.Errorf("store inline image: %w", err)
 	}
+	if p.deps.InlineHistory != nil && result.Report.Brief != nil {
+		choice := Choice{Style: result.Report.Style, Composition: result.Report.Composition, Shot: result.Report.Shot, Scene: SceneNote(*result.Report.Brief)}
+		if err := p.deps.InlineHistory.Record(ctx, choice); err != nil {
+			p.deps.Logger.WarnContext(ctx, "could not record inline image history", "error", err)
+		}
+	}
 	return InlineIllustration{URL: stored.URL, Alt: result.Alt, Discard: stored.Discard}, nil
+}
+
+// inlineScenes is what the latest covers and in-article images show, covers
+// first, newest last within each. History errors only cost variety.
+func (p *Pipeline) inlineScenes(ctx context.Context) []string {
+	var scenes []string
+	for _, history := range []History{p.deps.History, p.deps.InlineHistory} {
+		if history == nil {
+			continue
+		}
+		recent, err := history.Recent(ctx)
+		if err != nil {
+			p.deps.Logger.WarnContext(ctx, "image history unavailable", "error", err)
+			continue
+		}
+		scenes = append(scenes, VarietyFrom(recent).RecentScenes...)
+	}
+	return scenes
 }
 
 // inlinePhotoMaxWidth is the widest stored inline photo; bigger photos are
@@ -119,6 +146,9 @@ func (p *Pipeline) ProduceInline(ctx context.Context, request InlineRequest) (In
 		return InlineResult{}, err
 	}
 	defer p.release()
+	if len(request.RecentScenes) == 0 {
+		request.RecentScenes = p.inlineScenes(ctx)
+	}
 	started := p.deps.Now()
 	run := &pipelineRun{p: p, request: publisher.IllustrationRequest{Slug: request.Slug, Title: request.Title, Excerpt: request.Section}, report: &Report{}}
 	image, alt, err := run.produceInline(ctx, request)
@@ -166,7 +196,7 @@ func (r *pipelineRun) produceInline(ctx context.Context, request InlineRequest) 
 	}
 	allowedStyles := deps.Styles.WithoutStyles(collages)
 	r.allowedStyles = allowedStyles
-	input := AnalyzeInput{Title: request.Title, Section: request.Section, Styles: &allowedStyles, Compositions: allowedCompositions(nil), Shots: shotsExcept(nil)}
+	input := AnalyzeInput{Title: request.Title, Section: request.Section, Styles: &allowedStyles, Compositions: allowedCompositions(nil), Shots: shotsExcept(nil), RecentScenes: request.RecentScenes}
 	if small, err := imaging.FitJPEG(featured, analyzeMaxEdge, analyzeQuality); err == nil {
 		input.Source = small
 	}

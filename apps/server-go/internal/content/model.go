@@ -36,6 +36,8 @@ type Article struct {
 	// FeaturedImageCredit is set when the featured image is a real photo and
 	// is loaded only for a single article read by slug.
 	FeaturedImageCredit *FeaturedImageCredit `json:"featuredImageCredit,omitempty"`
+	// Analysis is loaded only for a single published article with ready analysis.
+	Analysis *ArticleAnalysis `json:"analysis,omitempty"`
 	// Topics are the article's live topic hubs (at most MaxArticleTopics),
 	// loaded for public reads only. Absent when it has none.
 	Topics []TopicRef `json:"topics,omitempty"`
@@ -101,4 +103,16 @@ type ListQuery struct {
 type ListResult struct {
 	Articles []Article
 	Total    int64
+}
+
+// ArticleAnalysis contains checked original analysis and published internal links.
+type ArticleAnalysis struct {
+	Kind  string         `json:"kind"`
+	Text  string         `json:"text"`
+	Links []AnalysisLink `json:"links"`
+}
+
+type AnalysisLink struct {
+	Slug  string `json:"slug"`
+	Title string `json:"title"`
 }

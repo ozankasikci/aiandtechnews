@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Choice is the look of one published featured image.
@@ -14,6 +15,9 @@ type Choice struct {
 	Palette     string `json:"palette"`
 	Composition string `json:"composition"`
 	Shot        string `json:"shot,omitempty"`
+	// Scene is a short description of what the image shows, so later images
+	// can be told to show something else.
+	Scene string `json:"scene,omitempty"`
 }
 
 // History remembers the latest choices, so consecutive articles vary in
@@ -26,17 +30,28 @@ type History interface {
 const (
 	historyKey  = "newsroom.featured_image_history"
 	historySize = 10
+	// InlineHistoryKey holds the latest in-article illustrations.
+	InlineHistoryKey = "newsroom.inline_image_history"
 )
 
 // SettingsHistory keeps the history as JSON in the settings table, under a
 // "newsroom." key the dashboard never shows. Newest last.
-type SettingsHistory struct{ db *sql.DB }
+type SettingsHistory struct {
+	db  *sql.DB
+	key string
+}
 
-func NewSettingsHistory(db *sql.DB) *SettingsHistory { return &SettingsHistory{db: db} }
+// NewSettingsHistory is the featured (cover) image history.
+func NewSettingsHistory(db *sql.DB) *SettingsHistory { return NewSettingsHistoryAt(db, historyKey) }
+
+// NewSettingsHistoryAt keeps a history under another settings key.
+func NewSettingsHistoryAt(db *sql.DB, key string) *SettingsHistory {
+	return &SettingsHistory{db: db, key: key}
+}
 
 func (h *SettingsHistory) Recent(ctx context.Context) ([]Choice, error) {
 	var raw string
-	err := h.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, historyKey).Scan(&raw)
+	err := h.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, h.key).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -64,11 +79,23 @@ func (h *SettingsHistory) Record(ctx context.Context, choice Choice) error {
 	if err != nil {
 		return err
 	}
-	_, err = h.db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, historyKey, string(raw))
+	_, err = h.db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, h.key, string(raw))
 	if err != nil {
 		return fmt.Errorf("record featured image history: %w", err)
 	}
 	return nil
+}
+
+// maxSceneNote bounds the scene description kept per image.
+const maxSceneNote = 240
+
+// SceneNote is the short description of a brief kept in the history.
+func SceneNote(brief Brief) string {
+	note := strings.Join(strings.Fields(brief.Foreground+" "+brief.Background), " ")
+	if len(note) > maxSceneNote {
+		note = strings.TrimSpace(note[:maxSceneNote])
+	}
+	return note
 }
 
 // How far back each kind of repeat is avoided.
@@ -85,6 +112,8 @@ type Variety struct {
 	AvoidPalettes     []string
 	PreferComposition string
 	AvoidShots        []string
+	// RecentScenes are what the latest images show, newest last.
+	RecentScenes []string
 }
 
 func VarietyFrom(recent []Choice) Variety {
@@ -108,6 +137,11 @@ func VarietyFrom(recent []Choice) Variety {
 	for _, choice := range last(avoidRecentShots) {
 		if choice.Shot != "" {
 			v.AvoidShots = append(v.AvoidShots, choice.Shot)
+		}
+	}
+	for _, choice := range recent {
+		if choice.Scene != "" {
+			v.RecentScenes = append(v.RecentScenes, choice.Scene)
 		}
 	}
 	if run := last(balanceRun); len(run) == balanceRun {

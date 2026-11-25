@@ -42,6 +42,8 @@ const Brief = `You are the editor in chief of an AI and technology news site. Ev
 
 Publish a story when it is real, fresh news that readers of an AI and tech site would want: launches, releases, research results with impact, funding and deals, policy and court decisions, security incidents, notable company moves, and stories with a clear "why it matters".
 
+Prefer original reports from primary sources (marked original: true) and publish press rewrites only for major stories.
+
 Drop a story when:
 - it covers the same event as a story the site already published (see "Published lately") or as a better candidate in this batch; of several candidates about one event, publish only the one with the most substance and drop the others;
 - it is minor or incremental (small feature tweaks, routine updates, rumors without substance, reposted press releases);

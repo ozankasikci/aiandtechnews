@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/analysis"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/autopick"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/codextext"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/collector"
@@ -232,6 +233,12 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	if editorLoop != nil {
 		application.background = append(application.background, editorLoop.Loop)
 	}
+	if cfg.AnalysisEnabled {
+		flash := subheadingModel(cfg)
+		worker := analysis.NewWorker(analysis.NewSQLiteStore(db, now), analysis.Writer{Text: flash}, analysis.Checker{Text: flash}, now, logger).WithRevalidator(siteRevalidate)
+		logger.Info("article analysis", "interval", cfg.AnalysisInterval)
+		application.background = append(application.background, func(ctx context.Context) { worker.Loop(ctx, cfg.AnalysisInterval) })
+	}
 	if cfg.PublisherEnabled {
 		imageStore := media.NewStore(media.Config{Region: cfg.AWSRegion, Bucket: cfg.S3Bucket, Prefix: cfg.S3Prefix, PublicBaseURL: cfg.S3PublicURL},
 			objectAPI, newPublicHTTPClient(), now)
@@ -239,19 +246,20 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 		photos := realphoto.NewFinder(geminiClient, geminiClient, illustration.NewReferenceClient(), logger).WithSearch(geminiClient)
 		publishedArticles := publisher.NewSQLiteArticles(db, now)
 		illustrator := illustration.NewPipeline(illustration.BuildPipelineDeps(illustration.PipelineConfig{
-			Chain:        cfg.FeaturedImageChain,
-			Analyzers:    cfg.FeaturedImageAnalyzers,
-			CodexBin:     cfg.CodexBin,
-			CodexNodeDir: cfg.CodexNodeDir,
-			CodexTimeout: cfg.CodexTimeout,
-			CutoutBin:    cfg.CutoutBin,
-			Gemini:       geminiClient,
-			Store:        imageStore,
-			History:      illustration.NewSettingsHistory(db),
-			Photos:       photos,
-			RecentPhotos: publishedArticles,
-			HTTP:         illustration.NewReferenceClient(),
-			Logger:       logger,
+			Chain:         cfg.FeaturedImageChain,
+			Analyzers:     cfg.FeaturedImageAnalyzers,
+			CodexBin:      cfg.CodexBin,
+			CodexNodeDir:  cfg.CodexNodeDir,
+			CodexTimeout:  cfg.CodexTimeout,
+			CutoutBin:     cfg.CutoutBin,
+			Gemini:        geminiClient,
+			Store:         imageStore,
+			History:       illustration.NewSettingsHistory(db),
+			InlineHistory: illustration.NewSettingsHistoryAt(db, illustration.InlineHistoryKey),
+			Photos:        photos,
+			RecentPhotos:  publishedArticles,
+			HTTP:          illustration.NewReferenceClient(),
+			Logger:        logger,
 		}))
 		logger.Info("featured image pipeline", "chain", cfg.FeaturedImageChain, "analyzers", cfg.FeaturedImageAnalyzers, "collage", cfg.CutoutBin != "")
 		// Flash writes both the subheading pass and the topics.

@@ -5,7 +5,7 @@
 //	go run ./cmd/photo-try -db ~/copy-of-technews.db -latest 30 -out ./photo-try
 //	go run ./cmd/photo-try -db ~/copy-of-technews.db -slugs a-slug,another-slug
 //
-// The copy must have migration 17. The command reads GEMINI_API_KEY,
+// The copy must have migration 18. The command reads GEMINI_API_KEY,
 // GEMINI_TEXT_MODEL and GEMINI_VISION_MODEL from the environment. Photos
 // used as featured images in the last 30 days and photos already chosen in
 // the run are excluded from each search.
