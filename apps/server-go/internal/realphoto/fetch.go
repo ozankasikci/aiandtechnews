@@ -65,6 +65,7 @@ func (f *Finder) get(ctx context.Context, rawURL, accept string, maxBytes int64,
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusTooManyRequests {
+		recordRateLimit(ctx)
 		return fetched{}, fmt.Errorf("HTTP 429: %w", ErrRateLimited)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {

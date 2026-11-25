@@ -2,7 +2,7 @@
 // article's subject to use as its in-body image, before the pipeline falls
 // back to drawing one: first a freely licensed Wikimedia Commons photo, then
 // the maker's own official image from its website. Every step can fail; a
-// failure only means no photo, never an error for the caller.
+// miss can be transient, such as when the search is rate limited.
 package realphoto
 
 import (
@@ -16,8 +16,10 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/gemini"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/imaging"
 )
 
@@ -93,17 +95,19 @@ type Credit struct {
 
 // Candidate is one photo considered, and what happened to it.
 type Candidate struct {
-	Source     string   `json:"source"`
-	ImageURL   string   `json:"image_url"`
-	PageURL    string   `json:"page_url"`
-	License    string   `json:"license,omitempty"`
-	LicenseURL string   `json:"license_url,omitempty"`
-	Artist     string   `json:"artist,omitempty"`
-	Width      int      `json:"width,omitempty"`
-	Height     int      `json:"height,omitempty"`
-	Verdict    *Verdict `json:"verdict,omitempty"`
-	Usable     bool     `json:"usable"`
-	Reason     string   `json:"reason,omitempty"`
+	Source      string   `json:"source"`
+	ImageURL    string   `json:"image_url"`
+	PageURL     string   `json:"page_url"`
+	Title       string   `json:"title,omitempty"`
+	Description string   `json:"description,omitempty"`
+	License     string   `json:"license,omitempty"`
+	LicenseURL  string   `json:"license_url,omitempty"`
+	Artist      string   `json:"artist,omitempty"`
+	Width       int      `json:"width,omitempty"`
+	Height      int      `json:"height,omitempty"`
+	Verdict     *Verdict `json:"verdict,omitempty"`
+	Usable      bool     `json:"usable"`
+	Reason      string   `json:"reason,omitempty"`
 
 	data []byte
 }
@@ -116,12 +120,14 @@ const (
 // Result is the outcome of Find. Found is false when no photo passed; the
 // caller then draws an illustration.
 type Result struct {
-	Found  bool       `json:"found"`
-	Image  []byte     `json:"-"`
-	Alt    string     `json:"alt,omitempty"`
-	Credit *Credit    `json:"credit,omitempty"`
-	Chosen *Candidate `json:"chosen,omitempty"`
-	Plan   *Plan      `json:"plan,omitempty"`
+	Found bool `json:"found"`
+	// Transient marks a miss caused by a failed plan, cancellation or rate limit.
+	Transient bool       `json:"transient,omitempty"`
+	Image     []byte     `json:"-"`
+	Alt       string     `json:"alt,omitempty"`
+	Credit    *Credit    `json:"credit,omitempty"`
+	Chosen    *Candidate `json:"chosen,omitempty"`
+	Plan      *Plan      `json:"plan,omitempty"`
 	// StandIn is set when the chosen photo shows a stand-in subject.
 	StandIn    *StandIn    `json:"stand_in,omitempty"`
 	Official   string      `json:"official_page,omitempty"`
@@ -168,10 +174,28 @@ func (f *Finder) WithCommonsAPI(endpoint string) *Finder {
 	return f
 }
 
+// The search tracks 429s even from best-effort requests such as linked titles.
+type rateLimitKey struct{}
+
+func recordRateLimit(ctx context.Context) {
+	if limited, ok := ctx.Value(rateLimitKey{}).(*atomic.Bool); ok {
+		limited.Store(true)
+	}
+}
+
+func recordModelRateLimit(ctx context.Context, err error) {
+	var response *gemini.Error
+	if errors.As(err, &response) && response.Status == http.StatusTooManyRequests {
+		recordRateLimit(ctx)
+	}
+}
+
 // Find looks for a usable photo: plan, then Commons, then the maker's
-// official image. It never fails; Result.Found says whether it found one.
+// official image. Result tells the caller whether it found one or should retry.
 func (f *Finder) Find(ctx context.Context, request Request) Result {
 	started := f.now()
+	var rateLimited atomic.Bool
+	ctx = context.WithValue(ctx, rateLimitKey{}, &rateLimited)
 	result := f.find(ctx, request)
 	result.Seconds = f.now().Sub(started).Seconds()
 	logger := f.logger.With("slug", request.Slug, "seconds", int(result.Seconds), "candidates", len(result.Candidates))
@@ -179,6 +203,14 @@ func (f *Finder) Find(ctx context.Context, request Request) Result {
 		logger.InfoContext(ctx, "inline photo found", "kind", result.Credit.Kind, "url", result.Chosen.ImageURL,
 			"score", result.Chosen.Verdict.Quality, "reason", result.Reason)
 	} else {
+		switch {
+		case ctx.Err() != nil:
+			result.Transient = true
+			result.Reason = "cancelled: " + ctx.Err().Error()
+		case rateLimited.Load():
+			result.Transient = true
+			result.Reason = "rate limited: " + result.Reason
+		}
 		logger.InfoContext(ctx, "no inline photo", "reason", result.Reason)
 	}
 	return result
@@ -186,12 +218,16 @@ func (f *Finder) Find(ctx context.Context, request Request) Result {
 
 func (f *Finder) find(ctx context.Context, request Request) Result {
 	result := Result{Candidates: []Candidate{}}
+	if ctx.Err() != nil {
+		return result
+	}
 	if f.text == nil || f.vision == nil || f.http == nil {
 		result.Reason = "photo finder is not configured"
 		return result
 	}
 	plan, err := f.plan(ctx, request)
 	if err != nil {
+		result.Transient = true
 		result.Reason = "plan failed: " + err.Error()
 		return result
 	}
@@ -216,6 +252,10 @@ func (f *Finder) find(ctx context.Context, request Request) Result {
 	}
 	if ctx.Err() != nil {
 		result.Reason = "cancelled"
+		return result
+	}
+	if request.Slot == SlotFeatured && plan.Kind == KindPerson {
+		result.Reason = "no usable Commons photo of " + plan.Subject
 		return result
 	}
 
@@ -374,7 +414,7 @@ func (f *Finder) verifyAll(ctx context.Context, plan Plan, request Request, mode
 			}
 		}
 		verified++
-		verdict, err := f.verify(ctx, plan, request, mode, candidate.data)
+		verdict, err := f.verify(ctx, plan, request, candidate)
 		if err != nil {
 			candidate.Reason = "vision check: " + err.Error()
 			candidate.data = nil

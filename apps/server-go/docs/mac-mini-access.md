@@ -91,11 +91,15 @@ tail -f ~/aiandtechnews/logs/api.log                              # live request
    The mini's repo uses `receive.denyCurrentBranch updateInstead`, so a push
    fails if files there were edited by hand.
 2. On the mini, with `env.sh` loaded: `go build -p 2 -trimpath -o $W/bin/api ./cmd/api`.
-   Always use `-p 2`.
+   If the release adds a migration, rebuild `migrate` too:
+   `go build -p 2 -trimpath -o $W/bin/migrate ./cmd/migrate`. Always use `-p 2`.
 3. Back up the database:
    `sqlite3 ~/aiandtechnews/data/technews.db ".backup ~/aiandtechnews/backups/<name>.db"`.
-4. Copy the binary to `~/aiandtechnews/bin/api` (write `api.new`, then `mv`).
-5. Run `~/aiandtechnews/bin/migrate` with the env loaded, then kickstart the API.
+4. Copy `api` to `~/aiandtechnews/bin/api` (write `api.new`, then `mv`). If
+   rebuilt, copy `migrate` to `~/aiandtechnews/bin/migrate` the same way.
+5. If the release adds a migration, run `~/aiandtechnews/bin/migrate` with
+   `technews.env` loaded before kickstarting the API. The API refuses to start
+   while a migration is pending.
 
 - **Never run `migrate` on a database that hasn't been adopted.** Production
   refuses it; use `bin/adopt` instead.

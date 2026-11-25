@@ -61,6 +61,19 @@ func (f *Finder) commons(ctx context.Context, request Request, plan Plan) ([]Can
 			candidates = append(candidates, commonsCandidate(page))
 		}
 	}
+	if plan.Kind == KindPerson {
+		words := strings.Fields(plan.Subject)
+		if len(words) > 0 {
+			surname := words[len(words)-1]
+			name := regexp.MustCompile(`(?i)(^|[^\pL\pM\pN])` + regexp.QuoteMeta(surname) + `($|[^\pL\pM\pN])`)
+			for i := range candidates {
+				candidate := &candidates[i]
+				if candidate.Reason == "" && !name.MatchString(candidate.Title) && !name.MatchString(candidate.Description) {
+					candidate.Reason = fmt.Sprintf("Commons title and description do not name the surname %q", surname)
+				}
+			}
+		}
+	}
 	if err := f.verifyAll(ctx, plan, request, KindCommons, candidates); err != nil {
 		errs = append(errs, err)
 	}
@@ -79,7 +92,7 @@ func (f *Finder) searchCommons(ctx context.Context, query string) ([]commonsPage
 		"prop":                  {"imageinfo"},
 		"iiprop":                {"url|size|mime|extmetadata"},
 		"iiurlwidth":            {"1600"},
-		"iiextmetadatafilter":   {"LicenseShortName|LicenseUrl|Artist|Credit|UsageTerms|Restrictions"},
+		"iiextmetadatafilter":   {"LicenseShortName|LicenseUrl|Artist|Credit|UsageTerms|Restrictions|ObjectName|ImageDescription"},
 		"iiextmetadatalanguage": {"en"},
 	}
 	page, err := f.get(ctx, f.commonsAPI+"?"+params.Encode(), "application/json", maxAPIBytes, false, func(mediaType string) bool {
@@ -112,15 +125,21 @@ func commonsCandidate(page commonsPage) Candidate {
 		}
 		return ""
 	}
+	title := stripHTML(meta("ObjectName"))
+	if title == "" {
+		title = stripHTML(page.Title)
+	}
 	candidate := Candidate{
-		Source:     KindCommons,
-		ImageURL:   info.ThumbURL,
-		PageURL:    info.DescriptionURL,
-		License:    oneLine(stripHTML(meta("LicenseShortName")), 40),
-		LicenseURL: strings.TrimSpace(meta("LicenseUrl")),
-		Artist:     cleanArtist(meta("Artist")),
-		Width:      info.Width,
-		Height:     info.Height,
+		Source:      KindCommons,
+		ImageURL:    info.ThumbURL,
+		PageURL:     info.DescriptionURL,
+		Title:       oneLine(title, 250),
+		Description: oneLine(stripHTML(meta("ImageDescription")), 800),
+		License:     oneLine(stripHTML(meta("LicenseShortName")), 40),
+		LicenseURL:  strings.TrimSpace(meta("LicenseUrl")),
+		Artist:      cleanArtist(meta("Artist")),
+		Width:       info.Width,
+		Height:      info.Height,
 	}
 	if candidate.ImageURL == "" {
 		candidate.ImageURL = info.URL

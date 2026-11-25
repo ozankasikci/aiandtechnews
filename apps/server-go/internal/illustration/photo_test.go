@@ -90,7 +90,7 @@ func TestPhotoStepWinsWithoutAnalysisOrGeneration(t *testing.T) {
 	if photo := result.Report.Photo; photo == nil || photo.StandIn != "Bret Taylor" || photo.Quality != 9 {
 		t.Fatalf("photo report = %+v", photo)
 	}
-	want := publisher.ImageCredit{Kind: "commons", Text: "Photo: Jane Doe / CC BY 4.0, via Wikimedia Commons",
+	want := publisher.ImageCredit{Kind: "commons", Text: "Photo: Jane Doe / CC BY 4.0, via Wikimedia Commons (cropped)",
 		URL: "https://commons.wikimedia.org/wiki/File:X.jpg", License: "CC BY 4.0", LicenseURL: "https://creativecommons.org/licenses/by/4.0",
 		PhotoURL: "https://upload.wikimedia.org/x.jpg", Alt: "Bret Taylor on stage."}
 	if result.Credit == nil || *result.Credit != want {
@@ -106,6 +106,27 @@ func TestPhotoStepWinsWithoutAnalysisOrGeneration(t *testing.T) {
 	}
 	if recent.since.IsZero() {
 		t.Fatal("the recent photos were not asked for")
+	}
+}
+
+func TestPhotoStepKeepsCreditForUncroppedCommonsAndCroppedOfficialImages(t *testing.T) {
+	for _, kind := range []string{realphoto.KindCommons, realphoto.KindOfficial} {
+		t.Run(kind, func(t *testing.T) {
+			photo := foundPhoto(t)
+			if kind == realphoto.KindCommons {
+				photo.Image = solidPNG(t, 400, 225)
+			} else {
+				photo.Credit = &realphoto.Credit{Kind: kind, Text: "Image: WiCi"}
+			}
+			fixture := newFixture(t, illustration.PhotoStep(&fakePhotoFinder{result: photo}))
+			result, err := fixture.produce(t)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Credit == nil || result.Credit.Text != photo.Credit.Text {
+				t.Fatalf("credit = %+v, want %q", result.Credit, photo.Credit.Text)
+			}
+		})
 	}
 }
 
@@ -162,6 +183,16 @@ func TestAChainThatOnlyFindsNoPhotoFailsForGood(t *testing.T) {
 	_, err := fixture.produce(t)
 	if err == nil || !publisher.IsPermanent(err) || !strings.Contains(err.Error(), illustration.ErrNoPhoto.Error()) {
 		t.Fatalf("err = %v, want a permanent failure that says no usable real photo", err)
+	}
+}
+
+func TestTransientPhotoMissKeepsTheChainRetryable(t *testing.T) {
+	finder := &fakePhotoFinder{result: realphoto.Result{Reason: "plan failed: planner offline", Transient: true}}
+	fixture := newFixture(t, illustration.PhotoStep(finder), illustration.SourceStep())
+	_, err := fixture.produce(t)
+	if err == nil || publisher.IsPermanent(err) || errors.Is(err, illustration.ErrNoPhoto) ||
+		strings.Contains(err.Error(), illustration.ErrNoPhoto.Error()) || !strings.Contains(err.Error(), "planner offline") {
+		t.Fatalf("err = %v, want a retryable photo search error", err)
 	}
 }
 

@@ -113,6 +113,7 @@ func (f *Finder) makerPages(ctx context.Context, plan Plan) []string {
 		}
 		answer, err := f.search.SearchText(ctx, fmt.Sprintf(makerPagePrompt, plan.MakerDomain, plan.Subject, maker, plan.MakerDomain))
 		if err != nil {
+			recordModelRateLimit(ctx, err)
 			f.logger.WarnContext(ctx, "maker page search failed", "subject", plan.Subject, "error", err)
 		}
 		for _, page := range bareURL.FindAllString(answer, -1) {
@@ -182,6 +183,10 @@ func (f *Finder) officialImages(ctx context.Context, request Request, plan Plan,
 	rateLimited := false
 	for i := range candidates {
 		candidate := &candidates[i]
+		if blockedSite(candidate.ImageURL) || sameSite(candidate.ImageURL, request.SourceURL) {
+			candidate.Reason = "image is hosted on a blocked site or the news source's site"
+			continue
+		}
 		if slices.Contains(request.Exclude, candidate.ImageURL) {
 			candidate.Reason = excludedPhotoReason
 			continue
@@ -270,6 +275,7 @@ func (f *Finder) chooseOfficial(ctx context.Context, request Request, plan Plan,
 	}
 	raw, err := f.text.GenerateJSON(ctx, fmt.Sprintf(officialPrompt, plan.Subject, maker, request.Title, list.String()))
 	if err != nil {
+		recordModelRateLimit(ctx, err)
 		return officialChoice{}, err
 	}
 	return ParseOfficialChoice(raw, len(links))

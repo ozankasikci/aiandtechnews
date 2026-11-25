@@ -256,6 +256,23 @@ func TestWorkerDoesNotDrawWhenTheFeaturedImageIsAPhoto(t *testing.T) {
 	}
 }
 
+func TestWorkerRetriesATransientMissWhenTheFeaturedImageIsAPhoto(t *testing.T) {
+	article := photoArticle()
+	article.FeaturedPhotoURL = "https://upload.wikimedia.org/x.jpg"
+	article.Attempts = 0
+	store := &fakeStore{articles: []inlineimage.Article{article}}
+	illustrator := &fakeIllustrator{}
+	finder := &fakeFinder{result: realphoto.Result{Reason: "plan failed: planner offline", Transient: true}}
+	worker := newWorker(store, illustrator).WithPhotos(finder, &fakePhotoStore{})
+	if _, err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(illustrator.requests) != 0 || len(store.marks) != 1 || store.marks[0].ready ||
+		store.marks[0].attempts != article.Attempts+1 || !strings.Contains(store.marks[0].message, "planner offline") {
+		t.Fatalf("marks = %+v, drawings = %d, want one retryable failure", store.marks, len(illustrator.requests))
+	}
+}
+
 func TestWorkerDrawsWhenNoPhotoIsFoundOrStored(t *testing.T) {
 	for name, test := range map[string]struct {
 		result realphoto.Result

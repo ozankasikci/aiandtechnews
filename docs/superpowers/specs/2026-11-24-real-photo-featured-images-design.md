@@ -138,9 +138,11 @@ A generated featured image has no row. The publisher writes the row in the
 same transaction that inserts the article.
 
 The article API returns the credit with the article, and
-`contracts/openapi.yaml` gains the field. The article page shows the credit
-under the featured image, using the caption code that in-body images already
-use (`apps/web/app/lib/inline-images.ts`). Cards on list pages show no credit.
+`contracts/openapi.yaml` gains the field. The headline block overlaps the
+bottom of the featured image, so the article page places the credit in the
+top right corner on a dark backing for legibility. The credit reuses the
+in-body caption code (`apps/web/app/lib/inline-images.ts`). Cards on list
+pages show no credit.
 
 The in-body image worker is told the featured photo's credit URL and never
 picks the same photo.

@@ -13,7 +13,8 @@ func TestRenderReportShowsChosenAndRejectedPhotos(t *testing.T) {
 		{
 			Slug: "sierra-raises", Title: "Sierra raises <$1.75 billion>", Current: "https://img.test/features/sierra.webp",
 			Found: true, Image: "sierra-raises.png", Credit: "Photo: TechCrunch / CC BY 2.0, via Wikimedia Commons",
-			CreditURL: "https://commons.wikimedia.org/wiki/File:Bret.jpg", StandIn: "Bret Taylor", Quality: 9,
+			CreditURL: "https://commons.wikimedia.org/wiki/File:Bret.jpg", StandIn: "Bret Taylor",
+			Cropped: true, Verdict: &realphoto.Verdict{Match: "exact", Quality: 9, Alt: "Bret Taylor speaks.", Notes: "Name visible on a badge."},
 			Reason: "Wikimedia Commons photo of stand-in Bret Taylor (person), score 9",
 			Candidates: []realphoto.Candidate{
 				{Source: "commons", PageURL: "https://commons.wikimedia.org/wiki/File:Bret.jpg", Usable: true, Verdict: &realphoto.Verdict{Quality: 9}},
@@ -33,6 +34,12 @@ func TestRenderReportShowsChosenAndRejectedPhotos(t *testing.T) {
 		`src="sierra-raises.png"`,
 		"Photo: TechCrunch / CC BY 2.0, via Wikimedia Commons",
 		"Stand-in: Bret Taylor",
+		"Match: exact",
+		"Dated: false",
+		"Quality: 9",
+		"Alt: Bret Taylor speaks.",
+		"Notes: Name visible on a badge.",
+		"Cropped: yes",
 		"visibly dated",
 		"no photographable subject: a study",
 	} {

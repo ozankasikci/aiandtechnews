@@ -18,7 +18,8 @@ type reportRow struct {
 	Credit     string
 	CreditURL  string
 	StandIn    string
-	Quality    int
+	Verdict    *realphoto.Verdict
+	Cropped    bool
 	Reason     string
 	Candidates []realphoto.Candidate
 }
@@ -54,9 +55,12 @@ a{color:#c4a1ff}
 <div class="pair">
   <div><div class="label">Current</div><img src="{{.Current}}" alt=""></div>
   <div><div class="label">Real photo</div>
-  {{if .Found}}<img src="{{.Image}}" alt="">{{else}}<div class="none">{{.Reason}}</div>{{end}}</div>
+  {{if .Found}}<img src="{{.Image}}" alt="{{with .Verdict}}{{.Alt}}{{end}}">{{else}}<div class="none">{{.Reason}}</div>{{end}}</div>
 </div>
-{{if .Found}}<p class="meta"><a href="{{.CreditURL}}">{{.Credit}}</a> · quality {{.Quality}}{{if .StandIn}} · Stand-in: {{.StandIn}}{{end}}</p>{{end}}
+{{if .Found}}
+<p class="meta"><a href="{{.CreditURL}}">{{.Credit}}</a>{{if .StandIn}} · Stand-in: {{.StandIn}}{{end}} · Cropped: {{if .Cropped}}yes{{else}}no{{end}}</p>
+{{with .Verdict}}<p class="meta">Match: {{.Match}} · Dated: {{.Dated}} · Quality: {{.Quality}} · Alt: {{.Alt}} · Notes: {{.Notes}}</p>{{end}}
+{{end}}
 {{if .Candidates}}<table>
 {{range .Candidates}}<tr><td>{{.Source}}</td><td><a href="{{.PageURL}}">{{.PageURL}}</a></td><td>{{if .Usable}}usable{{if .Verdict}}, quality {{.Verdict.Quality}}{{end}}{{else}}{{.Reason}}{{end}}</td></tr>
 {{end}}</table>{{end}}

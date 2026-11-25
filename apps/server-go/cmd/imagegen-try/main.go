@@ -282,6 +282,13 @@ func openArticles(ctx context.Context, dbPath string) (*inlineimage.SQLiteStore,
 	return inlineimage.NewSQLiteStore(db, nil), func() { _ = db.Close() }, nil
 }
 
+func inlineReadError(err error) error {
+	if strings.Contains(err.Error(), "no such table: article_featured_image_credits") {
+		return fmt.Errorf("%w (run cmd/migrate on this copy first: migration 17 is missing)", err)
+	}
+	return err
+}
+
 // runInline makes one article's inline image as the worker would: a real
 // photo when one passes, else an illustration; without uploading it or
 // writing to the database.
@@ -293,7 +300,7 @@ func runInline(ctx context.Context, pipeline *illustration.Pipeline, photos *rea
 	defer closeDB()
 	article, err := store.BySlug(ctx, slug)
 	if err != nil {
-		return err
+		return inlineReadError(err)
 	}
 	slot, ok := inlineimage.Slot(article.Content)
 	if photos != nil {
@@ -451,7 +458,7 @@ func runInlineLatest(ctx context.Context, photos *realphoto.Finder, count int, d
 	defer closeDB()
 	articles, err := store.Latest(ctx, count)
 	if err != nil {
-		return err
+		return inlineReadError(err)
 	}
 	prefix := inlineimage.OwnImagePrefix(getenv("S3_FEATURE_IMAGE_PUBLIC_URL"), s3Prefix(getenv))
 	var rows []latestRow

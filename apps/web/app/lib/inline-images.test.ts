@@ -141,3 +141,10 @@ test("the featured caption links the credit and the licence, and is absent for a
   assert.ok(html.endsWith(", via Wikimedia Commons"));
   assert.equal(featuredCaption({ credit: "Image: <Nvidia>" }), "Image: &lt;Nvidia&gt;");
 });
+
+test("the featured caption keeps the crop disclosure after the linked Commons licence", () => {
+  const caption = featuredCaption(usableImageCredit({ ...commons, credit: `${commons.credit} (cropped)` }));
+  assert.ok(caption);
+  assert.match(caption, /href="https:\/\/commons\.wikimedia\.org\/wiki\/File:X\.jpg"[^>]*>Photo: Jane Doe<\/a>/);
+  assert.match(caption, /href="https:\/\/creativecommons\.org\/licenses\/by-sa\/4\.0"[^>]*>CC BY-SA 4\.0<\/a>, via Wikimedia Commons \(cropped\)$/);
+});

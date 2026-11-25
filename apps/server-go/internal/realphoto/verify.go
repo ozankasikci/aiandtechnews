@@ -156,9 +156,21 @@ func VerifyPrompt(plan Plan, title, mode string) string {
 // VerifyPromptFor is the vision prompt for one candidate in the given mode
 // and slot.
 func VerifyPromptFor(plan Plan, title, mode, slot string) string {
+	return verifyPromptFor(plan, title, slot, &Candidate{Source: mode})
+}
+
+func verifyPromptFor(plan Plan, title, slot string, candidate *Candidate) string {
 	contextLine, photographic := commonsContext, commonsPhoto
-	if mode == KindOfficial {
-		contextLine, photographic = officialContext, officialPhotoArg
+	if candidate.Source == KindOfficial {
+		contextLine = officialContext
+		if slot != SlotFeatured {
+			photographic = officialPhotoArg
+		}
+	} else {
+		contextLine += fmt.Sprintf("Commons file title: %q\nCommons file description: %q\n", candidate.Title, candidate.Description)
+		if plan.Kind == KindPerson {
+			contextLine += "For a person, answer exact only when the file's own title or description, or unmistakable visible context such as a readable name badge, identifies the person shown as the subject. A mere mention or facial resemblance alone is insufficient.\n"
+		}
 	}
 	placement := inlinePlacement
 	if slot == SlotFeatured {
@@ -171,13 +183,14 @@ func VerifyPromptFor(plan Plan, title, mode, slot string) string {
 	return fmt.Sprintf(verifyPrompt, placement, title, plan.Subject, maker, contextLine, photographic)
 }
 
-func (f *Finder) verify(ctx context.Context, plan Plan, request Request, mode string, data []byte) (Verdict, error) {
-	jpeg, err := imaging.FitJPEG(data, verifyMaxEdge, verifyQuality)
+func (f *Finder) verify(ctx context.Context, plan Plan, request Request, candidate *Candidate) (Verdict, error) {
+	jpeg, err := imaging.FitJPEG(candidate.data, verifyMaxEdge, verifyQuality)
 	if err != nil {
 		return Verdict{}, err
 	}
-	raw, err := f.vision.ReviewImage(ctx, VerifyPromptFor(plan, request.Title, mode, request.Slot), jpeg, verdictSchema)
+	raw, err := f.vision.ReviewImage(ctx, verifyPromptFor(plan, request.Title, request.Slot, candidate), jpeg, verdictSchema)
 	if err != nil {
+		recordModelRateLimit(ctx, err)
 		return Verdict{}, err
 	}
 	return ParseVerdict(raw)

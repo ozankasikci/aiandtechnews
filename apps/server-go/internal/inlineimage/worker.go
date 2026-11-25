@@ -40,7 +40,7 @@ type Illustrator interface {
 }
 
 // PhotoFinder looks for a real photo of the article's subject
-// (realphoto.Finder). It never fails; Result.Found says whether it found one.
+// (realphoto.Finder). The result distinguishes transient and definitive misses.
 type PhotoFinder interface {
 	Find(ctx context.Context, request realphoto.Request) realphoto.Result
 }
@@ -237,14 +237,17 @@ func (w *Worker) ours(article Article) bool {
 	return w.ownPrefix == "" || strings.HasPrefix(article.FeaturedImage, w.ownPrefix)
 }
 
-// tryPhoto looks for and stores a real photo. done is true when the article
-// got one; every failure short of a cancelled context or a failed database
-// write leaves the worker to decide whether it can draw an illustration.
+// tryPhoto looks for and stores a real photo. done is true when it records
+// an image or records a transient miss for an article with a featured photo.
 func (w *Worker) tryPhoto(ctx context.Context, logger *slog.Logger, article Article, slot int) (bool, error) {
 	if w.photos == nil || w.photoStore == nil {
 		return false, nil
 	}
 	found := w.photos.Find(ctx, PhotoRequest(article))
+	if found.Transient && article.FeaturedPhotoURL != "" {
+		logger.WarnContext(ctx, "inline photo search failed", "attempt", article.Attempts+1, "reason", found.Reason)
+		return true, w.fail(ctx, article, "photo search failed: "+found.Reason, article.Attempts+1)
+	}
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}

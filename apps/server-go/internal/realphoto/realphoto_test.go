@@ -120,6 +120,7 @@ func verdict(quality int, alt string) string {
 
 type commonsFile struct {
 	title, license, licenseURL, artist string
+	objectName, description            string
 	width, height                      int
 	thumb                              string
 }
@@ -141,6 +142,8 @@ func commonsAPI(t *testing.T, files []commonsFile, queries *[]string) http.Handl
 						"LicenseShortName": map[string]any{"value": file.license},
 						"LicenseUrl":       map[string]any{"value": file.licenseURL},
 						"Artist":           map[string]any{"value": file.artist},
+						"ObjectName":       map[string]any{"value": file.objectName},
+						"ImageDescription": map[string]any{"value": file.description},
 					},
 				}},
 			})

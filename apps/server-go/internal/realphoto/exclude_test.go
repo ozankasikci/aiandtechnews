@@ -13,8 +13,8 @@ import (
 func twoFiles(t *testing.T, queries *[]string) sites {
 	return sites{
 		"commons.wikimedia.org": commonsAPI(t, []commonsFile{
-			{title: "File:Good.jpg", license: "CC BY-SA 4.0", artist: "Jane Doe", width: 3200, height: 1800, thumb: "https://upload.wikimedia.org/good.png"},
-			{title: "File:Better.jpg", license: "CC BY 2.0", artist: "John Roe", width: 4000, height: 2250, thumb: "https://upload.wikimedia.org/better.png"},
+			{title: "File:Good.jpg", description: "Bret Taylor at a conference.", license: "CC BY-SA 4.0", artist: "Jane Doe", width: 3200, height: 1800, thumb: "https://upload.wikimedia.org/good.png"},
+			{title: "File:Better.jpg", description: "Bret Taylor on stage.", license: "CC BY 2.0", artist: "John Roe", width: 4000, height: 2250, thumb: "https://upload.wikimedia.org/better.png"},
 		}, queries),
 		"upload.wikimedia.org": func(w http.ResponseWriter, r *http.Request) {
 			fill := map[string]color.RGBA{"/good.png": green, "/better.png": blue}[r.URL.Path]
