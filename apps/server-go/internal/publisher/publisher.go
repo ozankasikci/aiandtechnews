@@ -78,7 +78,7 @@ type ImageCredit struct {
 	LicenseURL string
 	PhotoURL   string
 	Alt        string
-	StandIn    *realphoto.StandInUse
+	SubjectUse *realphoto.FeaturedSubjectUse
 }
 
 // Illustration is a stored featured image. Discard removes it when the

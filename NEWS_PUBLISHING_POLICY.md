@@ -122,7 +122,10 @@ These rules apply to the Go publisher (`internal/illustration`, backed by `inter
     - A company leader can stand in only for that company's funding, leadership change, earnings, acquisition or lawsuit story.
     - Reject photos of buildings or places when people are the main subject or dominate the foreground.
     - Commons person photos require a capture year at most five years old in either slot, and other featured Commons photos with a known capture year may be at most ten years old.
-    - A featured stand-in is skipped if the last seven days included a stand-in of the same kind with the same subject or the same known maker.
+    - A featured stand-in is skipped if the last seven days included a recorded featured subject of the same kind with the same subject or the same known maker.
+    - Maker names also match when one is a leading whole-word prefix of the other after ignoring case and collapsing whitespace.
+    - Record featured photos of the story's own person under the person's name, kind and maker for later stand-in checks only.
+    - Research stories may use an exact-subject photo when photographable and never use stand-ins.
 
 ## Daily automation contract
 

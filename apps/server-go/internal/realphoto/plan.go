@@ -52,10 +52,13 @@ const (
 
 var standInKinds = []string{StandInPerson, StandInPlace, StandInProduct}
 
-const storyTypeOther = "other"
+const (
+	storyTypeResearch = "research"
+	storyTypeOther    = "other"
+)
 
 var corporateStoryTypes = []string{"funding", "leadership_change", "earnings", "acquisition", "lawsuit"}
-var otherStoryTypes = []string{"product", "research", "policy", storyTypeOther}
+var otherStoryTypes = []string{"product", storyTypeResearch, "policy", storyTypeOther}
 
 const planPrompt = `You pick the in-article photo for a technology news article. Decide whether the story has ONE concrete, photographable subject that a real photo could show.
 
@@ -136,7 +139,7 @@ func ParsePlan(raw string) (Plan, error) {
 	if !corporate && !slices.Contains(otherStoryTypes, plan.StoryType) {
 		plan.StoryType = storyTypeOther
 	}
-	if plan.Photographable {
+	if plan.Photographable || plan.StoryType == storyTypeResearch {
 		plan.StandIns = nil
 	} else {
 		plan.StandIns = cleanStandIns(plan.StandIns, corporate)

@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/png"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -45,8 +47,8 @@ func TestWriteRunExcludesStoredAndNewlyChosenStandIns(t *testing.T) {
 	}
 	defer out.Close()
 
-	stored := realphoto.StandInUse{Subject: "Existing headquarters", Kind: realphoto.StandInPlace, Maker: "Existing Labs"}
-	selected := realphoto.StandInUse{Subject: "Another headquarters", Kind: realphoto.StandInPlace, Maker: "Another Labs"}
+	stored := realphoto.FeaturedSubjectUse{Subject: "Existing headquarters", Kind: realphoto.StandInPlace, Maker: "Existing Labs"}
+	selected := realphoto.FeaturedSubjectUse{Subject: "Another headquarters", Kind: realphoto.StandInPlace, Maker: "Another Labs"}
 	var requests []string
 	var photo bytes.Buffer
 	if err := png.Encode(&photo, image.NewRGBA(image.Rect(0, 0, 16, 9))); err != nil {
@@ -54,12 +56,12 @@ func TestWriteRunExcludesStoredAndNewlyChosenStandIns(t *testing.T) {
 	}
 	finder := stubPhotoFinder(func(_ context.Context, request realphoto.Request) realphoto.Result {
 		requests = append(requests, request.Slug)
-		want := []realphoto.StandInUse{stored}
+		want := []realphoto.FeaturedSubjectUse{stored}
 		if request.Slug == "two" {
 			want = append(want, selected)
 		}
-		if !slices.Equal(request.RecentStandIns, want) {
-			t.Errorf("%s recent stand-ins = %+v, want %+v", request.Slug, request.RecentStandIns, want)
+		if !slices.Equal(request.RecentFeaturedSubjects, want) {
+			t.Errorf("%s recent stand-ins = %+v, want %+v", request.Slug, request.RecentFeaturedSubjects, want)
 		}
 		if request.Slug == "two" {
 			return realphoto.Result{Reason: "no usable photo of a stand-in subject; stand-in Another headquarters skipped as recently used"}
@@ -85,6 +87,75 @@ func TestWriteRunExcludesStoredAndNewlyChosenStandIns(t *testing.T) {
 		if !strings.Contains(string(html), want) {
 			t.Errorf("report lacks %q", want)
 		}
+	}
+}
+
+type dryRunPhotoModel string
+
+func (model dryRunPhotoModel) GenerateJSON(context.Context, string) (string, error) {
+	return string(model), nil
+}
+
+func (dryRunPhotoModel) ReviewImage(context.Context, string, []byte, map[string]any) (string, error) {
+	return "", errors.New("unexpected photo review")
+}
+
+func TestWriteRunSkipsPeopleUsedAsExactSubjects(t *testing.T) {
+	ctx := context.Background()
+	path := photoTryDatabase(t)
+	writer, err := database.OpenExisting(ctx, path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = writer.Exec(`
+		UPDATE article_featured_image_credits SET created_at = datetime('now','-6 days') WHERE article_id = 1;
+		INSERT INTO article_featured_stand_ins(article_id,subject,kind,maker) VALUES (1,'Another Leader','person','Another Labs');`)
+	if err := errors.Join(err, writer.Close()); err != nil {
+		t.Fatal(err)
+	}
+	db, err := openDatabaseCopy(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	out, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+
+	var photo bytes.Buffer
+	if err := png.Encode(&photo, image.NewRGBA(image.Rect(0, 0, 16, 9))); err != nil {
+		t.Fatal(err)
+	}
+	model := dryRunPhotoModel(`{"photographable":false,"story_type":"funding","maker":"Sierra","stand_ins":[
+		{"subject":"Bret Taylor","kind":"person"},{"subject":"Another Leader","kind":"person"}]}`)
+	client := &http.Client{Transport: http.NewFileTransport(http.Dir(t.TempDir()))}
+	realFinder := realphoto.NewFinder(model, model, client, nil).WithCommonsAPI("file:///commons")
+	finder := stubPhotoFinder(func(ctx context.Context, request realphoto.Request) realphoto.Result {
+		if request.Slug == "two" {
+			return realFinder.Find(ctx, request)
+		}
+		return realphoto.Result{
+			Found: true, Image: photo.Bytes(), Credit: &realphoto.Credit{Text: "Photo: Author"},
+			Chosen: &realphoto.Candidate{ImageURL: "https://photo.test/chosen.png"},
+			Plan:   &realphoto.Plan{Photographable: true, Subject: "Bret Taylor", Kind: realphoto.KindPerson, Maker: "Sierra"},
+		}
+	})
+	if err := writeRun(ctx, db, out, finder, "one,two", 0); err != nil {
+		t.Fatal(err)
+	}
+	html, err := out.ReadFile(reportName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"1 of 2 articles got a photo", "stand-in Bret Taylor skipped as recently used", "stand-in Another Leader skipped as recently used"} {
+		if !strings.Contains(string(html), want) {
+			t.Errorf("report lacks %q", want)
+		}
+	}
+	if strings.Contains(string(html), "Stand-in:") {
+		t.Error("report labeled the exact-subject photo as a stand-in")
 	}
 }
 

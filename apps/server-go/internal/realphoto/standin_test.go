@@ -132,7 +132,7 @@ func TestParsePlanGatesPersonStandInsByStoryType(t *testing.T) {
 		{"acquisition", `"story_type":"acquisition",`, "acquisition", true},
 		{"lawsuit", `"story_type":"lawsuit",`, "lawsuit", true},
 		{"product", `"story_type":"product",`, "product", false},
-		{"research", `"story_type":"research",`, "research", false},
+		{"research", `"story_type":" ReSeArCh ",`, "research", false},
 		{"policy", `"story_type":"policy",`, "policy", false},
 		{"other", `"story_type":"other",`, "other", false},
 		{"missing", "", "other", false},
@@ -153,6 +153,9 @@ func TestParsePlanGatesPersonStandInsByStoryType(t *testing.T) {
 			if tc.person {
 				want = "person," + want
 			}
+			if tc.want == "research" {
+				want = ""
+			}
 			var kinds []string
 			for _, standIn := range plan.StandIns {
 				kinds = append(kinds, standIn.Kind)
@@ -161,6 +164,15 @@ func TestParsePlanGatesPersonStandInsByStoryType(t *testing.T) {
 				t.Errorf("stand-in kinds = %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+func TestParsePlanKeepsAPhotographableResearchSubject(t *testing.T) {
+	plan, err := realphoto.ParsePlan(`{"photographable":true,"story_type":"research","kind":"robot",
+		"subject":"Lab robot","stand_ins":[{"subject":"Lab headquarters","kind":"place"}]}`)
+	if err != nil || !plan.Photographable || plan.StoryType != "research" || plan.Kind != "robot" || plan.Subject != "Lab robot" ||
+		len(plan.Queries) != 1 || plan.Queries[0] != plan.Subject || len(plan.StandIns) != 0 {
+		t.Fatalf("plan = %+v, err = %v, want an exact robot photo plan", plan, err)
 	}
 }
 
