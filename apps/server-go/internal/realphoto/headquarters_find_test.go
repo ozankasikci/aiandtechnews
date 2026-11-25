@@ -49,7 +49,8 @@ func TestFindSkipsAFormerOfficeForAHeadquartersStandIn(t *testing.T) {
 	if first.ImageURL != formerURL || first.Usable || !strings.Contains(first.Reason, "different site") {
 		t.Errorf("first candidate = %q, usable = %t, reason = %q, want the former office rejected as a different site", first.ImageURL, first.Usable, first.Reason)
 	}
-	if !result.Found || result.StandIn == nil || result.StandIn.Subject != subject || result.Chosen == nil ||
+	const wantSubject = "OpenAI headquarters, 1515 Third Street, Mission Bay, San Francisco"
+	if !result.Found || result.StandIn == nil || result.StandIn.Subject != wantSubject || result.Chosen == nil ||
 		result.Chosen.ImageURL != currentURL || !bytes.Equal(result.Image, current) {
 		t.Errorf("found = %t, stand-in = %v, reason = %q, want the current headquarters photo", result.Found, result.StandIn, result.Reason)
 	}
