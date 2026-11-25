@@ -31,8 +31,10 @@ type NewArticle struct {
 	Excerpt       string
 	Content       string
 	FeaturedImage string
-	Source        string
-	SourceURL     string
+	// FeaturedCredit is set when the featured image is a real photo.
+	FeaturedCredit *ImageCredit
+	Source         string
+	SourceURL      string
 	// Optional search snippets; empty values are stored as NULL.
 	MetaTitle       string
 	MetaDescription string
@@ -184,6 +186,11 @@ func (a *SQLiteArticles) Publish(ctx context.Context, article NewArticle) (id in
 			return 0, err
 		}
 	}
+	if article.FeaturedCredit != nil {
+		if err = insertFeaturedCredit(ctx, tx, id, *article.FeaturedCredit, stamp); err != nil {
+			return 0, err
+		}
+	}
 	if article.CandidateID != 0 {
 		if err = markCandidatePublished(ctx, tx, article.CandidateID, id, a.now()); err != nil {
 			return 0, err
@@ -208,6 +215,36 @@ func insertSummary(ctx context.Context, tx *sql.Tx, articleID int64, tldr []stri
 		return fmt.Errorf("insert article summary: %w", err)
 	}
 	return nil
+}
+
+func insertFeaturedCredit(ctx context.Context, tx *sql.Tx, articleID int64, credit ImageCredit, stamp string) error {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO article_featured_image_credits
+		(article_id, kind, credit, credit_url, license, license_url, photo_url, alt, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		articleID, credit.Kind, credit.Text, credit.URL, credit.License, credit.LicenseURL, credit.PhotoURL, credit.Alt, stamp); err != nil {
+		return fmt.Errorf("insert featured image credit: %w", err)
+	}
+	return nil
+}
+
+// RecentFeaturedPhotoURLs lists the photos used as featured images since
+// the given time, newest first, so the photo step does not pick one again.
+func (a *SQLiteArticles) RecentFeaturedPhotoURLs(ctx context.Context, since time.Time) ([]string, error) {
+	rows, err := a.db.QueryContext(ctx, `SELECT photo_url FROM article_featured_image_credits
+		WHERE photo_url <> '' AND created_at >= ? ORDER BY article_id DESC`, since.UTC().Format(sqliteDateTime))
+	if err != nil {
+		return nil, fmt.Errorf("read recent featured photos: %w", err)
+	}
+	defer rows.Close()
+	var urls []string
+	for rows.Next() {
+		var url string
+		if err := rows.Scan(&url); err != nil {
+			return nil, fmt.Errorf("scan recent featured photo: %w", err)
+		}
+		urls = append(urls, url)
+	}
+	return urls, rows.Err()
 }
 
 // markCandidatePublished links a processing candidate to its new article.

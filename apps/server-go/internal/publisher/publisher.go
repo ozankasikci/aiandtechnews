@@ -44,6 +44,9 @@ type IllustrationRequest struct {
 	Excerpt           string
 	Content           string
 	ReferenceImageURL string
+	// SourceURL is the news source's page. The photo step reads it only to
+	// find the maker's own site; it is never credited or shown.
+	SourceURL string
 	// AvoidPalettes names colour palettes used by the latest articles, so
 	// consecutive featured images don't share colours.
 	AvoidPalettes []string
@@ -59,10 +62,26 @@ type IllustrationRequest struct {
 	AvoidShots []string
 }
 
+// ImageCredit credits a featured image that is a real photo. Text is the
+// caption ("Photo: Jane Doe / CC BY 4.0, via Wikimedia Commons"), URL the
+// page it links to, PhotoURL the file the photo was copied from, and Alt one
+// sentence saying what the photo shows.
+type ImageCredit struct {
+	Kind       string
+	Text       string
+	URL        string
+	License    string
+	LicenseURL string
+	PhotoURL   string
+	Alt        string
+}
+
 // Illustration is a stored featured image. Discard removes it when the
-// article could not be published after the image was uploaded.
+// article could not be published after the image was uploaded. Credit is set
+// only when the image is a real photo.
 type Illustration struct {
 	URL     string
+	Credit  *ImageCredit
 	Discard func(context.Context)
 }
 
@@ -258,13 +277,14 @@ func (p *Publisher) publish(ctx context.Context, candidate newsroom.Candidate) (
 	}
 	illustration, err := p.Illustrator.Illustrate(ctx, IllustrationRequest{
 		Slug: finalSlug, Title: article.Title, Excerpt: article.Excerpt, Content: article.Content, ReferenceImageURL: reference,
+		SourceURL: canonicalURL,
 	})
 	if err != nil {
 		return 0, "", fmt.Errorf("featured image: %w", err)
 	}
 	articleID, err := p.Articles.Publish(ctx, NewArticle{
 		CandidateID: candidate.ID, Title: article.Title, Slug: finalSlug, Excerpt: article.Excerpt, Content: article.Content,
-		FeaturedImage: illustration.URL, Source: source, SourceURL: canonicalURL,
+		FeaturedImage: illustration.URL, FeaturedCredit: illustration.Credit, Source: source, SourceURL: canonicalURL,
 		MetaTitle: article.MetaTitle, MetaDescription: article.MetaDescription,
 		TLDR: article.TLDR, WhyItMatters: article.WhyItMatters,
 	})

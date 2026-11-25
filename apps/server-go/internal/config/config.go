@@ -140,7 +140,7 @@ type Config struct {
 	// spelling of FeaturedImageChain: generate means [gemini], source means [source].
 	FeaturedImageSource string
 	// FeaturedImageChain is FEATURED_IMAGE_CHAIN, the providers tried in
-	// order: codex, gemini and source, e.g. "codex,gemini,source".
+	// order: photo, codex, gemini and source, e.g. "photo,codex,gemini".
 	FeaturedImageChain []string
 	// FeaturedImageAnalyzers is FEATURED_IMAGE_ANALYZER: the analyzers
 	// (codex, gemini) tried in order. It defaults to the chain's codex and
@@ -986,20 +986,25 @@ const (
 	ImageProviderCodex  = "codex"
 	ImageProviderGemini = "gemini"
 	ImageProviderSource = "source"
+	ImageProviderPhoto  = "photo"
 )
 
 // DefaultCodexTimeout bounds one codex exec run when CODEX_TIMEOUT is unset.
 const DefaultCodexTimeout = 4 * time.Minute
 
 // ParseImageChain parses FEATURED_IMAGE_CHAIN: a comma-separated, non-empty
-// list of codex, gemini and source without repeats.
+// list of photo, codex, gemini and source without repeats. photo (a real,
+// credited photo) often finds nothing, so it must not be the only provider.
 func ParseImageChain(value string) ([]string, error) {
-	chain, err := parseProviderList("FEATURED_IMAGE_CHAIN", value, []string{ImageProviderCodex, ImageProviderGemini, ImageProviderSource})
+	chain, err := parseProviderList("FEATURED_IMAGE_CHAIN", value, []string{ImageProviderPhoto, ImageProviderCodex, ImageProviderGemini, ImageProviderSource})
 	if err != nil {
 		return nil, err
 	}
 	if len(chain) == 0 {
-		return nil, errors.New("FEATURED_IMAGE_CHAIN must name at least one of codex, gemini, source")
+		return nil, errors.New("FEATURED_IMAGE_CHAIN must name at least one of photo, codex, gemini, source")
+	}
+	if len(chain) == 1 && chain[0] == ImageProviderPhoto {
+		return nil, errors.New("FEATURED_IMAGE_CHAIN: photo needs another provider to fall back on (codex, gemini or source)")
 	}
 	return chain, nil
 }

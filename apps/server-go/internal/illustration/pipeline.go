@@ -34,11 +34,12 @@ var ErrNoSourceImage = errors.New("no usable source image")
 // provider could run.
 var ErrNoBrief = errors.New("no analyzer produced a brief")
 
-// Step is one entry of FEATURED_IMAGE_CHAIN: a generating provider, or nil
-// Provider for "source" (copy the source image).
+// Step is one entry of FEATURED_IMAGE_CHAIN: a generating provider, a photo
+// finder for "photo", or neither for "source" (copy the source image).
 type Step struct {
 	Name     string
 	Provider Provider
+	Photos   PhotoFinder
 }
 
 // SourceStep is the chain step that publishes the source image itself.
@@ -57,6 +58,9 @@ type PipelineDeps struct {
 	Brands    brands.Catalog // logos the brief may ask for; empty disables logos
 	Store     ImageStore     // only Illustrate uses it
 	History   History        // only Illustrate uses it; nil disables variety
+	// RecentPhotos lists photos used lately so the "photo" step does not
+	// repeat one; nil lets it repeat.
+	RecentPhotos RecentPhotos
 	// Vision checks that an inline image's style reference is one of our
 	// drawn illustrations; nil makes every inline image fail that check.
 	Vision VisionModel
@@ -107,30 +111,33 @@ type Attempt struct {
 
 // Report says how an image was made.
 type Report struct {
-	Provider    string    `json:"provider,omitempty"`
-	Style       string    `json:"style,omitempty"`
-	Palette     string    `json:"palette,omitempty"`
-	Composition string    `json:"composition,omitempty"`
-	Shot        string    `json:"shot,omitempty"`
-	Brands      []string  `json:"brands,omitempty"`
-	LogoBadge   bool      `json:"logo_badge,omitempty"`
-	StyleReason string    `json:"style_reason,omitempty"`
-	Analyzer    string    `json:"analyzer,omitempty"`
-	Brief       *Brief    `json:"brief,omitempty"`
-	Collage     bool      `json:"collage"`
-	CollageNote string    `json:"collage_note,omitempty"`
-	SourceImage bool      `json:"source_image"`
-	Attempts    []Attempt `json:"attempts"`
-	Errors      []string  `json:"errors,omitempty"`
-	Seconds     float64   `json:"seconds"`
-	Width       int       `json:"width,omitempty"`
-	Height      int       `json:"height,omitempty"`
+	Provider    string       `json:"provider,omitempty"`
+	Style       string       `json:"style,omitempty"`
+	Palette     string       `json:"palette,omitempty"`
+	Composition string       `json:"composition,omitempty"`
+	Shot        string       `json:"shot,omitempty"`
+	Brands      []string     `json:"brands,omitempty"`
+	LogoBadge   bool         `json:"logo_badge,omitempty"`
+	StyleReason string       `json:"style_reason,omitempty"`
+	Analyzer    string       `json:"analyzer,omitempty"`
+	Brief       *Brief       `json:"brief,omitempty"`
+	Collage     bool         `json:"collage"`
+	CollageNote string       `json:"collage_note,omitempty"`
+	SourceImage bool         `json:"source_image"`
+	Photo       *PhotoReport `json:"photo,omitempty"`
+	Attempts    []Attempt    `json:"attempts"`
+	Errors      []string     `json:"errors,omitempty"`
+	Seconds     float64      `json:"seconds"`
+	Width       int          `json:"width,omitempty"`
+	Height      int          `json:"height,omitempty"`
 }
 
-// Result is the final image (PNG, or the source's own bytes) and its report.
+// Result is the final image bytes, their report, and the credit when the
+// image is a real photo.
 type Result struct {
 	Image  []byte
 	Report Report
+	Credit *publisher.ImageCredit
 }
 
 // Illustrate produces the image, encodes it as WebP and stores it.
@@ -148,6 +155,7 @@ func (p *Pipeline) Illustrate(ctx context.Context, request publisher.Illustratio
 	if err != nil {
 		return publisher.Illustration{}, fmt.Errorf("store featured image: %w", err)
 	}
+	illustration.Credit = result.Credit
 	p.recordChoice(ctx, result.Report)
 	return illustration, nil
 }
@@ -167,9 +175,9 @@ func (p *Pipeline) applyVariety(ctx context.Context, request *publisher.Illustra
 	request.AvoidStyles, request.AvoidPalettes, request.PreferComposition, request.AvoidShots = variety.AvoidStyles, variety.AvoidPalettes, variety.PreferComposition, variety.AvoidShots
 }
 
-// recordChoice remembers a generated image's look; the source photo has none.
+// recordChoice remembers a generated image's look.
 func (p *Pipeline) recordChoice(ctx context.Context, report Report) {
-	if p.deps.History == nil || report.SourceImage || report.Brief == nil {
+	if p.deps.History == nil || report.SourceImage || report.Photo != nil || report.Brief == nil {
 		return
 	}
 	style := report.Brief.Style
@@ -184,9 +192,8 @@ func (p *Pipeline) Produce(ctx context.Context, request publisher.IllustrationRe
 }
 
 // ProduceGenerated is Produce for replacing a featured image that is a news
-// source's photo: it never fetches the request's reference image, never runs
-// the "source" step, and never builds a collage, so nothing of the source's
-// photo can reach the result. It does not store anything.
+// source's photo with a drawing. It skips the "source" and "photo" steps, the
+// reference image fetch, and collage. It does not store anything.
 func (p *Pipeline) ProduceGenerated(ctx context.Context, request publisher.IllustrationRequest) (Result, error) {
 	request.ReferenceImageURL = ""
 	return p.produce(ctx, request, true)
@@ -236,7 +243,7 @@ func (p *Pipeline) produce(ctx context.Context, request publisher.IllustrationRe
 		}
 	}
 	logger.InfoContext(ctx, "featured image ready", "provider", run.report.Provider, "generations", generations)
-	return Result{Image: image, Report: *run.report}, nil
+	return Result{Image: image, Report: *run.report, Credit: run.credit}, nil
 }
 
 // AnalyzeOnly fetches the source image and runs the analyzers, without
@@ -259,13 +266,14 @@ type pipelineRun struct {
 	report  *Report
 	errs    []error
 	source  []byte
-	brands  []brands.Brand
+	// credit is set when the "photo" step supplied the image.
+	credit *publisher.ImageCredit
+	brands []brands.Brand
 	// allowedStyles are the styles offered to the analyzer (for fallbacks).
 	allowedStyles styles.Catalog
 	// styleReference is the featured image an inline image is drawn like.
 	styleReference []byte
-	// generatedOnly never touches a source photo: no fetch, no "source" step,
-	// no collage (see Pipeline.ProduceGenerated).
+	// generatedOnly restricts the run to drawing (see Pipeline.ProduceGenerated).
 	generatedOnly bool
 }
 
@@ -277,12 +285,27 @@ func (r *pipelineRun) fail(provider string, attempt int, started time.Time, err 
 
 func (r *pipelineRun) produce(ctx context.Context) ([]byte, error) {
 	deps := r.p.deps
+	// A real photo needs neither the source image nor a brief, so the photo
+	// steps that lead the chain run before both.
+	lead := 0
+	for ; lead < len(deps.Chain) && deps.Chain[lead].Photos != nil; lead++ {
+		if r.generatedOnly {
+			continue
+		}
+		if image, ok := r.photo(ctx, deps.Chain[lead]); ok {
+			return image, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
+	chain := deps.Chain[lead:]
 	if !r.generatedOnly {
 		r.fetchSource(ctx)
 	}
 
 	var brief *Brief
-	for _, step := range deps.Chain {
+	for _, step := range chain {
 		if step.Provider != nil {
 			brief = r.analyze(ctx)
 			break
@@ -298,9 +321,18 @@ func (r *pipelineRun) produce(ctx context.Context) ([]byte, error) {
 		}
 	}
 
-	for _, step := range deps.Chain {
+	for _, step := range chain {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if step.Photos != nil {
+			if r.generatedOnly {
+				continue
+			}
+			if image, ok := r.photo(ctx, step); ok {
+				return image, nil
+			}
+			continue
 		}
 		if step.Provider == nil {
 			if r.generatedOnly {
@@ -571,7 +603,7 @@ func classifyChainFailure(errs []error) error {
 		if publisher.IsSystemFault(err) || errors.Is(err, ErrCodexAuth) {
 			return publisher.SystemFault(joined)
 		}
-		if !publisher.IsPermanent(err) && !errors.Is(err, ErrNoSourceImage) && !errors.Is(err, ErrNoBrief) {
+		if !publisher.IsPermanent(err) && !errors.Is(err, ErrNoSourceImage) && !errors.Is(err, ErrNoBrief) && !errors.Is(err, ErrNoPhoto) {
 			permanent = false
 		}
 	}

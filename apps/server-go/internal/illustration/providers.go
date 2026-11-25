@@ -18,6 +18,7 @@ const (
 	ProviderCodex  = "codex"
 	ProviderGemini = "gemini"
 	ProviderSource = "source"
+	ProviderPhoto  = "photo"
 )
 
 // ImageRules are appended to every generation prompt.

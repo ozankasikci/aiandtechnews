@@ -592,6 +592,7 @@ func TestLoadFeaturedImageChain(t *testing.T) {
 		{map[string]string{"FEATURED_IMAGE_SOURCE": "source"}, []string{"source"}, nil},
 		{map[string]string{"FEATURED_IMAGE_SOURCE": "generate"}, []string{"gemini"}, []string{"gemini"}},
 		{map[string]string{"FEATURED_IMAGE_CHAIN": "codex,gemini,source"}, []string{"codex", "gemini", "source"}, []string{"codex", "gemini"}},
+		{map[string]string{"FEATURED_IMAGE_CHAIN": "photo,codex,gemini"}, []string{"photo", "codex", "gemini"}, []string{"codex", "gemini"}},
 		{map[string]string{"FEATURED_IMAGE_CHAIN": " Gemini , codex ", "FEATURED_IMAGE_SOURCE": "source"}, []string{"gemini", "codex"}, []string{"gemini", "codex"}},
 		{map[string]string{"FEATURED_IMAGE_CHAIN": "codex,source", "FEATURED_IMAGE_ANALYZER": "gemini"}, []string{"codex", "source"}, []string{"gemini"}},
 	}
@@ -606,6 +607,7 @@ func TestLoadFeaturedImageChain(t *testing.T) {
 	}
 	for _, bad := range []map[string]string{
 		{"FEATURED_IMAGE_CHAIN": "codex,dalle"},
+		{"FEATURED_IMAGE_CHAIN": "photo"},
 		{"FEATURED_IMAGE_CHAIN": "codex,codex"},
 		{"FEATURED_IMAGE_CHAIN": " , "},
 		{"FEATURED_IMAGE_ANALYZER": "source"},

@@ -19,7 +19,7 @@ type GeminiClient interface {
 
 // PipelineConfig is the configuration-level description of a pipeline.
 type PipelineConfig struct {
-	Chain        []string // codex, gemini, source
+	Chain        []string // photo, codex, gemini, source
 	Analyzers    []string // codex, gemini
 	CodexBin     string
 	CodexNodeDir string
@@ -28,6 +28,9 @@ type PipelineConfig struct {
 	Gemini       GeminiClient
 	Store        ImageStore
 	History      History
+	// Photos finds real photos for the "photo" step; nil drops the step.
+	Photos       PhotoFinder
+	RecentPhotos RecentPhotos
 	HTTP         *http.Client
 	Logger       *slog.Logger
 }
@@ -38,17 +41,22 @@ func BuildPipelineDeps(cfg PipelineConfig) PipelineDeps {
 	catalog := styles.MustLoad()
 	runner := &CodexRunner{Bin: cfg.CodexBin, NodeDir: cfg.CodexNodeDir, Timeout: cfg.CodexTimeout}
 	deps := PipelineDeps{
-		Reviewer: NewGeminiReviewer(cfg.Gemini),
-		Vision:   cfg.Gemini,
-		Styles:   catalog,
-		Brands:   brands.MustLoad(),
-		Store:    cfg.Store,
-		History:  cfg.History,
-		HTTP:     cfg.HTTP,
-		Logger:   cfg.Logger,
+		Reviewer:     NewGeminiReviewer(cfg.Gemini),
+		Vision:       cfg.Gemini,
+		Styles:       catalog,
+		Brands:       brands.MustLoad(),
+		Store:        cfg.Store,
+		History:      cfg.History,
+		RecentPhotos: cfg.RecentPhotos,
+		HTTP:         cfg.HTTP,
+		Logger:       cfg.Logger,
 	}
 	for _, name := range cfg.Chain {
 		switch name {
+		case ProviderPhoto:
+			if cfg.Photos != nil {
+				deps.Chain = append(deps.Chain, PhotoStep(cfg.Photos))
+			}
 		case ProviderCodex:
 			deps.Chain = append(deps.Chain, ProviderStep(NewCodexProvider(runner)))
 		case ProviderGemini:
