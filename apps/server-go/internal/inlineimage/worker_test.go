@@ -176,10 +176,14 @@ func TestOwnImagePrefix(t *testing.T) {
 type fakeFinder struct {
 	result   realphoto.Result
 	requests []realphoto.Request
+	cancel   context.CancelFunc
 }
 
 func (f *fakeFinder) Find(_ context.Context, request realphoto.Request) realphoto.Result {
 	f.requests = append(f.requests, request)
+	if f.cancel != nil {
+		f.cancel()
+	}
 	return f.result
 }
 
@@ -270,6 +274,20 @@ func TestWorkerRetriesATransientMissWhenTheFeaturedImageIsAPhoto(t *testing.T) {
 	if len(illustrator.requests) != 0 || len(store.marks) != 1 || store.marks[0].ready ||
 		store.marks[0].attempts != article.Attempts+1 || !strings.Contains(store.marks[0].message, "planner offline") {
 		t.Fatalf("marks = %+v, drawings = %d, want one retryable failure", store.marks, len(illustrator.requests))
+	}
+}
+
+func TestWorkerDoesNotSpendAnAttemptWhenPhotoSearchIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	article := photoArticle()
+	article.FeaturedPhotoURL = "https://upload.wikimedia.org/x.jpg"
+	store := &fakeStore{articles: []inlineimage.Article{article}}
+	finder := &fakeFinder{cancel: cancel, result: realphoto.Result{Reason: "cancelled", Transient: true}}
+	worker := newWorker(store, &fakeIllustrator{}).WithPhotos(finder, &fakePhotoStore{})
+	tried, err := worker.RunOnce(ctx)
+	if !tried || !errors.Is(err, context.Canceled) || len(store.marks) != 0 {
+		t.Fatalf("tried = %t, err = %v, marks = %+v, want cancellation with no store marks", tried, err, store.marks)
 	}
 }
 

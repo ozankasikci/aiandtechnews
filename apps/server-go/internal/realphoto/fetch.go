@@ -65,7 +65,6 @@ func (f *Finder) get(ctx context.Context, rawURL, accept string, maxBytes int64,
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusTooManyRequests {
-		recordRateLimit(ctx)
 		return fetched{}, fmt.Errorf("HTTP 429: %w", ErrRateLimited)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
@@ -110,5 +109,8 @@ func (f *Finder) getPage(ctx context.Context, rawURL string) (fetched, error) {
 
 func (f *Finder) getImage(ctx context.Context, rawURL string) ([]byte, error) {
 	page, err := f.get(ctx, rawURL, "image/avif;q=0,image/webp,image/jpeg,image/png,image/*;q=0.8", maxImageBytes, false, isRasterImage)
+	if err != nil {
+		recordRateLimit(ctx, err)
+	}
 	return page.Body, err
 }

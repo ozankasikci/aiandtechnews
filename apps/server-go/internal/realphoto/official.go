@@ -57,7 +57,11 @@ func (f *Finder) official(ctx context.Context, request Request, plan Plan) ([]Ca
 	lastPage := pageURL
 	for _, page := range f.makerPages(ctx, plan) {
 		fetched, fetchErr := f.getPage(ctx, page)
-		if fetchErr != nil || !onMakerDomain(fetched.FinalURL, plan.MakerDomain) {
+		if fetchErr != nil {
+			recordRateLimit(ctx, fetchErr)
+			continue
+		}
+		if !onMakerDomain(fetched.FinalURL, plan.MakerDomain) {
 			continue
 		}
 		name := plan.Maker
@@ -96,7 +100,7 @@ var bareURL = regexp.MustCompile(`https://[^\s<>()"'\]\[]+`)
 // to no maker site: pages a web search finds on the maker's domain, then the
 // planner's suggestions, at most 3, each on the maker's own domain.
 func (f *Finder) makerPages(ctx context.Context, plan Plan) []string {
-	if plan.MakerDomain == "" || plan.Kind == "person" {
+	if plan.MakerDomain == "" || plan.Kind == KindPerson {
 		return nil
 	}
 	var pages []string
@@ -113,7 +117,7 @@ func (f *Finder) makerPages(ctx context.Context, plan Plan) []string {
 		}
 		answer, err := f.search.SearchText(ctx, fmt.Sprintf(makerPagePrompt, plan.MakerDomain, plan.Subject, maker, plan.MakerDomain))
 		if err != nil {
-			recordModelRateLimit(ctx, err)
+			recordRateLimit(ctx, err)
 			f.logger.WarnContext(ctx, "maker page search failed", "subject", plan.Subject, "error", err)
 		}
 		for _, page := range bareURL.FindAllString(answer, -1) {
@@ -157,6 +161,7 @@ func (f *Finder) officialFromSource(ctx context.Context, request Request, plan P
 	}
 	page, err := f.getPage(ctx, link.URL)
 	if err != nil {
+		recordRateLimit(ctx, err)
 		return nil, link.URL, maker, fmt.Errorf("official page: %w", err)
 	}
 	pageURL := page.FinalURL
@@ -222,8 +227,8 @@ func (f *Finder) officialImages(ctx context.Context, request Request, plan Plan,
 	return candidates, f.verifyAll(ctx, plan, request, KindOfficial, candidates)
 }
 
-// readTitles fills in the linked pages' titles, a few at a time; a page
-// that cannot be read keeps an empty title.
+// readTitles fills in the linked pages' titles, a few at a time. A failed
+// title lookup leaves an empty title and does not affect search retries.
 func (f *Finder) readTitles(ctx context.Context, links []Link) {
 	var wg sync.WaitGroup
 	limit := make(chan struct{}, 4)
@@ -275,7 +280,7 @@ func (f *Finder) chooseOfficial(ctx context.Context, request Request, plan Plan,
 	}
 	raw, err := f.text.GenerateJSON(ctx, fmt.Sprintf(officialPrompt, plan.Subject, maker, request.Title, list.String()))
 	if err != nil {
-		recordModelRateLimit(ctx, err)
+		recordRateLimit(ctx, err)
 		return officialChoice{}, err
 	}
 	return ParseOfficialChoice(raw, len(links))

@@ -244,12 +244,12 @@ func (w *Worker) tryPhoto(ctx context.Context, logger *slog.Logger, article Arti
 		return false, nil
 	}
 	found := w.photos.Find(ctx, PhotoRequest(article))
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if found.Transient && article.FeaturedPhotoURL != "" {
 		logger.WarnContext(ctx, "inline photo search failed", "attempt", article.Attempts+1, "reason", found.Reason)
 		return true, w.fail(ctx, article, "photo search failed: "+found.Reason, article.Attempts+1)
-	}
-	if err := ctx.Err(); err != nil {
-		return false, err
 	}
 	if !found.Found || found.Credit == nil || len(found.Image) == 0 {
 		if article.FeaturedPhotoURL == "" {

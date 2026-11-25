@@ -59,14 +59,14 @@ Not photographable: software, apps, AI models, websites, features, policies, law
 Return only JSON with exactly this shape:
 {"photographable":true,"subject":"...","kind":"product|device|robot|vehicle|building|place|event|person|none","queries":["...","..."],"maker":"...","maker_domain":"...","official_pages":["..."],"reason":"...","stand_ins":[{"subject":"...","kind":"person|place|product_in_use","queries":["...","..."]}]}
 
-subject: the exact subject, as specific as possible (maker, product name and model, e.g. "WiCi One desk robot"); empty when not photographable.
+subject: the exact subject, as specific as possible (maker, product name and model, e.g. "WiCi One desk robot"); empty when not photographable. For kind "person", use the person's full name and nothing else.
 queries: two short Wikimedia Commons search queries for a photo of that exact subject, the most specific first (e.g. "WiCi One robot", "WiCi robot"). Plain words, no quotes or operators.
 maker: the company or organisation that makes or owns the subject (for a person, their organisation); empty if unknown.
 maker_domain: the maker's official website domain (e.g. "nvidia.com"), only if you are sure; empty otherwise.
 official_pages: up to 2 full https URLs on maker_domain for this exact subject: its product page or the maker's own announcement. Only URLs you are confident exist; [] otherwise, and always [] for a person.
 reason: one short sentence.
 stand_ins: [] when photographable is true. When it is false, up to three real things a photo could honestly show in place of the subject, the most fitting first, or [] if none is honest:
-- "person": the one clear leader of the company the story is about (its chief executive or founder), only when the story is a corporate action by that company: funding, a leadership change, earnings, an acquisition, a lawsuit. subject is the person's full name.
+- "person": the one clear leader of the company the story is about (its chief executive or founder), only when the story is a corporate action by that company: funding, a leadership change, earnings, an acquisition, a lawsuit. subject is the person's full name and nothing else.
 - "place": the headquarters of the company, regulator or court the story is about. subject names the building, e.g. "Nvidia headquarters".
 - "product_in_use": a software product people see on a device, when the story is about that product. subject says what the photo shows, e.g. "ChatGPT app on a smartphone".
 Never offer a stand-in for a study, a market trend, or a story about several companies at once. Each stand-in has two short Wikimedia Commons search queries, written like queries above.
@@ -111,6 +111,7 @@ func ParsePlan(raw string) (Plan, error) {
 		return Plan{}, fmt.Errorf("unparsable plan: %w", err)
 	}
 	plan.Subject = oneLine(plan.Subject, 120)
+	plan.Kind = strings.ToLower(strings.TrimSpace(plan.Kind))
 	plan.Maker = oneLine(plan.Maker, 80)
 	plan.Reason = oneLine(plan.Reason, 200)
 	plan.Queries = cleanQueries(plan.Queries)

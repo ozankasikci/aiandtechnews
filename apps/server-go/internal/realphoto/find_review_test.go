@@ -84,8 +84,8 @@ func TestFindStopsDownloadingOfficialImagesWhenRateLimited(t *testing.T) {
 
 func assertRateLimitedCandidates(t *testing.T, result realphoto.Result) {
 	t.Helper()
-	if result.Found || len(result.Candidates) != 2 {
-		t.Fatalf("result = %+v, want two rejected candidates", result)
+	if result.Found || !result.Transient || len(result.Candidates) != 2 {
+		t.Fatalf("result = %+v, want a transient miss with two rejected candidates", result)
 	}
 	if !strings.Contains(result.Candidates[0].Reason, "HTTP 429") || result.Candidates[1].Reason != "not checked (rate limited)" {
 		t.Fatalf("candidate reasons = %q and %q", result.Candidates[0].Reason, result.Candidates[1].Reason)

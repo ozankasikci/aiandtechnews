@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"slices"
 	"sort"
@@ -109,7 +111,8 @@ type Candidate struct {
 	Usable      bool     `json:"usable"`
 	Reason      string   `json:"reason,omitempty"`
 
-	data []byte
+	fileTitle string
+	data      []byte
 }
 
 const (
@@ -121,7 +124,7 @@ const (
 // caller then draws an illustration.
 type Result struct {
 	Found bool `json:"found"`
-	// Transient marks a miss caused by a failed plan, cancellation or rate limit.
+	// Transient marks a miss caused by a retryable plan error, cancellation or rate limit.
 	Transient bool       `json:"transient,omitempty"`
 	Image     []byte     `json:"-"`
 	Alt       string     `json:"alt,omitempty"`
@@ -174,20 +177,26 @@ func (f *Finder) WithCommonsAPI(endpoint string) *Finder {
 	return f
 }
 
-// The search tracks 429s even from best-effort requests such as linked titles.
 type rateLimitKey struct{}
 
-func recordRateLimit(ctx context.Context) {
-	if limited, ok := ctx.Value(rateLimitKey{}).(*atomic.Bool); ok {
-		limited.Store(true)
+// recordRateLimit is called for requests that contribute to photo selection.
+func recordRateLimit(ctx context.Context, err error) {
+	var response *gemini.Error
+	if errors.Is(err, ErrRateLimited) || (errors.As(err, &response) && response.Status == http.StatusTooManyRequests) {
+		if limited, ok := ctx.Value(rateLimitKey{}).(*atomic.Bool); ok {
+			limited.Store(true)
+		}
 	}
 }
 
-func recordModelRateLimit(ctx context.Context, err error) {
+func transientPlanError(err error) bool {
 	var response *gemini.Error
-	if errors.As(err, &response) && response.Status == http.StatusTooManyRequests {
-		recordRateLimit(ctx)
+	if errors.As(err, &response) {
+		return response.Transient()
 	}
+	var networkErr net.Error
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.As(err, &networkErr) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 // Find looks for a usable photo: plan, then Commons, then the maker's
@@ -227,7 +236,7 @@ func (f *Finder) find(ctx context.Context, request Request) Result {
 	}
 	plan, err := f.plan(ctx, request)
 	if err != nil {
-		result.Transient = true
+		result.Transient = transientPlanError(err)
 		result.Reason = "plan failed: " + err.Error()
 		return result
 	}
@@ -254,7 +263,7 @@ func (f *Finder) find(ctx context.Context, request Request) Result {
 		result.Reason = "cancelled"
 		return result
 	}
-	if request.Slot == SlotFeatured && plan.Kind == KindPerson {
+	if plan.Kind == KindPerson {
 		result.Reason = "no usable Commons photo of " + plan.Subject
 		return result
 	}
