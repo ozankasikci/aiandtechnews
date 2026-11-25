@@ -79,6 +79,7 @@ search queries.
 | `product_in_use` | The story is about a software product that people see on a device | A ChatGPT model rollout: ChatGPT on a phone |
 
 A `place` stand-in must show the exterior or interior architecture, with any people incidental.
+A headquarters stand-in must show the organisation's current main headquarters at the site named in the plan.
 
 The planner returns none when no stand-in is honest. A story about a study, a
 market trend or several companies at once has none.

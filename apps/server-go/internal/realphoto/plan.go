@@ -86,7 +86,7 @@ official_pages: up to 2 full https URLs on maker_domain for this exact subject: 
 reason: one short sentence.
 stand_ins: [] when photographable is true. When it is false, up to three real things a photo could honestly show in place of the subject, the most fitting first, or [] if none is honest:
 - "person": the one clear leader of the company the story is about (its chief executive or founder), only when the story is a corporate action by that company: funding, a leadership change, earnings, an acquisition, a lawsuit. subject is the person's full name and nothing else.
-- "place": the headquarters of the company, regulator or court the story is about. subject names the building, e.g. "Nvidia headquarters".
+- "place": the current main headquarters of the company, regulator or court the story is about. subject names the organisation, the building or campus name or street address when known, and the city, e.g. "Nvidia headquarters, Santa Clara" or "OpenAI headquarters, 1515 Third Street, San Francisco". The first query names the building, campus or city so the search targets the specific site.
 - "product_in_use": a software product people see on a device, when the story is about that product. subject says what the photo shows, e.g. "ChatGPT app on a smartphone".
 Never offer a stand-in for a study, a market trend, or a story about several companies at once. Each stand-in has two short Wikimedia Commons search queries, written like queries above.
 

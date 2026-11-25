@@ -48,3 +48,20 @@ func TestRenderReportShowsChosenAndRejectedPhotos(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderReportShowsTheOtherSiteVerdictAndRejection(t *testing.T) {
+	const reason = "shows a different site than the one named"
+	var out bytes.Buffer
+	err := renderReport(&out, []reportRow{{
+		Title: "A funding round", Found: true, Verdict: &realphoto.Verdict{Match: "exact", Quality: 9},
+		Candidates: []realphoto.Candidate{{Source: "commons", Reason: reason}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Other site: false", reason} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("report lacks %q", want)
+		}
+	}
+}
