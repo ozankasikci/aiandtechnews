@@ -8,13 +8,27 @@ import (
 )
 
 func TestParseVerdictReadsDatedAndFocus(t *testing.T) {
-	raw := `{"match":"exact","photographic":true,"watermark":false,"text_heavy":false,"marketing_banner":false,"misleading":false,"subject_prominent":true,"other_branding":false,"dated":true,"focus_x":0.3,"focus_y":1.7,"quality":9,"alt":"A.","notes":"n"}`
-	got, err := realphoto.ParseVerdict(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.Dated || got.FocusX != 0.3 || got.FocusY != 1 {
-		t.Fatalf("verdict = %+v, want dated, focus 0.3 and 1 (clamped)", got)
+	for _, tc := range []struct {
+		name, focus  string
+		wantX, wantY float64
+	}{
+		{"in range", `,"focus_x":0.3,"focus_y":0.4`, 0.3, 0.4},
+		{"edges", `,"focus_x":0,"focus_y":1`, 0, 1},
+		{"wrong scale", `,"focus_x":50,"focus_y":40`, 0.5, 0.5},
+		{"one out of range", `,"focus_x":0.3,"focus_y":-0.1`, 0.5, 0.5},
+		{"missing x", `,"focus_y":0.4`, 0.5, 0.5},
+		{"missing y", `,"focus_x":0.3`, 0.5, 0.5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := `{"match":"exact","photographic":true,"watermark":false,"text_heavy":false,"marketing_banner":false,"misleading":false,"subject_prominent":true,"other_branding":false,"dated":true,"quality":9,"alt":"A.","notes":"n"` + tc.focus + `}`
+			got, err := realphoto.ParseVerdict(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.Dated || got.FocusX != tc.wantX || got.FocusY != tc.wantY {
+				t.Fatalf("verdict = %+v, want dated, focus %g and %g", got, tc.wantX, tc.wantY)
+			}
+		})
 	}
 }
 

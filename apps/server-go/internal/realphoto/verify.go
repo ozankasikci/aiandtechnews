@@ -183,8 +183,8 @@ func (f *Finder) verify(ctx context.Context, plan Plan, request Request, mode st
 	return ParseVerdict(raw)
 }
 
-// ParseVerdict reads the vision model's answer. A missing focus point means
-// the centre of the image.
+// ParseVerdict reads the vision model's answer. A missing or out-of-range
+// focus coordinate defaults the whole point to the centre of the image.
 func ParseVerdict(raw string) (Verdict, error) {
 	var answer struct {
 		Verdict
@@ -201,9 +201,10 @@ func ParseVerdict(raw string) (Verdict, error) {
 	verdict := answer.Verdict
 	verdict.Quality = min(max(*answer.Quality, 0), 10)
 	verdict.FocusX, verdict.FocusY = 0.5, 0.5
-	if answer.FocusX != nil && answer.FocusY != nil {
-		verdict.FocusX = min(max(*answer.FocusX, 0), 1)
-		verdict.FocusY = min(max(*answer.FocusY, 0), 1)
+	if answer.FocusX != nil && answer.FocusY != nil &&
+		*answer.FocusX >= 0 && *answer.FocusX <= 1 &&
+		*answer.FocusY >= 0 && *answer.FocusY <= 1 {
+		verdict.FocusX, verdict.FocusY = *answer.FocusX, *answer.FocusY
 	}
 	verdict.Match = strings.ToLower(strings.TrimSpace(verdict.Match))
 	verdict.Alt = oneLine(verdict.Alt, 250)

@@ -61,7 +61,9 @@ func (f *Finder) commons(ctx context.Context, request Request, plan Plan) ([]Can
 			candidates = append(candidates, commonsCandidate(page))
 		}
 	}
-	f.verifyAll(ctx, plan, request, KindCommons, candidates)
+	if err := f.verifyAll(ctx, plan, request, KindCommons, candidates); err != nil {
+		errs = append(errs, err)
+	}
 	return candidates, errors.Join(errs...)
 }
 

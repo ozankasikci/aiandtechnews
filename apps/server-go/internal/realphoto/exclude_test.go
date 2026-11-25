@@ -39,10 +39,15 @@ func TestFindSkipsExcludedPhotos(t *testing.T) {
 		t.Fatalf("vision calls = %d, want 1: an excluded photo is not checked", vision.calls)
 	}
 	for _, candidate := range result.Candidates {
-		if candidate.PageURL == "https://commons.wikimedia.org/wiki/File:Better.jpg" && !strings.Contains(candidate.Reason, "already used") {
+		if candidate.PageURL != "https://commons.wikimedia.org/wiki/File:Better.jpg" {
+			continue
+		}
+		if !strings.Contains(candidate.Reason, "already used") {
 			t.Fatalf("excluded candidate reason = %q", candidate.Reason)
 		}
+		return
 	}
+	t.Fatal("excluded candidate missing from result")
 }
 
 func TestFindStopsSearchingCommonsWhenRateLimited(t *testing.T) {

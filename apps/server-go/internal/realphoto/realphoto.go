@@ -8,6 +8,7 @@ package realphoto
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"log/slog"
@@ -107,15 +108,22 @@ type Candidate struct {
 	data []byte
 }
 
+const (
+	excludedPhotoReason    = "already used by a recent featured image"
+	rateLimitedPhotoReason = "not checked (rate limited)"
+)
+
 // Result is the outcome of Find. Found is false when no photo passed; the
 // caller then draws an illustration.
 type Result struct {
-	Found      bool        `json:"found"`
-	Image      []byte      `json:"-"`
-	Alt        string      `json:"alt,omitempty"`
-	Credit     *Credit     `json:"credit,omitempty"`
-	Chosen     *Candidate  `json:"chosen,omitempty"`
-	Plan       *Plan       `json:"plan,omitempty"`
+	Found  bool       `json:"found"`
+	Image  []byte     `json:"-"`
+	Alt    string     `json:"alt,omitempty"`
+	Credit *Credit    `json:"credit,omitempty"`
+	Chosen *Candidate `json:"chosen,omitempty"`
+	Plan   *Plan      `json:"plan,omitempty"`
+	// StandIn is set when the chosen photo shows a stand-in subject.
+	StandIn    *StandIn    `json:"stand_in,omitempty"`
 	Official   string      `json:"official_page,omitempty"`
 	Candidates []Candidate `json:"candidates"`
 	// Reason says, in one line, why this path was or was not taken.
@@ -189,8 +197,11 @@ func (f *Finder) find(ctx context.Context, request Request) Result {
 	}
 	result.Plan = &plan
 	if !plan.Photographable {
-		result.Reason = "no photographable subject: " + plan.Reason
-		return result
+		if request.Slot != SlotFeatured || len(plan.StandIns) == 0 {
+			result.Reason = "no photographable subject: " + plan.Reason
+			return result
+		}
+		return f.findStandIn(ctx, request, plan, result)
 	}
 
 	commons, err := f.commons(ctx, request, plan)
@@ -199,7 +210,7 @@ func (f *Finder) find(ctx context.Context, request Request) Result {
 		result.Notes = append(result.Notes, "commons: "+err.Error())
 	}
 	if best := bestCandidate(commons); best != nil {
-		result.choose(best, commonsCredit(*best))
+		result.choose(best, commonsCredit(*best), plan.Subject)
 		result.Reason = fmt.Sprintf("Wikimedia Commons photo of %s, score %d", plan.Subject, best.Verdict.Quality)
 		return result
 	}
@@ -215,7 +226,7 @@ func (f *Finder) find(ctx context.Context, request Request) Result {
 		result.Notes = append(result.Notes, "official: "+err.Error())
 	}
 	if best := bestCandidate(official); best != nil {
-		result.choose(best, Credit{Kind: KindOfficial, Text: "Image: " + maker, URL: best.PageURL})
+		result.choose(best, Credit{Kind: KindOfficial, Text: "Image: " + maker, URL: best.PageURL}, plan.Subject)
 		result.Reason = fmt.Sprintf("official image from %s, score %d", maker, best.Verdict.Quality)
 		return result
 	}
@@ -223,16 +234,46 @@ func (f *Finder) find(ctx context.Context, request Request) Result {
 	return result
 }
 
-func (r *Result) choose(best *Candidate, credit Credit) {
+func (r *Result) choose(best *Candidate, credit Credit, subject string) {
 	chosen := *best
 	r.Found = true
 	r.Image = best.data
 	r.Alt = strings.TrimSpace(best.Verdict.Alt)
-	if r.Alt == "" && r.Plan != nil {
-		r.Alt = "Photo of " + r.Plan.Subject + "."
+	if r.Alt == "" && subject != "" {
+		r.Alt = "Photo of " + subject + "."
 	}
 	r.Credit = &credit
 	r.Chosen = &chosen
+}
+
+// findStandIn searches Commons for each stand-in subject in turn and takes
+// the first that yields a usable photo. A maker's official page is not
+// searched: it is the wrong source for a subject the story is not about.
+func (f *Finder) findStandIn(ctx context.Context, request Request, plan Plan, result Result) Result {
+	for i := range plan.StandIns {
+		standIn := plan.StandIns[i]
+		subPlan := Plan{Photographable: true, Subject: standIn.Subject, Kind: standIn.Kind, Queries: standIn.Queries, Maker: plan.Maker}
+		candidates, err := f.commons(ctx, request, subPlan)
+		result.Candidates = append(result.Candidates, candidates...)
+		if err != nil {
+			result.Notes = append(result.Notes, "commons: "+err.Error())
+		}
+		if best := bestCandidate(candidates); best != nil {
+			result.choose(best, commonsCredit(*best), standIn.Subject)
+			result.StandIn = &standIn
+			result.Reason = fmt.Sprintf("Wikimedia Commons photo of stand-in %s (%s), score %d", standIn.Subject, standIn.Kind, best.Verdict.Quality)
+			return result
+		}
+		if ctx.Err() != nil {
+			result.Reason = "cancelled"
+			return result
+		}
+		if errors.Is(err, ErrRateLimited) {
+			break
+		}
+	}
+	result.Reason = "no usable photo of a stand-in subject"
+	return result
 }
 
 // bestCandidate is the usable candidate with the highest quality score; the
@@ -279,16 +320,22 @@ func measure(data []byte) (int, int, error) {
 }
 
 // verifyAll downloads (when needed) and vision-checks candidates in order,
-// at most MaxVerified of them, marking each usable or saying why not.
-func (f *Finder) verifyAll(ctx context.Context, plan Plan, request Request, mode string, candidates []Candidate) {
+// at most MaxVerified of them, marking each usable or saying why not. A
+// rate-limited download stops further downloads and is returned to the caller.
+func (f *Finder) verifyAll(ctx context.Context, plan Plan, request Request, mode string, candidates []Candidate) error {
 	verified := 0
+	var rateLimitErr error
 	for i := range candidates {
 		candidate := &candidates[i]
 		if candidate.Reason != "" {
 			continue
 		}
 		if slices.Contains(request.Exclude, candidate.ImageURL) {
-			candidate.Reason = "already used by a recent featured image"
+			candidate.Reason = excludedPhotoReason
+			continue
+		}
+		if rateLimitErr != nil && candidate.data == nil {
+			candidate.Reason = rateLimitedPhotoReason
 			continue
 		}
 		if ctx.Err() != nil {
@@ -303,6 +350,9 @@ func (f *Finder) verifyAll(ctx context.Context, plan Plan, request Request, mode
 			data, err := f.getImage(ctx, candidate.ImageURL)
 			if err != nil {
 				candidate.Reason = "download: " + err.Error()
+				if errors.Is(err, ErrRateLimited) {
+					rateLimitErr = err
+				}
 				continue
 			}
 			candidate.data = data
@@ -338,6 +388,7 @@ func (f *Finder) verifyAll(ctx context.Context, plan Plan, request Request, mode
 			candidate.data = nil
 		}
 	}
+	return rateLimitErr
 }
 
 // sortByRank keeps candidates in their search order.

@@ -179,8 +179,17 @@ func (f *Finder) officialImages(ctx context.Context, request Request, plan Plan,
 	// Download to measure; drop the small or wrongly shaped ones before any
 	// vision check.
 	downloads, fitting := 0, 0
+	rateLimited := false
 	for i := range candidates {
 		candidate := &candidates[i]
+		if slices.Contains(request.Exclude, candidate.ImageURL) {
+			candidate.Reason = excludedPhotoReason
+			continue
+		}
+		if rateLimited {
+			candidate.Reason = rateLimitedPhotoReason
+			continue
+		}
 		if downloads >= maxImageDownloads || fitting >= MaxVerified || ctx.Err() != nil {
 			candidate.Reason = "not downloaded (cap reached)"
 			continue
@@ -189,6 +198,7 @@ func (f *Finder) officialImages(ctx context.Context, request Request, plan Plan,
 		data, err := f.getImage(ctx, candidate.ImageURL)
 		if err != nil {
 			candidate.Reason = "download: " + err.Error()
+			rateLimited = errors.Is(err, ErrRateLimited)
 			continue
 		}
 		width, height, err := measure(data)
@@ -204,8 +214,7 @@ func (f *Finder) officialImages(ctx context.Context, request Request, plan Plan,
 		candidate.data = data
 		fitting++
 	}
-	f.verifyAll(ctx, plan, request, KindOfficial, candidates)
-	return candidates, nil
+	return candidates, f.verifyAll(ctx, plan, request, KindOfficial, candidates)
 }
 
 // readTitles fills in the linked pages' titles, a few at a time; a page
