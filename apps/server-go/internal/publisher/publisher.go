@@ -11,6 +11,7 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/collector"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/newsroom"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/realphoto"
 )
 
 const (
@@ -77,6 +78,7 @@ type ImageCredit struct {
 	LicenseURL string
 	PhotoURL   string
 	Alt        string
+	StandIn    *realphoto.StandInUse
 }
 
 // Illustration is a stored featured image. Discard removes it when the

@@ -14,9 +14,9 @@ import (
 func TestFindRequiresCommonsMetadataToNameAPerson(t *testing.T) {
 	const personPlan = `{"photographable":true,"subject":"Bret Taylor","kind":"person","queries":["Bret Taylor"]}`
 	files := []commonsFile{
-		{title: "File:Stage.jpg", objectName: "<b>Conference keynote</b>", description: "Another speaker at Taylorville.", license: "CC0", width: 1600, height: 900, thumb: "https://upload.wikimedia.org/stage.png"},
-		{title: "File:Talk.jpg", objectName: "<b>Evening talk</b>", description: "<p>Bret <b>TAYLOR</b> &amp; guests.</p>" + strings.Repeat(" filler", 200) + " end marker", license: "CC0", width: 1600, height: 900, thumb: "https://upload.wikimedia.org/talk.png"},
-		{title: "File:Bret_Taylor.jpg", description: "A conference portrait.", license: "CC0", width: 1600, height: 900, thumb: "https://upload.wikimedia.org/portrait.png"},
+		{title: "File:Stage.jpg", objectName: "<b>Conference keynote</b>", description: "Another speaker at Taylorville.", date: "2026", license: "CC0", width: 1600, height: 900, thumb: "https://upload.wikimedia.org/stage.png"},
+		{title: "File:Talk.jpg", objectName: "<b>Evening talk</b>", description: "<p>Bret <b>TAYLOR</b> &amp; guests.</p>" + strings.Repeat(" filler", 200) + " end marker", date: "2026", license: "CC0", width: 1600, height: 900, thumb: "https://upload.wikimedia.org/talk.png"},
+		{title: "File:Bret_Taylor.jpg", description: "A conference portrait.", date: "2026", license: "CC0", width: 1600, height: 900, thumb: "https://upload.wikimedia.org/portrait.png"},
 	}
 	photo := serveBytes(solidPNG(t, 1600, 900, green), "image/png")
 	for _, tc := range []struct {
@@ -47,7 +47,7 @@ func TestFindRequiresCommonsMetadataToNameAPerson(t *testing.T) {
 				},
 			}
 			vision := &fakeVision{verdicts: map[string]string{"green": verdict(9, "A speaker.")}}
-			finder := realphoto.NewFinder(&fakeText{plan: tc.plan}, vision, &http.Client{Transport: routes}, nil)
+			finder := realphoto.NewFinder(&fakeText{plan: tc.plan}, vision, &http.Client{Transport: routes}, nil).WithClock(fixedPhotoTime)
 			result := finder.Find(context.Background(), realphoto.Request{Title: "A keynote", Slot: tc.slot})
 			if !result.Found || !slices.Equal(downloads, tc.paths) || vision.calls != len(tc.paths) {
 				t.Fatalf("found %t, downloads %v, vision calls %d, want %v", result.Found, downloads, vision.calls, tc.paths)
@@ -107,7 +107,7 @@ func TestCommonsRequiresBothEndsOfAPersonName(t *testing.T) {
 			}
 			var queries []string
 			file := commonsFile{title: filename, objectName: tc.title, description: tc.description,
-				license: "CC0", width: 1600, height: 900, thumb: "https://upload.wikimedia.org/photo.png"}
+				date: "2026", license: "CC0", width: 1600, height: 900, thumb: "https://upload.wikimedia.org/photo.png"}
 			downloads := 0
 			routes := sites{
 				"commons.wikimedia.org": commonsAPI(t, []commonsFile{file}, &queries),
@@ -118,7 +118,7 @@ func TestCommonsRequiresBothEndsOfAPersonName(t *testing.T) {
 			}
 			plan := fmt.Sprintf(`{"photographable":true,"subject":%q,"kind":"person"}`, tc.subject)
 			vision := &fakeVision{verdicts: map[string]string{"green": verdict(9, "A speaker.")}}
-			finder := realphoto.NewFinder(&fakeText{plan: plan}, vision, &http.Client{Transport: routes}, nil)
+			finder := realphoto.NewFinder(&fakeText{plan: plan}, vision, &http.Client{Transport: routes}, nil).WithClock(fixedPhotoTime)
 			result := finder.Find(context.Background(), realphoto.Request{Slot: realphoto.SlotInline})
 			wantCalls := 0
 			if tc.want {

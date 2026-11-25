@@ -120,7 +120,7 @@ func verdict(quality int, alt string) string {
 
 type commonsFile struct {
 	title, license, licenseURL, artist string
-	objectName, description            string
+	objectName, description, date      string
 	width, height                      int
 	thumb                              string
 }
@@ -133,18 +133,23 @@ func commonsAPI(t *testing.T, files []commonsFile, queries *[]string) http.Handl
 		*queries = append(*queries, r.URL.Query().Get("gsrsearch"))
 		var pages []map[string]any
 		for i, file := range files {
+			metadata := map[string]any{
+				"LicenseShortName": map[string]any{"value": file.license},
+				"LicenseUrl":       map[string]any{"value": file.licenseURL},
+				"Artist":           map[string]any{"value": file.artist},
+				"ObjectName":       map[string]any{"value": file.objectName},
+				"ImageDescription": map[string]any{"value": file.description},
+				"DateTime":         map[string]any{"value": "2026-11-25"},
+			}
+			if file.date != "" {
+				metadata["DateTimeOriginal"] = map[string]any{"value": file.date}
+			}
 			pages = append(pages, map[string]any{
 				"title": file.title, "index": i + 1,
 				"imageinfo": []map[string]any{{
 					"url": file.thumb, "thumburl": file.thumb, "descriptionurl": "https://commons.wikimedia.org/wiki/" + file.title,
 					"width": file.width, "height": file.height, "mime": "image/png",
-					"extmetadata": map[string]any{
-						"LicenseShortName": map[string]any{"value": file.license},
-						"LicenseUrl":       map[string]any{"value": file.licenseURL},
-						"Artist":           map[string]any{"value": file.artist},
-						"ObjectName":       map[string]any{"value": file.objectName},
-						"ImageDescription": map[string]any{"value": file.description},
-					},
+					"extmetadata": metadata,
 				}},
 			})
 		}

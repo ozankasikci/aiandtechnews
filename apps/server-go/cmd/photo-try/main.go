@@ -5,10 +5,10 @@
 //	go run ./cmd/photo-try -db ~/copy-of-technews.db -latest 30 -out ./photo-try
 //	go run ./cmd/photo-try -db ~/copy-of-technews.db -slugs a-slug,another-slug
 //
-// The copy must have migration 18. The command reads GEMINI_API_KEY,
-// GEMINI_TEXT_MODEL and GEMINI_VISION_MODEL from the environment. Photos
-// used as featured images in the last 30 days and photos already chosen in
-// the run are excluded from each search.
+// The copy must have migration 19. The command reads GEMINI_API_KEY,
+// GEMINI_TEXT_MODEL and GEMINI_VISION_MODEL from the environment. It excludes
+// featured photo files used in the last 30 days and matching stand-ins used
+// in the last 7 days, as well as files and stand-ins chosen earlier in the run.
 package main
 
 import (
@@ -82,8 +82,20 @@ const reportName = "report.html"
 
 func writeRun(ctx context.Context, db *sql.DB, output *os.Root, finder illustration.PhotoFinder, slugs string, latest int) error {
 	store := inlineimage.NewSQLiteStore(db, nil)
-	used, err := publisher.NewSQLiteArticles(db, nil).RecentFeaturedPhotoURLs(ctx, time.Now().Add(-illustration.PhotoReuseWindow))
+	published := publisher.NewSQLiteArticles(db, nil)
+	now := time.Now()
+	used, err := published.RecentFeaturedPhotoURLs(ctx, now.Add(-illustration.PhotoReuseWindow))
 	if err != nil {
+		if strings.Contains(err.Error(), "no such table: article_featured_image_credits") {
+			return fmt.Errorf("%w (run cmd/migrate on this copy first: migration 18 is missing)", err)
+		}
+		return err
+	}
+	standIns, err := published.RecentFeaturedStandIns(ctx, now.Add(-illustration.StandInReuseWindow))
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table: article_featured_stand_ins") {
+			return fmt.Errorf("%w (run cmd/migrate on this copy first: migration 19 is missing)", err)
+		}
 		return err
 	}
 
@@ -109,7 +121,7 @@ func writeRun(ctx context.Context, db *sql.DB, output *os.Root, finder illustrat
 	for _, article := range articles {
 		request := realphoto.Request{
 			Slug: article.Slug, Title: article.Title, Text: content.StripHTML(article.Content),
-			SourceURL: article.SourceURL, Slot: realphoto.SlotFeatured, Exclude: used,
+			SourceURL: article.SourceURL, Slot: realphoto.SlotFeatured, Exclude: used, RecentStandIns: standIns,
 		}
 		found := finder.Find(ctx, request)
 		row := reportRow{Slug: article.Slug, Title: article.Title, Current: article.FeaturedImage, Reason: found.Reason, Candidates: found.Candidates}
@@ -131,8 +143,9 @@ func writeRun(ctx context.Context, db *sql.DB, output *os.Root, finder illustrat
 				row.Found, row.Credit, row.CreditURL = true, found.Credit.Text, found.Credit.URL
 				row.Verdict = found.Chosen.Verdict
 				row.Cropped = !bytes.Equal(cropped, found.Image)
-				if found.StandIn != nil {
-					row.StandIn = found.StandIn.Subject
+				if standIn := found.StandInUse(); standIn != nil {
+					row.StandIn = standIn.Subject
+					standIns = append(standIns, *standIn)
 				}
 				used = append(used, found.Chosen.ImageURL)
 			}

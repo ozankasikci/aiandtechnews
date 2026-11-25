@@ -84,6 +84,15 @@ type Request struct {
 	Slot string
 	// Exclude lists photo URLs (Candidate.ImageURL) that must not be chosen.
 	Exclude []string
+	// RecentStandIns lists stand-ins already used for recent featured photos.
+	RecentStandIns []StandInUse
+}
+
+// StandInUse identifies a stand-in used as a featured photo.
+type StandInUse struct {
+	Subject string
+	Kind    string
+	Maker   string
 }
 
 // Credit is how a chosen photo is credited on the site.
@@ -107,6 +116,7 @@ type Candidate struct {
 	Artist      string   `json:"artist,omitempty"`
 	Width       int      `json:"width,omitempty"`
 	Height      int      `json:"height,omitempty"`
+	CaptureYear int      `json:"capture_year,omitempty"` // Commons only; zero when unknown
 	Verdict     *Verdict `json:"verdict,omitempty"`
 	Usable      bool     `json:"usable"`
 	Reason      string   `json:"reason,omitempty"`
@@ -141,6 +151,14 @@ type Result struct {
 	Seconds float64  `json:"seconds"`
 }
 
+// StandInUse returns the identity to record when a stand-in is chosen.
+func (r Result) StandInUse() *StandInUse {
+	if r.StandIn == nil || r.Plan == nil {
+		return nil
+	}
+	return &StandInUse{Subject: r.StandIn.Subject, Kind: r.StandIn.Kind, Maker: r.Plan.Maker}
+}
+
 // Finder runs the plan, Commons and official-image steps.
 type Finder struct {
 	text   TextModel
@@ -165,15 +183,21 @@ func NewFinder(text TextModel, vision VisionModel, client *http.Client, logger *
 	return &Finder{text: text, vision: vision, http: client, logger: logger, commonsAPI: CommonsAPI, now: time.Now}
 }
 
-// WithCommonsAPI points the Finder at another MediaWiki API (for tests).
 // WithSearch lets the official step look up the maker's product page.
 func (f *Finder) WithSearch(searcher Searcher) *Finder {
 	f.search = searcher
 	return f
 }
 
+// WithCommonsAPI points the Finder at another MediaWiki API (for tests).
 func (f *Finder) WithCommonsAPI(endpoint string) *Finder {
 	f.commonsAPI = endpoint
+	return f
+}
+
+// WithClock sets the clock used for capture age and elapsed time.
+func (f *Finder) WithClock(now func() time.Time) *Finder {
+	f.now = now
 	return f
 }
 
@@ -299,8 +323,14 @@ func (r *Result) choose(best *Candidate, credit Credit, subject string) {
 // the first that yields a usable photo. A maker's official page is not
 // searched: it is the wrong source for a subject the story is not about.
 func (f *Finder) findStandIn(ctx context.Context, request Request, plan Plan, result Result) Result {
-	for i := range plan.StandIns {
-		standIn := plan.StandIns[i]
+	var skipped []string
+	for _, standIn := range plan.StandIns {
+		if recentlyUsedStandIn(standIn, plan.Maker, request.RecentStandIns) {
+			note := fmt.Sprintf("stand-in %s skipped as recently used", standIn.Subject)
+			skipped = append(skipped, note)
+			result.Notes = append(result.Notes, note)
+			continue
+		}
 		subPlan := Plan{Photographable: true, Subject: standIn.Subject, Kind: standIn.Kind, Queries: standIn.Queries, Maker: plan.Maker}
 		candidates, err := f.commons(ctx, request, subPlan)
 		result.Candidates = append(result.Candidates, candidates...)
@@ -322,7 +352,25 @@ func (f *Finder) findStandIn(ctx context.Context, request Request, plan Plan, re
 		}
 	}
 	result.Reason = "no usable photo of a stand-in subject"
+	if len(skipped) > 0 {
+		result.Reason += "; " + strings.Join(skipped, "; ")
+	}
 	return result
+}
+
+func recentlyUsedStandIn(standIn StandIn, maker string, recent []StandInUse) bool {
+	maker = strings.Join(strings.Fields(maker), " ")
+	subject := strings.Join(strings.Fields(standIn.Subject), " ")
+	for _, used := range recent {
+		if standIn.Kind != used.Kind {
+			continue
+		}
+		if strings.EqualFold(subject, strings.Join(strings.Fields(used.Subject), " ")) ||
+			(maker != "" && strings.EqualFold(maker, strings.Join(strings.Fields(used.Maker), " "))) {
+			return true
+		}
+	}
+	return false
 }
 
 // bestCandidate is the usable candidate with the highest quality score; the

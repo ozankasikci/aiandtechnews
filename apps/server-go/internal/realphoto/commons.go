@@ -9,11 +9,19 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
+
+	nethtml "golang.org/x/net/html"
 )
 
 // commonsSearchLimit is how many files each Commons search returns.
 const commonsSearchLimit = 20
+
+const (
+	maxCommonsPersonAgeYears   = 5
+	maxCommonsFeaturedAgeYears = 10
+)
 
 type commonsResponse struct {
 	Query struct {
@@ -42,6 +50,7 @@ type commonsPage struct {
 // commons searches Wikimedia Commons with the plan's queries and verifies
 // the licensed, big enough, landscape results.
 func (f *Finder) commons(ctx context.Context, request Request, plan Plan) ([]Candidate, error) {
+	currentYear := f.now().Year()
 	var candidates []Candidate
 	seen := map[string]bool{}
 	var errs []error
@@ -59,16 +68,37 @@ func (f *Finder) commons(ctx context.Context, request Request, plan Plan) ([]Can
 				continue
 			}
 			seen[page.Title] = true
-			candidates = append(candidates, commonsCandidate(page))
+			candidates = append(candidates, commonsCandidate(page, currentYear))
 		}
 	}
 	if plan.Kind == KindPerson {
 		checkCommonsPersonName(candidates, plan.Subject)
 	}
+	for i := range candidates {
+		if candidates[i].Reason == "" {
+			candidates[i].Reason = commonsAgeRejection(candidates[i].CaptureYear, currentYear, plan.Kind, request.Slot)
+		}
+	}
 	if err := f.verifyAll(ctx, plan, request, KindCommons, candidates); err != nil {
 		errs = append(errs, err)
 	}
 	return candidates, errors.Join(errs...)
+}
+
+func commonsAgeRejection(year, currentYear int, kind, slot string) string {
+	limit := maxCommonsFeaturedAgeYears
+	if kind == KindPerson {
+		if year == 0 {
+			return "Commons person photo capture year unknown"
+		}
+		limit = maxCommonsPersonAgeYears
+	} else if slot != SlotFeatured || year == 0 {
+		return ""
+	}
+	if currentYear-year > limit {
+		return fmt.Sprintf("Commons photo captured in %d is more than %d years old", year, limit)
+	}
+	return ""
 }
 
 // checkCommonsPersonName requires both the first and last words of the name
@@ -121,7 +151,7 @@ func (f *Finder) searchCommons(ctx context.Context, query string) ([]commonsPage
 		"prop":                  {"imageinfo"},
 		"iiprop":                {"url|size|mime|extmetadata"},
 		"iiurlwidth":            {"1600"},
-		"iiextmetadatafilter":   {"LicenseShortName|LicenseUrl|Artist|Credit|UsageTerms|Restrictions|ObjectName|ImageDescription"},
+		"iiextmetadatafilter":   {"LicenseShortName|LicenseUrl|Artist|Credit|UsageTerms|Restrictions|ObjectName|ImageDescription|DateTimeOriginal"},
 		"iiextmetadatalanguage": {"en"},
 	}
 	page, err := f.get(ctx, f.commonsAPI+"?"+params.Encode(), "application/json", maxAPIBytes, false, func(mediaType string) bool {
@@ -145,7 +175,7 @@ func (f *Finder) searchCommons(ctx context.Context, query string) ([]commonsPage
 
 // commonsCandidate turns a search result into a candidate, with Reason set
 // when its licence, size or shape rules it out before any download.
-func commonsCandidate(page commonsPage) Candidate {
+func commonsCandidate(page commonsPage, currentYear int) Candidate {
 	info := page.ImageInfo[0]
 	meta := func(key string) string {
 		if value, ok := info.ExtMetadata[key]; ok {
@@ -173,6 +203,7 @@ func commonsCandidate(page commonsPage) Candidate {
 		Artist:      cleanArtist(meta("Artist")),
 		Width:       info.Width,
 		Height:      info.Height,
+		CaptureYear: captureYear(meta("DateTimeOriginal"), currentYear),
 		fileTitle:   fileTitle,
 	}
 	if candidate.ImageURL == "" {
@@ -196,6 +227,27 @@ func commonsCandidate(page commonsPage) Candidate {
 		candidate.Reason = why
 	}
 	return candidate
+}
+
+var decimalDigits = regexp.MustCompile(`[0-9]+`)
+
+func captureYear(raw string, currentYear int) int {
+	tokens := nethtml.NewTokenizer(strings.NewReader(raw))
+	for token := tokens.Next(); token != nethtml.ErrorToken; token = tokens.Next() {
+		if token != nethtml.TextToken {
+			continue
+		}
+		for _, digits := range decimalDigits.FindAll(tokens.Text(), -1) {
+			if len(digits) != 4 {
+				continue
+			}
+			year, _ := strconv.Atoi(string(digits))
+			if year >= 1900 && year <= currentYear {
+				return year
+			}
+		}
+	}
+	return 0
 }
 
 var ccVersion = regexp.MustCompile(`^\d+(\.\d+)?( [a-z-]+)?$`)

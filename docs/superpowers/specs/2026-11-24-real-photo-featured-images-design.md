@@ -74,15 +74,32 @@ search queries.
 
 | Kind | When it fits | Example |
 |---|---|---|
-| `person` | The story is a corporate action by a company with one clear leader: funding, leadership, earnings, a lawsuit | Sierra's funding round: Bret Taylor |
+| `person` | The story covers a company with one clear leader and that company's funding, leadership change, earnings, acquisition or lawsuit | Sierra's funding round: Bret Taylor |
 | `place` | The story is about the company itself, or a regulator or court | An SEC inquiry into Nvidia: Nvidia's headquarters |
 | `product_in_use` | The story is about a software product that people see on a device | A ChatGPT model rollout: ChatGPT on a phone |
 
 The planner returns none when no stand-in is honest. A story about a study, a
 market trend or several companies at once has none.
 
+The planner always returns a `story_type` from `funding`, `leadership_change`,
+`earnings`, `acquisition`, `lawsuit`, `product`, `research`, `policy` and
+`other`. Product and model launches, rollouts, features, updates, pricing
+changes and availability changes are `product`. The parser treats missing or
+unrecognized types as `other` and keeps leader stand-ins only for the five
+corporate actions. Place and product-in-use stand-ins remain eligible for
+every story type. A person who is the exact subject remains eligible too.
+
 Stand-ins come from Commons only. The official-page step is not used for them,
 because a company's page for an unrelated subject is the wrong source.
+
+Commons capture years come from the first plausible year in the file's
+`DateTimeOriginal` metadata after stripping HTML. A year must be between
+1900 and the current year. If the metadata has no readable year, the capture
+year is unknown. Before any download or vision check, the finder rejects
+person photos with an unknown capture year or a year more than five years
+old in either slot, including leader stand-ins. For other featured Commons
+photos, the finder rejects a known capture year more than ten years old and
+allows an unknown year.
 
 ## Checks for the featured slot
 
@@ -106,14 +123,25 @@ The existing rejections stay: watermark, text-heavy, marketing banner,
 misleading, subject not prominent. In the mock they would have rejected two of
 the three company images, which were branded cards with text.
 
-**No repeats.** A photo is skipped when a featured image published in the last
-30 days used it. Photos are compared by credit URL. Three of the 12 mock
-stories were about Nvidia; without this rule they would share one picture.
-
 **Rate limits.** Commons answered HTTP 429 after about 25 quick requests while
 the mock was built with a script that did not identify itself. The Finder
 already sends a User-Agent naming the site. It must also treat a 429 as no
 photo for that query, not as an error.
+
+## Variety
+
+The finder excludes identical featured photo files for 30 days using their
+source image URLs. For stand-ins, it also skips a search when a featured
+stand-in from the last seven days has the same kind and either the same
+subject or the same non-empty maker. Subject and maker comparisons ignore
+case and collapse whitespace. The finder tries the remaining stand-ins and
+reports the skip if no photo is found. Exact subjects follow the file rule
+only.
+
+Migration 19 adds `article_featured_stand_ins` to store the subject, kind and
+plan maker in the same transaction as the article and photo credit. A failed
+history read is logged and the photo step continues with an empty history
+for that window.
 
 ## Credits
 
@@ -166,7 +194,10 @@ A new command, `cmd/photo-try`, follows the existing `-try` commands. Given
 slugs, or a count of recent articles, it runs the photo step without
 publishing and writes an HTML report. For each article the report shows the
 current image, the chosen photo with its credit, the vision verdict, and the
-rejected candidates with the reason for each.
+rejected candidates with the reason for each. It shows capture years for
+Commons candidates and identifies recently used stand-ins on misses. It
+applies both reuse windows from the read-only database copy and tracks photos
+and stand-ins chosen earlier in the same run. The copy needs migration 19.
 
 The step is enabled in production only after the owner has reviewed a report
 covering at least 30 recent articles. Once live, every publish logs whether
