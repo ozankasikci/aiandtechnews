@@ -31,11 +31,13 @@ const (
 	KindOfficial = "official"
 )
 
-// Size and shape a photo needs for the full-width 16:9 slot.
+// Size and aspect limits for photo candidates.
 const (
-	MinWidth  = 1200
-	MinAspect = 1.5
-	MaxAspect = 2.1
+	MinWidth          = 1200
+	MinAspect         = 1.5 // inline or unspecified slot
+	MaxAspect         = 2.1
+	minFeaturedAspect = 4.0 / 3.0
+	aspectTolerance   = 0.01
 	// MaxVerified caps the vision checks per source.
 	MaxVerified = 8
 	// MinQuality is the lowest vision quality score a photo may have.
@@ -390,16 +392,20 @@ func bestCandidate(candidates []Candidate) *Candidate {
 }
 
 // fitsSlot reports whether a photo is big and wide enough for the slot.
-func fitsSlot(width, height int) (bool, string) {
+func fitsSlot(width, height int, slot string) (bool, string) {
 	if width < MinWidth {
 		return false, fmt.Sprintf("too narrow (%d px)", width)
 	}
 	if height <= 0 {
 		return false, "unknown height"
 	}
+	minAspect := MinAspect
+	if slot == SlotFeatured {
+		minAspect = minFeaturedAspect
+	}
 	aspect := float64(width) / float64(height)
-	if aspect < MinAspect || aspect > MaxAspect {
-		return false, fmt.Sprintf("aspect %.2f outside %.2f-%.2f", aspect, MinAspect, MaxAspect)
+	if aspect < minAspect-aspectTolerance || aspect > MaxAspect+aspectTolerance {
+		return false, fmt.Sprintf("aspect %.4f outside %.2f-%.2f (tolerance %.2f)", aspect, minAspect, MaxAspect, aspectTolerance)
 	}
 	return true, ""
 }
@@ -464,7 +470,7 @@ func (f *Finder) verifyAll(ctx context.Context, plan Plan, request Request, mode
 			// The file itself decides for official images; Commons sizes come
 			// from the API (the download is a 1600 px rendition).
 			candidate.Width, candidate.Height = width, height
-			if ok, why := fitsSlot(width, height); !ok {
+			if ok, why := fitsSlot(width, height, request.Slot); !ok {
 				candidate.Reason = why
 				candidate.data = nil
 				continue
