@@ -11,17 +11,17 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/realphoto"
 )
 
-func TestPublishRecordsOnlyStandInsAndReadsThemSinceTheCutoff(t *testing.T) {
+func TestPublishRecordsStandInsAndReadsThemSinceTheCutoff(t *testing.T) {
 	db := openDB(t)
 	ctx := context.Background()
 	now := publishNow
 	articles := publisher.NewSQLiteArticles(db, func() time.Time { return now })
 	cutoff := now.Add(-7 * 24 * time.Hour)
-	old := realphoto.StandInUse{Subject: "Old headquarters", Kind: realphoto.StandInPlace, Maker: "Old Company"}
-	fresh := realphoto.StandInUse{Subject: "Bret Taylor", Kind: realphoto.KindPerson, Maker: "Sierra"}
-	creditWithStandIn := func(standIn realphoto.StandInUse) *publisher.ImageCredit {
+	old := realphoto.FeaturedSubjectUse{Subject: "Old headquarters", Kind: realphoto.StandInPlace, Maker: "Old Company"}
+	fresh := realphoto.FeaturedSubjectUse{Subject: "Bret Taylor", Kind: realphoto.KindPerson, Maker: "Sierra"}
+	creditWithStandIn := func(standIn realphoto.FeaturedSubjectUse) *publisher.ImageCredit {
 		credit := *photoCredit
-		credit.StandIn = &standIn
+		credit.SubjectUse = &standIn
 		return &credit
 	}
 	for _, tc := range []struct {
@@ -46,7 +46,7 @@ func TestPublishRecordsOnlyStandInsAndReadsThemSinceTheCutoff(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := 0
-		if tc.credit != nil && tc.credit.StandIn != nil {
+		if tc.credit != nil && tc.credit.SubjectUse != nil {
 			want = 1
 		}
 		if count != want {
@@ -55,13 +55,13 @@ func TestPublishRecordsOnlyStandInsAndReadsThemSinceTheCutoff(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		since time.Time
-		want  []realphoto.StandInUse
+		want  []realphoto.FeaturedSubjectUse
 	}{
-		{cutoff, []realphoto.StandInUse{fresh}},
-		{cutoff.Add(-time.Second), []realphoto.StandInUse{fresh, old}},
+		{cutoff, []realphoto.FeaturedSubjectUse{fresh}},
+		{cutoff.Add(-time.Second), []realphoto.FeaturedSubjectUse{fresh, old}},
 		{cutoff.Add(time.Second), nil},
 	} {
-		got, err := articles.RecentFeaturedStandIns(ctx, tc.since)
+		got, err := articles.RecentFeaturedSubjects(ctx, tc.since)
 		if err != nil || !slices.Equal(got, tc.want) {
 			t.Errorf("stand-ins since %v = %+v, err = %v, want %+v", tc.since, got, err, tc.want)
 		}
@@ -79,7 +79,7 @@ func TestPublishRollsBackStandInAndCreditTogether(t *testing.T) {
 	article := newArticle("sierra-raises", "https://techcrunch.com/sierra", "Sierra raises a round", "<p>Body</p>")
 	article.CandidateID = candidateID
 	credit := *photoCredit
-	credit.StandIn = &realphoto.StandInUse{Subject: "Bret Taylor", Kind: realphoto.KindPerson, Maker: "Sierra"}
+	credit.SubjectUse = &realphoto.FeaturedSubjectUse{Subject: "Bret Taylor", Kind: realphoto.KindPerson, Maker: "Sierra"}
 	article.FeaturedCredit = &credit
 	if _, err := articles.Publish(ctx, article); !errors.Is(err, publisher.ErrCandidateNotProcessing) {
 		t.Fatalf("err = %v, want ErrCandidateNotProcessing", err)

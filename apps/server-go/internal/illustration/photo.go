@@ -33,11 +33,11 @@ type PhotoFinder interface {
 	Find(ctx context.Context, request realphoto.Request) realphoto.Result
 }
 
-// RecentPhotos lists recent featured photo files and stand-ins
+// RecentPhotos lists recent featured photo files and recorded subjects
 // (publisher.SQLiteArticles).
 type RecentPhotos interface {
 	RecentFeaturedPhotoURLs(ctx context.Context, since time.Time) ([]string, error)
-	RecentFeaturedStandIns(ctx context.Context, since time.Time) ([]realphoto.StandInUse, error)
+	RecentFeaturedSubjects(ctx context.Context, since time.Time) ([]realphoto.FeaturedSubjectUse, error)
 }
 
 // PhotoStep is the chain step that uses a real, credited photo.
@@ -67,17 +67,17 @@ func (r *pipelineRun) recentPhotos(ctx context.Context, now time.Time) []string 
 	return urls
 }
 
-func (r *pipelineRun) recentStandIns(ctx context.Context, now time.Time) []realphoto.StandInUse {
+func (r *pipelineRun) recentFeaturedSubjects(ctx context.Context, now time.Time) []realphoto.FeaturedSubjectUse {
 	deps := r.p.deps
 	if deps.RecentPhotos == nil {
 		return nil
 	}
-	standIns, err := deps.RecentPhotos.RecentFeaturedStandIns(ctx, now.Add(-StandInReuseWindow))
+	subjects, err := deps.RecentPhotos.RecentFeaturedSubjects(ctx, now.Add(-StandInReuseWindow))
 	if err != nil {
-		deps.Logger.WarnContext(ctx, "recent featured stand-ins unavailable", "error", err)
+		deps.Logger.WarnContext(ctx, "recent featured subjects unavailable", "error", err)
 		return nil
 	}
-	return standIns
+	return subjects
 }
 
 // photo runs the "photo" step: find a real photo, crop it to 16:9 around the
@@ -89,7 +89,7 @@ func (r *pipelineRun) photo(ctx context.Context, step Step) ([]byte, bool) {
 	found := step.Photos.Find(ctx, realphoto.Request{
 		Slug: r.request.Slug, Title: r.request.Title, Text: content.StripHTML(r.request.Content),
 		SourceURL: r.request.SourceURL, Slot: realphoto.SlotFeatured,
-		Exclude: r.recentPhotos(ctx, started), RecentStandIns: r.recentStandIns(ctx, started),
+		Exclude: r.recentPhotos(ctx, started), RecentFeaturedSubjects: r.recentFeaturedSubjects(ctx, started),
 	})
 	if !found.Found || found.Credit == nil || found.Chosen == nil || len(found.Image) == 0 {
 		err := fmt.Errorf("%w: %s", ErrNoPhoto, found.Reason)
@@ -115,7 +115,7 @@ func (r *pipelineRun) photo(ctx context.Context, step Step) ([]byte, bool) {
 	r.credit = &publisher.ImageCredit{
 		Kind: found.Credit.Kind, Text: credit, URL: found.Credit.URL,
 		License: found.Credit.License, LicenseURL: found.Credit.LicenseURL,
-		PhotoURL: found.Chosen.ImageURL, Alt: found.Alt, StandIn: found.StandInUse(),
+		PhotoURL: found.Chosen.ImageURL, Alt: found.Alt, SubjectUse: found.FeaturedSubjectUse(),
 	}
 	report := &PhotoReport{Kind: found.Credit.Kind, Credit: credit, CreditURL: found.Credit.URL, PhotoURL: found.Chosen.ImageURL, Quality: quality}
 	if found.StandIn != nil {

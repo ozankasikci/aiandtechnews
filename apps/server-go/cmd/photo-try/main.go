@@ -7,8 +7,9 @@
 //
 // The copy must have migration 19. The command reads GEMINI_API_KEY,
 // GEMINI_TEXT_MODEL and GEMINI_VISION_MODEL from the environment. It excludes
-// featured photo files used in the last 30 days and matching stand-ins used
-// in the last 7 days, as well as files and stand-ins chosen earlier in the run.
+// featured photo files used in the last 30 days and skips stand-ins that match
+// a stand-in or exact person used in the last 7 days. It also tracks photo
+// files, stand-ins and exact people chosen earlier in the run.
 package main
 
 import (
@@ -91,7 +92,7 @@ func writeRun(ctx context.Context, db *sql.DB, output *os.Root, finder illustrat
 		}
 		return err
 	}
-	standIns, err := published.RecentFeaturedStandIns(ctx, now.Add(-illustration.StandInReuseWindow))
+	subjects, err := published.RecentFeaturedSubjects(ctx, now.Add(-illustration.StandInReuseWindow))
 	if err != nil {
 		if strings.Contains(err.Error(), "no such table: article_featured_stand_ins") {
 			return fmt.Errorf("%w (run cmd/migrate on this copy first: migration 19 is missing)", err)
@@ -121,7 +122,7 @@ func writeRun(ctx context.Context, db *sql.DB, output *os.Root, finder illustrat
 	for _, article := range articles {
 		request := realphoto.Request{
 			Slug: article.Slug, Title: article.Title, Text: content.StripHTML(article.Content),
-			SourceURL: article.SourceURL, Slot: realphoto.SlotFeatured, Exclude: used, RecentStandIns: standIns,
+			SourceURL: article.SourceURL, Slot: realphoto.SlotFeatured, Exclude: used, RecentFeaturedSubjects: subjects,
 		}
 		found := finder.Find(ctx, request)
 		row := reportRow{Slug: article.Slug, Title: article.Title, Current: article.FeaturedImage, Reason: found.Reason, Candidates: found.Candidates}
@@ -143,9 +144,11 @@ func writeRun(ctx context.Context, db *sql.DB, output *os.Root, finder illustrat
 				row.Found, row.Credit, row.CreditURL = true, found.Credit.Text, found.Credit.URL
 				row.Verdict = found.Chosen.Verdict
 				row.Cropped = !bytes.Equal(cropped, found.Image)
-				if standIn := found.StandInUse(); standIn != nil {
-					row.StandIn = standIn.Subject
-					standIns = append(standIns, *standIn)
+				if found.StandIn != nil {
+					row.StandIn = found.StandIn.Subject
+				}
+				if use := found.FeaturedSubjectUse(); use != nil {
+					subjects = append(subjects, *use)
 				}
 				used = append(used, found.Chosen.ImageURL)
 			}

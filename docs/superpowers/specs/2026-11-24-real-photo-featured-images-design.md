@@ -88,8 +88,10 @@ The planner always returns a `story_type` from `funding`, `leadership_change`,
 `other`. Product and model launches, rollouts, features, updates, pricing
 changes and availability changes are `product`. The parser treats missing or
 unrecognized types as `other` and keeps leader stand-ins only for the five
-corporate actions. Place and product-in-use stand-ins remain eligible for
-every story type. A person who is the exact subject remains eligible too.
+corporate actions. The parser drops all stand-ins for research stories and
+keeps photographable research subjects eligible. Place and product-in-use
+stand-ins remain eligible for the other story types. A person who is the
+exact subject remains eligible too.
 
 Stand-ins come from Commons only. The official-page step is not used for them,
 because a company's page for an unrelated subject is the wrong source.
@@ -137,17 +139,19 @@ photo for that query, not as an error.
 ## Variety
 
 The finder excludes identical featured photo files for 30 days using their
-source image URLs. For stand-ins, it also skips a search when a featured
-stand-in from the last seven days has the same kind and either the same
-subject or the same non-empty maker. Subject and maker comparisons ignore
-case and collapse whitespace. The finder tries the remaining stand-ins and
-reports the skip if no photo is found. Exact subjects follow the file rule
-only.
+source image URLs. For stand-ins, it also skips a search when a recorded
+featured subject from the last seven days has the same kind and either the
+same subject or the same non-empty maker. Subject and maker comparisons
+ignore case and collapse whitespace. Makers also match when one name is a
+leading whole-word prefix of the other. The finder tries the remaining
+stand-ins and reports the skip if no photo is found. Exact subjects follow
+the file rule only.
 
 Migration 19 adds `article_featured_stand_ins` to store the subject, kind and
-plan maker in the same transaction as the article and photo credit. A failed
-history read is logged and the photo step continues with an empty history
-for that window.
+plan maker in the same transaction as the article and photo credit. Featured
+photos of the story's own person are recorded there for later stand-in checks
+too. A failed history read is logged and the photo step continues with an
+empty history for that window.
 
 ## Credits
 

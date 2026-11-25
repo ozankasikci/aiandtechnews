@@ -86,12 +86,12 @@ type Request struct {
 	Slot string
 	// Exclude lists photo URLs (Candidate.ImageURL) that must not be chosen.
 	Exclude []string
-	// RecentStandIns lists stand-ins already used for recent featured photos.
-	RecentStandIns []StandInUse
+	// RecentFeaturedSubjects lists featured subjects that can rule out a stand-in.
+	RecentFeaturedSubjects []FeaturedSubjectUse
 }
 
-// StandInUse identifies a stand-in used as a featured photo.
-type StandInUse struct {
+// FeaturedSubjectUse identifies a stand-in or exact person used as a featured photo.
+type FeaturedSubjectUse struct {
 	Subject string
 	Kind    string
 	Maker   string
@@ -153,12 +153,18 @@ type Result struct {
 	Seconds float64  `json:"seconds"`
 }
 
-// StandInUse returns the identity to record when a stand-in is chosen.
-func (r Result) StandInUse() *StandInUse {
-	if r.StandIn == nil || r.Plan == nil {
+// FeaturedSubjectUse returns the identity to record for a chosen featured photo.
+func (r Result) FeaturedSubjectUse() *FeaturedSubjectUse {
+	if !r.Found || r.Plan == nil {
 		return nil
 	}
-	return &StandInUse{Subject: r.StandIn.Subject, Kind: r.StandIn.Kind, Maker: r.Plan.Maker}
+	if r.StandIn != nil {
+		return &FeaturedSubjectUse{Subject: r.StandIn.Subject, Kind: r.StandIn.Kind, Maker: r.Plan.Maker}
+	}
+	if r.Plan.Photographable && r.Plan.Kind == KindPerson {
+		return &FeaturedSubjectUse{Subject: r.Plan.Subject, Kind: KindPerson, Maker: r.Plan.Maker}
+	}
+	return nil
 }
 
 // Finder runs the plan, Commons and official-image steps.
@@ -327,7 +333,7 @@ func (r *Result) choose(best *Candidate, credit Credit, subject string) {
 func (f *Finder) findStandIn(ctx context.Context, request Request, plan Plan, result Result) Result {
 	var skipped []string
 	for _, standIn := range plan.StandIns {
-		if recentlyUsedStandIn(standIn, plan.Maker, request.RecentStandIns) {
+		if recentlyUsedStandIn(standIn, plan.Maker, request.RecentFeaturedSubjects) {
 			note := fmt.Sprintf("stand-in %s skipped as recently used", standIn.Subject)
 			skipped = append(skipped, note)
 			result.Notes = append(result.Notes, note)
@@ -360,15 +366,19 @@ func (f *Finder) findStandIn(ctx context.Context, request Request, plan Plan, re
 	return result
 }
 
-func recentlyUsedStandIn(standIn StandIn, maker string, recent []StandInUse) bool {
-	maker = strings.Join(strings.Fields(maker), " ")
+func recentlyUsedStandIn(standIn StandIn, maker string, recent []FeaturedSubjectUse) bool {
+	makerWords := strings.Fields(maker)
 	subject := strings.Join(strings.Fields(standIn.Subject), " ")
 	for _, used := range recent {
 		if standIn.Kind != used.Kind {
 			continue
 		}
-		if strings.EqualFold(subject, strings.Join(strings.Fields(used.Subject), " ")) ||
-			(maker != "" && strings.EqualFold(maker, strings.Join(strings.Fields(used.Maker), " "))) {
+		if strings.EqualFold(subject, strings.Join(strings.Fields(used.Subject), " ")) {
+			return true
+		}
+		usedMakerWords := strings.Fields(used.Maker)
+		prefixLen := min(len(makerWords), len(usedMakerWords))
+		if prefixLen > 0 && slices.EqualFunc(makerWords[:prefixLen], usedMakerWords[:prefixLen], strings.EqualFold) {
 			return true
 		}
 	}
