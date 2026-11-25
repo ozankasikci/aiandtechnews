@@ -12,7 +12,7 @@ import { NewsletterBanner } from "../../components/Newsletter";
 import { getArticleLookup, getArticles, getPublicApiUrl, mapArticle } from "../../lib/api";
 import { toAbsoluteUrl } from "../../lib/dates";
 import { pickReadNext, readNextSlot, splitAfterParagraph } from "../../lib/read-next";
-import { insertInlineImages } from "../../lib/inline-images";
+import { featuredCaption, insertInlineImages } from "../../lib/inline-images";
 import { glossaryTerm, linkGlossaryTerms } from "../../lib/glossary";
 import { AdSlot } from "../../components/AdSlot";
 import { AD_SLOT_ARTICLE_TOP } from "../../lib/adsense";
@@ -93,6 +93,7 @@ export default async function ArticlePage({ params }: Props) {
   const glossary = linkGlossaryTerms(article.body || "<p>Article content unavailable.</p>");
   const topicLinked = linkTopicMentions(glossary.html, article.topics || []);
   const body = insertInlineImages(topicLinked.html, article.inlineImages);
+  const imageCaption = featuredCaption(article.imageCredit);
   const glossaryTerms = glossary.slugs.map((s) => glossaryTerm(s)!).map(({ slug, term, definition }) => ({ slug, term, definition }));
   const articleUrl = `${BASE_URL}/article/${article.slug}`;
   const imageUrl = toAbsoluteUrl(article.image, BASE_URL);
@@ -137,8 +138,14 @@ export default async function ArticlePage({ params }: Props) {
     <div className="max-w-[1280px] mx-auto">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <div className="relative w-full h-[300px] md:h-[450px] lg:h-[500px]">
-        <Image src={article.image} alt={article.headline} fill className="object-cover" sizes="100vw" priority />
+        <Image src={article.image} alt={article.imageCredit?.alt || article.headline} fill className="object-cover" sizes="100vw" priority />
         <div className="absolute inset-0 bg-gradient-to-t from-bg via-bg/40 to-transparent" />
+        {imageCaption && (
+          <p
+            className="absolute top-3 right-4 lg:right-8 z-20 max-w-[70%] rounded-sm bg-black/60 px-2 py-1 text-right text-[11px] leading-snug text-white/90 wrap-anywhere [&_a]:underline! [&_a:hover]:text-white!"
+            dangerouslySetInnerHTML={{ __html: imageCaption }}
+          />
+        )}
       </div>
 
       <div className="px-4 lg:px-8 -mt-24 relative z-10">

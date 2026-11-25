@@ -81,6 +81,7 @@ type fakeVision struct {
 	mu       sync.Mutex
 	verdicts map[string]string
 	calls    int
+	prompts  []string
 }
 
 func colourName(c color.Color) string {
@@ -96,10 +97,11 @@ func colourName(c color.Color) string {
 	return "gray"
 }
 
-func (f *fakeVision) ReviewImage(_ context.Context, _ string, data []byte, _ map[string]any) (string, error) {
+func (f *fakeVision) ReviewImage(_ context.Context, prompt string, data []byte, _ map[string]any) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
+	f.prompts = append(f.prompts, prompt)
 	img, err := jpeg.Decode(bytes.NewReader(data))
 	if err != nil {
 		return "", err
@@ -118,6 +120,7 @@ func verdict(quality int, alt string) string {
 
 type commonsFile struct {
 	title, license, licenseURL, artist string
+	objectName, description            string
 	width, height                      int
 	thumb                              string
 }
@@ -139,6 +142,8 @@ func commonsAPI(t *testing.T, files []commonsFile, queries *[]string) http.Handl
 						"LicenseShortName": map[string]any{"value": file.license},
 						"LicenseUrl":       map[string]any{"value": file.licenseURL},
 						"Artist":           map[string]any{"value": file.artist},
+						"ObjectName":       map[string]any{"value": file.objectName},
+						"ImageDescription": map[string]any{"value": file.description},
 					},
 				}},
 			})

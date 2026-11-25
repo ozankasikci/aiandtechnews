@@ -172,6 +172,40 @@ func TestSQLiteStoreReturnsSummaryWithArticleBySlug(t *testing.T) {
 	}
 }
 
+func TestSQLiteStoreReturnsTheFeaturedImageCreditWithArticleBySlug(t *testing.T) {
+	db, _ := testutil.OpenDatabase(t)
+	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, db)
+	if _, err := db.Exec(`INSERT INTO article_featured_image_credits
+		(article_id, image_url, kind, credit, credit_url, license, license_url, photo_url, alt, created_at)
+		SELECT id, featured_image, 'commons', 'Photo: Jane Doe / CC BY 4.0, via Wikimedia Commons', 'https://commons.wikimedia.org/wiki/File:X.jpg',
+		'CC BY 4.0', 'https://creativecommons.org/licenses/by/4.0', 'https://upload.wikimedia.org/x.jpg', 'Bret Taylor on stage.', '2026-09-19 12:00:00'
+		FROM articles WHERE id = 301`); err != nil {
+		t.Fatal(err)
+	}
+	store := content.NewSQLiteStore(db)
+	with, err := store.PublishedBySlug(context.Background(), "synthetic-published-newer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := content.FeaturedImageCredit{
+		Credit: "Photo: Jane Doe / CC BY 4.0, via Wikimedia Commons", CreditURL: "https://commons.wikimedia.org/wiki/File:X.jpg",
+		License: "CC BY 4.0", LicenseURL: "https://creativecommons.org/licenses/by/4.0", Alt: "Bret Taylor on stage.",
+	}
+	if with.FeaturedImageCredit == nil || *with.FeaturedImageCredit != want {
+		t.Fatalf("credit = %+v", with.FeaturedImageCredit)
+	}
+	without, err := store.PublishedBySlug(context.Background(), "synthetic-published-null-options")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if without.FeaturedImageCredit != nil {
+		t.Fatalf("credit without a row = %+v", without.FeaturedImageCredit)
+	}
+}
+
 func TestSQLiteStoreHonorsCanceledContext(t *testing.T) {
 	db, _ := testutil.OpenDatabase(t)
 	if err := migrate.Run(context.Background(), db, app.Migrations()); err != nil {

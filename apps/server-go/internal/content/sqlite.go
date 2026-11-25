@@ -149,9 +149,9 @@ func (s *SQLiteStore) Trending(ctx context.Context, limit int, since time.Time) 
 	return articles, nil
 }
 
-// PublishedBySlug reads a published article with its summary and inline
-// images. It does not count a view: the website caches article pages, so
-// readers' browsers report views through RecordView instead.
+// PublishedBySlug reads a published article with its summary, inline images
+// and featured photo credit. The website caches article pages, so readers'
+// browsers report views through RecordView.
 func (s *SQLiteStore) PublishedBySlug(ctx context.Context, slug string) (article Article, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -169,6 +169,9 @@ func (s *SQLiteStore) PublishedBySlug(ctx context.Context, slug string) (article
 		return Article{}, err
 	}
 	if err = loadInlineImages(ctx, tx, &article); err != nil {
+		return Article{}, err
+	}
+	if err = loadFeaturedImageCredit(ctx, tx, &article); err != nil {
 		return Article{}, err
 	}
 	if err = loadArticleTopics(ctx, tx, &article); err != nil {
@@ -330,5 +333,21 @@ func loadInlineImages(ctx context.Context, tx *sql.Tx, article *Article) error {
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate inline images: %w", err)
 	}
+	return nil
+}
+
+// loadFeaturedImageCredit reads the credit if it belongs to the current featured image.
+func loadFeaturedImageCredit(ctx context.Context, tx *sql.Tx, article *Article) error {
+	var credit FeaturedImageCredit
+	err := tx.QueryRowContext(ctx, `SELECT credit, credit_url, license, license_url, alt
+		FROM article_featured_image_credits WHERE article_id = ? AND image_url = ?`, article.ID, article.FeaturedImage).
+		Scan(&credit.Credit, &credit.CreditURL, &credit.License, &credit.LicenseURL, &credit.Alt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read featured image credit: %w", err)
+	}
+	article.FeaturedImageCredit = &credit
 	return nil
 }

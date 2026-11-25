@@ -176,10 +176,14 @@ func TestOwnImagePrefix(t *testing.T) {
 type fakeFinder struct {
 	result   realphoto.Result
 	requests []realphoto.Request
+	cancel   context.CancelFunc
 }
 
 func (f *fakeFinder) Find(_ context.Context, request realphoto.Request) realphoto.Result {
 	f.requests = append(f.requests, request)
+	if f.cancel != nil {
+		f.cancel()
+	}
 	return f.result
 }
 
@@ -220,6 +224,70 @@ func TestWorkerPrefersAFoundPhoto(t *testing.T) {
 	if string(photos.stored) != "photo" || len(store.marks) != 1 ||
 		store.marks[0] != (mark{id: 4, ready: true, url: "https://img.test/features/wici-inline.webp", alt: "The WiCi One robot.", after: 4, attempts: 2, credit: photoCredit}) {
 		t.Fatalf("marks = %+v", store.marks)
+	}
+}
+
+func TestWorkerExcludesTheFeaturedPhotoFromTheSearch(t *testing.T) {
+	article := photoArticle()
+	article.FeaturedPhotoURL = "https://upload.wikimedia.org/x.jpg"
+	store := &fakeStore{articles: []inlineimage.Article{article}}
+	finder := &fakeFinder{result: realphoto.Result{Found: true, Image: []byte("photo"), Alt: "Another view.", Credit: photoCredit}}
+	if _, err := newWorker(store, &fakeIllustrator{}).WithPhotos(finder, &fakePhotoStore{}).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(finder.requests) != 1 || len(finder.requests[0].Exclude) != 1 || finder.requests[0].Exclude[0] != "https://upload.wikimedia.org/x.jpg" {
+		t.Fatalf("finder requests = %+v", finder.requests)
+	}
+}
+
+// An inline illustration copies the style of the featured illustration. A
+// featured photo has no drawn style, so without a second photo the article
+// gets no inline image.
+func TestWorkerDoesNotDrawWhenTheFeaturedImageIsAPhoto(t *testing.T) {
+	article := photoArticle()
+	article.FeaturedPhotoURL = "https://upload.wikimedia.org/x.jpg"
+	store := &fakeStore{articles: []inlineimage.Article{article}}
+	illustrator := &fakeIllustrator{}
+	finder := &fakeFinder{result: realphoto.Result{Reason: "no usable photo"}}
+	if _, err := newWorker(store, illustrator).WithPhotos(finder, &fakePhotoStore{}).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(illustrator.requests) != 0 {
+		t.Fatal("drew an illustration although the featured image is a photo")
+	}
+	if len(store.marks) != 1 || store.marks[0].ready || store.marks[0].attempts != inlineimage.MaxAttempts {
+		t.Fatalf("marks = %+v, want one final failure", store.marks)
+	}
+}
+
+func TestWorkerRetriesATransientMissWhenTheFeaturedImageIsAPhoto(t *testing.T) {
+	article := photoArticle()
+	article.FeaturedPhotoURL = "https://upload.wikimedia.org/x.jpg"
+	article.Attempts = 0
+	store := &fakeStore{articles: []inlineimage.Article{article}}
+	illustrator := &fakeIllustrator{}
+	finder := &fakeFinder{result: realphoto.Result{Reason: "plan failed: planner offline", Transient: true}}
+	worker := newWorker(store, illustrator).WithPhotos(finder, &fakePhotoStore{})
+	if _, err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(illustrator.requests) != 0 || len(store.marks) != 1 || store.marks[0].ready ||
+		store.marks[0].attempts != article.Attempts+1 || !strings.Contains(store.marks[0].message, "planner offline") {
+		t.Fatalf("marks = %+v, drawings = %d, want one retryable failure", store.marks, len(illustrator.requests))
+	}
+}
+
+func TestWorkerDoesNotSpendAnAttemptWhenPhotoSearchIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	article := photoArticle()
+	article.FeaturedPhotoURL = "https://upload.wikimedia.org/x.jpg"
+	store := &fakeStore{articles: []inlineimage.Article{article}}
+	finder := &fakeFinder{cancel: cancel, result: realphoto.Result{Reason: "cancelled", Transient: true}}
+	worker := newWorker(store, &fakeIllustrator{}).WithPhotos(finder, &fakePhotoStore{})
+	tried, err := worker.RunOnce(ctx)
+	if !tried || !errors.Is(err, context.Canceled) || len(store.marks) != 0 {
+		t.Fatalf("tried = %t, err = %v, marks = %+v, want cancellation with no store marks", tried, err, store.marks)
 	}
 }
 

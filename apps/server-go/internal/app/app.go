@@ -235,6 +235,9 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 	if cfg.PublisherEnabled {
 		imageStore := media.NewStore(media.Config{Region: cfg.AWSRegion, Bucket: cfg.S3Bucket, Prefix: cfg.S3Prefix, PublicBaseURL: cfg.S3PublicURL},
 			objectAPI, newPublicHTTPClient(), now)
+		// One finder serves the featured "photo" step and the in-article image.
+		photos := realphoto.NewFinder(geminiClient, geminiClient, illustration.NewReferenceClient(), logger).WithSearch(geminiClient)
+		publishedArticles := publisher.NewSQLiteArticles(db, now)
 		illustrator := illustration.NewPipeline(illustration.BuildPipelineDeps(illustration.PipelineConfig{
 			Chain:        cfg.FeaturedImageChain,
 			Analyzers:    cfg.FeaturedImageAnalyzers,
@@ -245,6 +248,8 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			Gemini:       geminiClient,
 			Store:        imageStore,
 			History:      illustration.NewSettingsHistory(db),
+			Photos:       photos,
+			RecentPhotos: publishedArticles,
 			HTTP:         illustration.NewReferenceClient(),
 			Logger:       logger,
 		}))
@@ -268,7 +273,7 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			Subheadings: flash,
 			Topics:      topicTagger,
 			Illustrator: illustrator,
-			Articles:    publisher.NewSQLiteArticles(db, now),
+			Articles:    publishedArticles,
 			Notifier:    revalidatingNotifier{site: siteLists, next: newPublisherNotifier(cfg, logger)},
 			Now:         now,
 			Logger:      logger,
@@ -284,7 +289,6 @@ func NewWithDatabaseAt(cfg config.Config, logger *slog.Logger, db *sql.DB, now f
 			// Shares the publisher's pipeline, which makes one image at a time.
 			// A real photo (Wikimedia Commons, then the maker's official
 			// image) is preferred; the illustration is the fallback.
-			photos := realphoto.NewFinder(geminiClient, geminiClient, illustration.NewReferenceClient(), logger).WithSearch(geminiClient)
 			inlineImages := inlineimage.NewWorker(inlineimage.NewSQLiteStore(db, now), illustrator, now, logger,
 				inlineimage.OwnImagePrefix(cfg.S3PublicURL, cfg.S3Prefix)).WithPhotos(photos, illustrator).
 				WithRevalidator(siteRevalidate)

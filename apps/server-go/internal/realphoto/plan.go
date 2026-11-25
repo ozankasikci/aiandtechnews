@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -26,8 +27,29 @@ type Plan struct {
 	// ParsePlan and Finder.official).
 	MakerDomain   string   `json:"maker_domain,omitempty"`
 	OfficialPages []string `json:"official_pages,omitempty"`
-	Reason        string   `json:"reason,omitempty"`
+	// StandIns are real things a photo could honestly show in place of a
+	// story with nothing physical in it. Only the featured slot uses them.
+	StandIns []StandIn `json:"stand_ins,omitempty"`
+	Reason   string    `json:"reason,omitempty"`
 }
+
+// StandIn is one stand-in subject and how to search Commons for it.
+type StandIn struct {
+	Subject string   `json:"subject"`
+	Kind    string   `json:"kind"`
+	Queries []string `json:"queries"`
+}
+
+// Kinds of stand-in.
+const (
+	StandInPerson  = KindPerson
+	StandInPlace   = "place"
+	StandInProduct = "product_in_use"
+	// MaxStandIns caps the stand-ins kept from one plan.
+	MaxStandIns = 3
+)
+
+var standInKinds = []string{StandInPerson, StandInPlace, StandInProduct}
 
 const planPrompt = `You pick the in-article photo for a technology news article. Decide whether the story has ONE concrete, photographable subject that a real photo could show.
 
@@ -35,14 +57,19 @@ Photographable: a specific physical product or device (including brand-new hardw
 Not photographable: software, apps, AI models, websites, features, policies, laws, lawsuits, studies, reports, funding rounds, earnings, prices, market trends, abstract topics, or stories about many different things.
 
 Return only JSON with exactly this shape:
-{"photographable":true,"subject":"...","kind":"product|device|robot|vehicle|building|place|event|person|none","queries":["...","..."],"maker":"...","maker_domain":"...","official_pages":["..."],"reason":"..."}
+{"photographable":true,"subject":"...","kind":"product|device|robot|vehicle|building|place|event|person|none","queries":["...","..."],"maker":"...","maker_domain":"...","official_pages":["..."],"reason":"...","stand_ins":[{"subject":"...","kind":"person|place|product_in_use","queries":["...","..."]}]}
 
-subject: the exact subject, as specific as possible (maker, product name and model, e.g. "WiCi One desk robot"); empty when not photographable.
+subject: the exact subject, as specific as possible (maker, product name and model, e.g. "WiCi One desk robot"); empty when not photographable. For kind "person", use the person's full name and nothing else.
 queries: two short Wikimedia Commons search queries for a photo of that exact subject, the most specific first (e.g. "WiCi One robot", "WiCi robot"). Plain words, no quotes or operators.
 maker: the company or organisation that makes or owns the subject (for a person, their organisation); empty if unknown.
 maker_domain: the maker's official website domain (e.g. "nvidia.com"), only if you are sure; empty otherwise.
 official_pages: up to 2 full https URLs on maker_domain for this exact subject: its product page or the maker's own announcement. Only URLs you are confident exist; [] otherwise, and always [] for a person.
 reason: one short sentence.
+stand_ins: [] when photographable is true. When it is false, up to three real things a photo could honestly show in place of the subject, the most fitting first, or [] if none is honest:
+- "person": the one clear leader of the company the story is about (its chief executive or founder), only when the story is a corporate action by that company: funding, a leadership change, earnings, an acquisition, a lawsuit. subject is the person's full name and nothing else.
+- "place": the headquarters of the company, regulator or court the story is about. subject names the building, e.g. "Nvidia headquarters".
+- "product_in_use": a software product people see on a device, when the story is about that product. subject says what the photo shows, e.g. "ChatGPT app on a smartphone".
+Never offer a stand-in for a study, a market trend, or a story about several companies at once. Each stand-in has two short Wikimedia Commons search queries, written like queries above.
 
 Headline: %s
 
@@ -84,18 +111,14 @@ func ParsePlan(raw string) (Plan, error) {
 		return Plan{}, fmt.Errorf("unparsable plan: %w", err)
 	}
 	plan.Subject = oneLine(plan.Subject, 120)
+	plan.Kind = strings.ToLower(strings.TrimSpace(plan.Kind))
 	plan.Maker = oneLine(plan.Maker, 80)
 	plan.Reason = oneLine(plan.Reason, 200)
-	var queries []string
-	for _, query := range plan.Queries {
-		if query = oneLine(strings.NewReplacer(`"`, "", "|", " ").Replace(query), 100); query != "" {
-			queries = append(queries, query)
-		}
-		if len(queries) == 2 {
-			break
-		}
+	plan.Queries = cleanQueries(plan.Queries)
+	plan.StandIns = cleanStandIns(plan.StandIns)
+	if plan.Photographable {
+		plan.StandIns = nil
 	}
-	plan.Queries = queries
 	plan.MakerDomain = strings.TrimPrefix(strings.ToLower(oneLine(plan.MakerDomain, 80)), "www.")
 	var pages []string
 	for _, page := range plan.OfficialPages {
@@ -111,6 +134,42 @@ func ParsePlan(raw string) (Plan, error) {
 		plan.Queries = []string{plan.Subject}
 	}
 	return plan, nil
+}
+
+// cleanQueries keeps the first two non-empty search queries, without quotes
+// or operators.
+func cleanQueries(raw []string) []string {
+	var queries []string
+	for _, query := range raw {
+		if query = oneLine(strings.NewReplacer(`"`, "", "|", " ").Replace(query), 100); query != "" {
+			queries = append(queries, query)
+		}
+		if len(queries) == 2 {
+			break
+		}
+	}
+	return queries
+}
+
+// cleanStandIns keeps at most MaxStandIns stand-ins that have a subject and a
+// known kind. One without a query searches for its subject.
+func cleanStandIns(raw []StandIn) []StandIn {
+	var kept []StandIn
+	for _, standIn := range raw {
+		standIn.Subject = oneLine(standIn.Subject, 120)
+		standIn.Kind = strings.ToLower(strings.TrimSpace(standIn.Kind))
+		if standIn.Subject == "" || !slices.Contains(standInKinds, standIn.Kind) {
+			continue
+		}
+		if standIn.Queries = cleanQueries(standIn.Queries); len(standIn.Queries) == 0 {
+			standIn.Queries = []string{standIn.Subject}
+		}
+		kept = append(kept, standIn)
+		if len(kept) == MaxStandIns {
+			break
+		}
+	}
+	return kept
 }
 
 // onMakerDomain reports whether page is an https URL on the maker's own

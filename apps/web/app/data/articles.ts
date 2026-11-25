@@ -11,6 +11,17 @@ export type InlineImage = {
   licenseUrl?: string;
 };
 
+// The credit of a featured image that is a real photo: credit links to
+// creditUrl, a Commons photo also has its licence, and alt says what the
+// photo shows. A generated illustration has none.
+export type ImageCredit = {
+  credit: string;
+  creditUrl?: string;
+  license?: string;
+  licenseUrl?: string;
+  alt?: string;
+};
+
 export type Article = {
   id: number;
   slug: string;
@@ -26,6 +37,7 @@ export type Article = {
   updatedAt?: string;
   readTime: string;
   image: string;
+  imageCredit?: ImageCredit;
   tldr?: string[];
   whyItMatters?: string;
   primarySource?: { name: string; url: string };

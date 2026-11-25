@@ -23,6 +23,9 @@ type Article struct {
 	// SourceURL is the news source's page. It is read only to find the
 	// maker's official site and is never shown or credited.
 	SourceURL string
+	// FeaturedPhotoURL is the file the featured image was copied from when
+	// it is a real photo. It is empty for a drawn illustration.
+	FeaturedPhotoURL string
 	// Attempts are the failed tries so far.
 	Attempts int
 }
@@ -45,13 +48,15 @@ const sqliteDateTime = "2006-01-02 15:04:05"
 // articleColumns are the columns scanArticle reads, for articles a.
 const articleColumns = `a.id, a.slug, a.title, a.content, COALESCE(a.featured_image, ''), COALESCE(a.source_url, ''),
 	COALESCE((SELECT c.source_image_url FROM candidates c WHERE c.article_id = a.id ORDER BY c.id LIMIT 1), ''),
-	COALESCE((SELECT i.attempts FROM article_images i WHERE i.article_id = a.id), 0)`
+	COALESCE((SELECT i.attempts FROM article_images i WHERE i.article_id = a.id), 0),
+	COALESCE((SELECT f.photo_url FROM article_featured_image_credits f
+		WHERE f.article_id = a.id AND f.image_url = a.featured_image), '')`
 
 type scanner interface{ Scan(dest ...any) error }
 
 func scanArticle(row scanner) (Article, error) {
 	var article Article
-	err := row.Scan(&article.ID, &article.Slug, &article.Title, &article.Content, &article.FeaturedImage, &article.SourceURL, &article.SourceImage, &article.Attempts)
+	err := row.Scan(&article.ID, &article.Slug, &article.Title, &article.Content, &article.FeaturedImage, &article.SourceURL, &article.SourceImage, &article.Attempts, &article.FeaturedPhotoURL)
 	return article, err
 }
 

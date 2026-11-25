@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { INLINE_IMAGE_CAPTION, inlineCaption, inlineFigure, insertInlineImages, usableInlineImages } from "./inline-images";
+import { INLINE_IMAGE_CAPTION, featuredCaption, inlineCaption, inlineFigure, insertInlineImages, usableImageCredit, usableInlineImages } from "./inline-images";
 import { splitAfterParagraph } from "./read-next";
 
 const paragraphs = (n: number) =>
@@ -106,4 +106,45 @@ test("a credit is escaped, and shown unlinked without a usable link", () => {
 test("credits survive the API filter", () => {
   assert.deepEqual(usableInlineImages([commons]), [commons]);
   assert.deepEqual(usableInlineImages([{ ...image, credit: "", creditUrl: "https://x.test" }]), [image]);
+});
+
+test("a featured photo's credit is kept only when it has text and safe links", () => {
+  assert.equal(usableImageCredit(undefined), undefined);
+  assert.equal(usableImageCredit({ credit: "  " }), undefined);
+  assert.deepEqual(
+    usableImageCredit({
+      credit: " Photo: Jane Doe / CC BY 4.0, via Wikimedia Commons ",
+      creditUrl: "https://commons.wikimedia.org/wiki/File:X.jpg",
+      license: "CC BY 4.0",
+      licenseUrl: "javascript:alert(1)",
+      alt: " Bret Taylor on stage. ",
+    }),
+    {
+      credit: "Photo: Jane Doe / CC BY 4.0, via Wikimedia Commons",
+      creditUrl: "https://commons.wikimedia.org/wiki/File:X.jpg",
+      license: "CC BY 4.0",
+      alt: "Bret Taylor on stage.",
+    },
+  );
+});
+
+test("the featured caption links the credit and the licence, and is absent for an illustration", () => {
+  assert.equal(featuredCaption(undefined), undefined);
+  const html = featuredCaption({
+    credit: "Photo: Jane Doe / CC BY 4.0, via Wikimedia Commons",
+    creditUrl: "https://commons.wikimedia.org/wiki/File:X.jpg",
+    license: "CC BY 4.0",
+    licenseUrl: "https://creativecommons.org/licenses/by/4.0",
+  });
+  assert.ok(html);
+  assert.match(html, /href="https:\/\/commons\.wikimedia\.org\/wiki\/File:X\.jpg"[^>]*>Photo: Jane Doe<\/a> \/ <a href="https:\/\/creativecommons\.org\/licenses\/by\/4\.0"/);
+  assert.ok(html.endsWith(", via Wikimedia Commons"));
+  assert.equal(featuredCaption({ credit: "Image: <Nvidia>" }), "Image: &lt;Nvidia&gt;");
+});
+
+test("the featured caption keeps the crop disclosure after the linked Commons licence", () => {
+  const caption = featuredCaption(usableImageCredit({ ...commons, credit: `${commons.credit} (cropped)` }));
+  assert.ok(caption);
+  assert.match(caption, /href="https:\/\/commons\.wikimedia\.org\/wiki\/File:X\.jpg"[^>]*>Photo: Jane Doe<\/a>/);
+  assert.match(caption, /href="https:\/\/creativecommons\.org\/licenses\/by-sa\/4\.0"[^>]*>CC BY-SA 4\.0<\/a>, via Wikimedia Commons \(cropped\)$/);
 });

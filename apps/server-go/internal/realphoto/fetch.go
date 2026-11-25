@@ -28,6 +28,10 @@ const (
 // errNotHTTP refuses anything but an absolute http(s) URL.
 var errNotHTTP = errors.New("only absolute http(s) URLs are fetched")
 
+// ErrRateLimited reports an HTTP 429. The caller stops sending requests to
+// that service for the rest of the search.
+var ErrRateLimited = errors.New("rate limited")
+
 // fetched is one response body, capped, and the URL it finally came from.
 type fetched struct {
 	Body      []byte
@@ -60,6 +64,9 @@ func (f *Finder) get(ctx context.Context, rawURL, accept string, maxBytes int64,
 		return fetched{}, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return fetched{}, fmt.Errorf("HTTP 429: %w", ErrRateLimited)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fetched{}, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
@@ -102,5 +109,8 @@ func (f *Finder) getPage(ctx context.Context, rawURL string) (fetched, error) {
 
 func (f *Finder) getImage(ctx context.Context, rawURL string) ([]byte, error) {
 	page, err := f.get(ctx, rawURL, "image/avif;q=0,image/webp,image/jpeg,image/png,image/*;q=0.8", maxImageBytes, false, isRasterImage)
+	if err != nil {
+		recordRateLimit(ctx, err)
+	}
 	return page.Body, err
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"net/url"
+	"path"
 	"regexp"
 	"strings"
 )
@@ -48,6 +49,9 @@ func (f *Finder) commons(ctx context.Context, request Request, plan Plan) ([]Can
 		pages, err := f.searchCommons(ctx, query)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("search %q: %w", query, err))
+			if errors.Is(err, ErrRateLimited) {
+				break
+			}
 			continue
 		}
 		for _, page := range pages {
@@ -58,8 +62,51 @@ func (f *Finder) commons(ctx context.Context, request Request, plan Plan) ([]Can
 			candidates = append(candidates, commonsCandidate(page))
 		}
 	}
-	f.verifyAll(ctx, plan, request, KindCommons, candidates)
+	if plan.Kind == KindPerson {
+		checkCommonsPersonName(candidates, plan.Subject)
+	}
+	if err := f.verifyAll(ctx, plan, request, KindCommons, candidates); err != nil {
+		errs = append(errs, err)
+	}
 	return candidates, errors.Join(errs...)
+}
+
+// checkCommonsPersonName requires both the first and last words of the name
+// across the file's titles and description before any image is downloaded.
+func checkCommonsPersonName(candidates []Candidate, subject string) {
+	if end := strings.IndexAny(subject, ",("); end >= 0 {
+		subject = subject[:end]
+	}
+	words := strings.Fields(subject)
+	for len(words) > 1 && isPersonSuffix(words[len(words)-1]) {
+		words = words[:len(words)-1]
+	}
+	var first, last *regexp.Regexp
+	if len(words) > 0 {
+		wholeWord := func(word string) *regexp.Regexp {
+			return regexp.MustCompile(`(?i)(^|[^\pL\pM\pN])` + regexp.QuoteMeta(word) + `($|[^\pL\pM\pN])`)
+		}
+		first, last = wholeWord(words[0]), wholeWord(words[len(words)-1])
+	}
+	for i := range candidates {
+		candidate := &candidates[i]
+		if candidate.Reason != "" {
+			continue
+		}
+		metadata := candidate.Title + "\n" + candidate.fileTitle + "\n" + candidate.Description
+		if first == nil || !first.MatchString(metadata) || !last.MatchString(metadata) {
+			candidate.Reason = fmt.Sprintf("Commons titles and description do not identify %q by name", strings.Join(words, " "))
+		}
+	}
+}
+
+func isPersonSuffix(word string) bool {
+	switch strings.ToLower(strings.TrimSuffix(word, ".")) {
+	case "jr", "sr", "ii", "iii", "iv":
+		return true
+	default:
+		return false
+	}
 }
 
 func (f *Finder) searchCommons(ctx context.Context, query string) ([]commonsPage, error) {
@@ -74,13 +121,14 @@ func (f *Finder) searchCommons(ctx context.Context, query string) ([]commonsPage
 		"prop":                  {"imageinfo"},
 		"iiprop":                {"url|size|mime|extmetadata"},
 		"iiurlwidth":            {"1600"},
-		"iiextmetadatafilter":   {"LicenseShortName|LicenseUrl|Artist|Credit|UsageTerms|Restrictions"},
+		"iiextmetadatafilter":   {"LicenseShortName|LicenseUrl|Artist|Credit|UsageTerms|Restrictions|ObjectName|ImageDescription"},
 		"iiextmetadatalanguage": {"en"},
 	}
 	page, err := f.get(ctx, f.commonsAPI+"?"+params.Encode(), "application/json", maxAPIBytes, false, func(mediaType string) bool {
 		return mediaType == "application/json"
 	})
 	if err != nil {
+		recordRateLimit(ctx, err)
 		return nil, err
 	}
 	var response commonsResponse
@@ -107,15 +155,25 @@ func commonsCandidate(page commonsPage) Candidate {
 		}
 		return ""
 	}
+	fileTitle := strings.TrimPrefix(page.Title, "File:")
+	fileTitle = strings.TrimSuffix(fileTitle, path.Ext(fileTitle))
+	fileTitle = oneLine(stripHTML(strings.ReplaceAll(fileTitle, "_", " ")), 250)
+	title := oneLine(stripHTML(meta("ObjectName")), 250)
+	if title == "" {
+		title = fileTitle
+	}
 	candidate := Candidate{
-		Source:     KindCommons,
-		ImageURL:   info.ThumbURL,
-		PageURL:    info.DescriptionURL,
-		License:    oneLine(stripHTML(meta("LicenseShortName")), 40),
-		LicenseURL: strings.TrimSpace(meta("LicenseUrl")),
-		Artist:     cleanArtist(meta("Artist")),
-		Width:      info.Width,
-		Height:     info.Height,
+		Source:      KindCommons,
+		ImageURL:    info.ThumbURL,
+		PageURL:     info.DescriptionURL,
+		Title:       title,
+		Description: oneLine(stripHTML(meta("ImageDescription")), 800),
+		License:     oneLine(stripHTML(meta("LicenseShortName")), 40),
+		LicenseURL:  strings.TrimSpace(meta("LicenseUrl")),
+		Artist:      cleanArtist(meta("Artist")),
+		Width:       info.Width,
+		Height:      info.Height,
+		fileTitle:   fileTitle,
 	}
 	if candidate.ImageURL == "" {
 		candidate.ImageURL = info.URL

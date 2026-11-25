@@ -2,6 +2,7 @@ package publisher_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -47,15 +48,18 @@ func (f fakeRewriter) Rewrite(context.Context, publisher.RewriteInput) (content.
 type fakeIllustrator struct {
 	err       error
 	reference string
+	source    string
+	credit    *publisher.ImageCredit
 	discarded bool
 }
 
 func (f *fakeIllustrator) Illustrate(_ context.Context, request publisher.IllustrationRequest) (publisher.Illustration, error) {
 	f.reference = request.ReferenceImageURL
+	f.source = request.SourceURL
 	if f.err != nil {
 		return publisher.Illustration{}, f.err
 	}
-	return publisher.Illustration{URL: "https://images.example.com/x.webp", Discard: func(context.Context) { f.discarded = true }}, nil
+	return publisher.Illustration{URL: "https://images.example.com/x.webp", Credit: f.credit, Discard: func(context.Context) { f.discarded = true }}, nil
 }
 
 type fakeNotifier struct{ slugs []string }
@@ -66,6 +70,7 @@ func (f *fakeNotifier) SubmitSlugs(_ context.Context, slugs []string) error {
 }
 
 type harness struct {
+	db          *sql.DB
 	store       *newsroom.SQLiteStore
 	illustrator *fakeIllustrator
 	notifier    *fakeNotifier
@@ -78,7 +83,7 @@ func newHarness(t *testing.T, fetcher publisher.SourceFetcher, rewriter publishe
 	t.Helper()
 	db := openDB(t)
 	store := newsroom.NewSQLiteStore(db)
-	h := &harness{store: store, illustrator: &fakeIllustrator{err: illustratorErr}, notifier: &fakeNotifier{}, now: publishNow}
+	h := &harness{db: db, store: store, illustrator: &fakeIllustrator{err: illustratorErr}, notifier: &fakeNotifier{}, now: publishNow}
 	ctx := context.Background()
 	id, _, err := store.Insert(ctx, newsroom.NewCandidate{SourceURL: sourceURL, SourceName: "TechCrunch", FeedURL: "https://techcrunch.com/feed/", Title: "Anthropic launches new model"}, publishNow)
 	if err != nil {
@@ -143,6 +148,26 @@ func TestPublishNextRetriesTransientFailuresThenFails(t *testing.T) {
 		if candidate.Status != newsroom.StatusFailed || !strings.Contains(*candidate.LastError, "connection reset") {
 			t.Fatalf("final candidate = %+v", candidate)
 		}
+	}
+}
+
+func TestPublishNextStoresAPhotoCreditAndPassesTheSourcePage(t *testing.T) {
+	canonicalURL := sourceURL + "-update"
+	body := strings.Replace(sourcePage(), sourceURL, canonicalURL, 1)
+	h := newHarness(t, fakeFetcher{body: body}, fakeRewriter{}, nil)
+	h.illustrator.credit = photoCredit
+	if published, err := h.pub.PublishNext(context.Background()); err != nil || !published {
+		t.Fatalf("published=%v err=%v", published, err)
+	}
+	if h.illustrator.source != canonicalURL {
+		t.Fatalf("source page = %q, want %q", h.illustrator.source, canonicalURL)
+	}
+	var text, photoURL string
+	if err := h.db.QueryRow(`SELECT credit, photo_url FROM article_featured_image_credits`).Scan(&text, &photoURL); err != nil {
+		t.Fatal(err)
+	}
+	if text != photoCredit.Text || photoURL != photoCredit.PhotoURL {
+		t.Fatalf("stored credit = %q %q", text, photoURL)
 	}
 }
 
