@@ -30,6 +30,7 @@ type Verdict struct {
 	MarketingBanner bool   `json:"marketing_banner"`
 	Misleading      bool   `json:"misleading"`
 	Prominent       bool   `json:"subject_prominent"`
+	PeopleProminent bool   `json:"people_prominent"`
 	OtherBranding   bool   `json:"other_branding"`
 	// Dated is true when the hardware, interface or setting is visibly out
 	// of date. Only the featured slot rejects it.
@@ -68,10 +69,14 @@ func (v Verdict) usable(mode string) (bool, string) {
 	return true, ""
 }
 
-// usableFor is usable with the slot's own rules. The featured slot needs a
-// higher quality, rejects dated photos, and lets a person stand in front of
-// another organisation's backdrop.
+// usableFor applies the subject and slot rules. Both slots reject prominent
+// people in photos of buildings or places. The featured slot needs a higher
+// quality, rejects dated photos, and lets a person stand in front of another
+// organisation's backdrop.
 func (v Verdict) usableFor(slot, kind string) (bool, string) {
+	if v.PeopleProminent && isPlaceKind(kind) {
+		return false, "people are the main subject or dominate the foreground of a photo meant to show a place"
+	}
 	if slot != SlotFeatured {
 		return v.usable("")
 	}
@@ -89,6 +94,10 @@ func (v Verdict) usableFor(slot, kind string) (bool, string) {
 		return false, fmt.Sprintf("quality %d below %d for the featured slot", v.Quality, MinFeaturedQuality)
 	}
 	return true, ""
+}
+
+func isPlaceKind(kind string) bool {
+	return kind == "building" || kind == StandInPlace
 }
 
 const (
@@ -110,6 +119,7 @@ text_heavy: true if text, logos, UI screenshots, captions or charts dominate the
 marketing_banner: true if it is an advert or banner: slogans, prices, buttons, "buy now" or large overlaid text.
 misleading: true if using it to illustrate this article would mislead a reader: the wrong thing, an unrelated or staged context, a person in an unrelated, embarrassing or sensitive situation, or an edited or fake-looking picture.
 subject_prominent: true only if the subject is the clear focus and fills a good part of the frame (roughly a quarter or more), not a small figure among other things.
+people_prominent: true when one or more people are the main subject or dominate the foreground, such as people posing, shaking hands, speaking, or appearing in a portrait or group shot. False when no people are visible or they are small, incidental passers-by.
 other_branding: true if signs, logos or names of companies, events or venues other than the subject's own maker are visible (a stage backdrop, a banner, a booth sign). The maker's own name on the product itself is fine.
 dated: true if the hardware, the software on a screen, or the setting is visibly out of date for a story published today: an old phone model, an old version of an app, a photo that is clearly decades old.
 focus_x, focus_y: the centre of the subject as fractions of the image's width and height, from 0 (left or top edge) to 1 (right or bottom edge). For a person, the centre of the face.
@@ -118,7 +128,7 @@ alt: one plain sentence saying what the image shows, for alt text (do not start 
 notes: one short sentence.
 
 Return only JSON with exactly this shape:
-{"match":"exact","photographic":true,"watermark":false,"text_heavy":false,"marketing_banner":false,"misleading":false,"subject_prominent":true,"other_branding":false,"dated":false,"focus_x":0.5,"focus_y":0.4,"quality":8,"alt":"...","notes":"..."}`
+{"match":"exact","photographic":true,"watermark":false,"text_heavy":false,"marketing_banner":false,"misleading":false,"subject_prominent":true,"people_prominent":false,"other_branding":false,"dated":false,"focus_x":0.5,"focus_y":0.4,"quality":8,"alt":"...","notes":"..."}`
 
 const (
 	commonsContext   = "The image is a freely licensed photo from Wikimedia Commons.\n"
@@ -137,6 +147,7 @@ var verdictSchema = map[string]any{
 		"marketing_banner":  map[string]any{"type": "BOOLEAN"},
 		"misleading":        map[string]any{"type": "BOOLEAN"},
 		"subject_prominent": map[string]any{"type": "BOOLEAN"},
+		"people_prominent":  map[string]any{"type": "BOOLEAN"},
 		"other_branding":    map[string]any{"type": "BOOLEAN"},
 		"dated":             map[string]any{"type": "BOOLEAN"},
 		"focus_x":           map[string]any{"type": "NUMBER"},
@@ -145,7 +156,7 @@ var verdictSchema = map[string]any{
 		"alt":               map[string]any{"type": "STRING"},
 		"notes":             map[string]any{"type": "STRING"},
 	},
-	"required": []string{"match", "photographic", "watermark", "text_heavy", "marketing_banner", "misleading", "subject_prominent", "other_branding", "dated", "focus_x", "focus_y", "quality", "alt", "notes"},
+	"required": []string{"match", "photographic", "watermark", "text_heavy", "marketing_banner", "misleading", "subject_prominent", "people_prominent", "other_branding", "dated", "focus_x", "focus_y", "quality", "alt", "notes"},
 }
 
 // VerifyPrompt is the vision prompt for one in-body candidate in the given mode.
@@ -175,6 +186,9 @@ func verifyPromptFor(plan Plan, title, slot string, candidate *Candidate) string
 		if plan.Kind == KindPerson {
 			contextLine += "For a person, answer exact only when the file's own title or description, or unmistakable visible context such as a readable name badge, identifies the person shown as the subject. A mere mention or facial resemblance alone is insufficient.\n"
 		}
+	}
+	if isPlaceKind(plan.Kind) {
+		contextLine += "For a building or place, the picture must show the building or place itself, either its exterior or an interior where the architecture is the subject. A photo of people taken at or inside it is not an exact match.\n"
 	}
 	placement := inlinePlacement
 	if slot == SlotFeatured {

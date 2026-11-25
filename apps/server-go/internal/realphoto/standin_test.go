@@ -70,6 +70,34 @@ func TestFindUsesAStandInOnlyForTheFeaturedSlot(t *testing.T) {
 	}
 }
 
+func TestFindRejectsProminentPeopleInAPlaceStandIn(t *testing.T) {
+	const plan = `{"photographable":false,"story_type":"funding","maker":"Anthropic",
+		"stand_ins":[{"subject":"Anthropic headquarters","kind":"place"}]}`
+	var queries []string
+	routes := sites{
+		"commons.wikimedia.org": commonsAPI(t, []commonsFile{
+			{title: "File:Secretary of State Peter Kyle visits Anthropic.jpg", license: "CC0", width: 1600, height: 900, thumb: "https://upload.wikimedia.org/visit.png"},
+		}, &queries),
+		"upload.wikimedia.org": serveBytes(solidPNG(t, 1600, 900, green), "image/png"),
+	}
+	vision := &fakeVision{verdicts: map[string]string{"green": `{"match":"exact","photographic":true,
+		"subject_prominent":true,"people_prominent":true,"quality":9,"alt":"Two people shake hands in a lobby."}`}}
+	finder := realphoto.NewFinder(&fakeText{plan: plan}, vision, &http.Client{Transport: routes}, nil)
+	result := finder.Find(context.Background(), realphoto.Request{Title: "Anthropic raises funding", Slot: realphoto.SlotFeatured})
+
+	if result.Found || result.StandIn != nil || result.Transient || result.Reason != "no usable photo of a stand-in subject" {
+		t.Errorf("found = %t, stand-in = %v, transient = %t, reason = %q, want an ordinary miss with no stand-in",
+			result.Found, result.StandIn, result.Transient, result.Reason)
+	}
+	if vision.calls != 1 || len(result.Candidates) != 1 {
+		t.Fatalf("vision calls = %d, candidate count = %d, want one reviewed candidate", vision.calls, len(result.Candidates))
+	}
+	candidate := result.Candidates[0]
+	if candidate.Usable || !strings.Contains(candidate.Reason, "people") {
+		t.Errorf("candidate usable = %t, reason = %q, want rejection naming people", candidate.Usable, candidate.Reason)
+	}
+}
+
 func TestFindStopsSearchingStandInsAfterAnImageDownloadIsRateLimited(t *testing.T) {
 	const plan = `{"photographable":false,"story_type":"funding","maker":"Sierra","stand_ins":[
 		{"subject":"Bret Taylor","kind":"person"},
