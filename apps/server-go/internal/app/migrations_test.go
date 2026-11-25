@@ -13,7 +13,7 @@ import (
 
 func TestApplicationMigrationsHaveStableGlobalOrderAndAreIdempotent(t *testing.T) {
 	descriptors := app.Migrations()
-	if len(descriptors) != 18 ||
+	if len(descriptors) != 19 ||
 		descriptors[0].Version != 1 || descriptors[0].Name != "editorial authors" ||
 		descriptors[1].Version != 2 || descriptors[1].Name != "content categories and articles" ||
 		descriptors[2].Version != 3 || descriptors[2].Name != "newsroom candidates" ||
@@ -31,7 +31,8 @@ func TestApplicationMigrationsHaveStableGlobalOrderAndAreIdempotent(t *testing.T
 		descriptors[14].Version != 15 || descriptors[14].Name != "featured image reimage retries" ||
 		descriptors[15].Version != 16 || descriptors[15].Name != "telegram channel posts" ||
 		descriptors[16].Version != 17 || descriptors[16].Name != "article analysis" ||
-		descriptors[17].Version != 18 || descriptors[17].Name != "article featured image credits" {
+		descriptors[17].Version != 18 || descriptors[17].Name != "article featured image credits" ||
+		descriptors[18].Version != 19 || descriptors[18].Name != "article featured stand-ins" {
 		t.Fatalf("descriptors = %#v", descriptors)
 	}
 	firstChecksum, secondChecksum := descriptors[0].Checksum(), descriptors[1].Checksum()

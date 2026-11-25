@@ -62,7 +62,7 @@ a{color:#c4a1ff}
 {{with .Verdict}}<p class="meta">Match: {{.Match}} · Dated: {{.Dated}} · Quality: {{.Quality}} · Alt: {{.Alt}} · Notes: {{.Notes}}</p>{{end}}
 {{end}}
 {{if .Candidates}}<table>
-{{range .Candidates}}<tr><td>{{.Source}}</td><td><a href="{{.PageURL}}">{{.PageURL}}</a></td><td>{{if .Usable}}usable{{if .Verdict}}, quality {{.Verdict.Quality}}{{end}}{{else}}{{.Reason}}{{end}}</td></tr>
+{{range .Candidates}}<tr><td>{{.Source}}</td><td><a href="{{.PageURL}}">{{.PageURL}}</a></td><td>{{if eq .Source "commons"}}Capture year: {{if .CaptureYear}}{{.CaptureYear}}{{else}}unknown{{end}}{{end}}</td><td>{{if .Usable}}usable{{if .Verdict}}, quality {{.Verdict.Quality}}{{end}}{{else}}{{.Reason}}{{end}}</td></tr>
 {{end}}</table>{{end}}
 {{end}}
 `))

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/content"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/realphoto"
 )
 
 // sqliteDateTime matches SQLite datetime('now'), which Node writes and the website reads.
@@ -224,6 +225,12 @@ func insertFeaturedCredit(ctx context.Context, tx *sql.Tx, articleID int64, imag
 		articleID, imageURL, credit.Kind, credit.Text, credit.URL, credit.License, credit.LicenseURL, credit.PhotoURL, credit.Alt, stamp); err != nil {
 		return fmt.Errorf("insert featured image credit: %w", err)
 	}
+	if standIn := credit.StandIn; standIn != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO article_featured_stand_ins (article_id, subject, kind, maker) VALUES (?, ?, ?, ?)`,
+			articleID, standIn.Subject, standIn.Kind, standIn.Maker); err != nil {
+			return fmt.Errorf("insert featured stand-in: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -245,6 +252,26 @@ func (a *SQLiteArticles) RecentFeaturedPhotoURLs(ctx context.Context, since time
 		urls = append(urls, url)
 	}
 	return urls, rows.Err()
+}
+
+// RecentFeaturedStandIns lists stand-ins used as featured images since the given time.
+func (a *SQLiteArticles) RecentFeaturedStandIns(ctx context.Context, since time.Time) ([]realphoto.StandInUse, error) {
+	rows, err := a.db.QueryContext(ctx, `SELECT s.subject, s.kind, s.maker
+		FROM article_featured_stand_ins s JOIN article_featured_image_credits c ON c.article_id = s.article_id
+		WHERE c.created_at >= ? ORDER BY c.created_at DESC, s.article_id DESC`, since.UTC().Format(sqliteDateTime))
+	if err != nil {
+		return nil, fmt.Errorf("read recent featured stand-ins: %w", err)
+	}
+	defer rows.Close()
+	var standIns []realphoto.StandInUse
+	for rows.Next() {
+		var standIn realphoto.StandInUse
+		if err := rows.Scan(&standIn.Subject, &standIn.Kind, &standIn.Maker); err != nil {
+			return nil, fmt.Errorf("scan recent featured stand-in: %w", err)
+		}
+		standIns = append(standIns, standIn)
+	}
+	return standIns, rows.Err()
 }
 
 // markCandidatePublished links a processing candidate to its new article.

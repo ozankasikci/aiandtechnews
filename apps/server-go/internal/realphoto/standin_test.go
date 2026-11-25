@@ -2,6 +2,7 @@ package realphoto_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,11 +10,11 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/realphoto"
 )
 
-const fundingPlan = `{"photographable":false,"subject":"","kind":"none","queries":[],"maker":"Sierra","reason":"A funding round.",
+const fundingPlan = `{"photographable":false,"story_type":"funding","subject":"","kind":"none","queries":[],"maker":"Sierra","reason":"A funding round.",
 "stand_ins":[{"subject":"Bret Taylor","kind":"person","queries":["Bret Taylor","Bret Taylor Sierra"]}]}`
 
 func TestParsePlanCleansStandIns(t *testing.T) {
-	plan, err := realphoto.ParsePlan(`{"photographable":false,"reason":"r","stand_ins":[
+	plan, err := realphoto.ParsePlan(`{"photographable":false,"story_type":"funding","reason":"r","stand_ins":[
 		{"subject":"  Bret   Taylor ","kind":"Person","queries":["a","b","c"]},
 		{"subject":"A mood","kind":"metaphor","queries":["x"]},
 		{"subject":"","kind":"place","queries":["y"]},
@@ -48,7 +49,7 @@ func TestParsePlanDropsStandInsOfAPhotographableStory(t *testing.T) {
 func TestFindUsesAStandInOnlyForTheFeaturedSlot(t *testing.T) {
 	var queries []string
 	vision := &fakeVision{verdicts: map[string]string{"green": verdict(8, ""), "blue": verdict(9, "")}}
-	finder := realphoto.NewFinder(&fakeText{plan: fundingPlan}, vision, &http.Client{Transport: twoFiles(t, &queries)}, nil)
+	finder := realphoto.NewFinder(&fakeText{plan: fundingPlan}, vision, &http.Client{Transport: twoFiles(t, &queries)}, nil).WithClock(fixedPhotoTime)
 	request := realphoto.Request{Slug: "sierra", Title: "Sierra raises $1.75 billion", Text: "..."}
 
 	inline := finder.Find(context.Background(), request)
@@ -70,7 +71,7 @@ func TestFindUsesAStandInOnlyForTheFeaturedSlot(t *testing.T) {
 }
 
 func TestFindStopsSearchingStandInsAfterAnImageDownloadIsRateLimited(t *testing.T) {
-	const plan = `{"photographable":false,"maker":"Sierra","stand_ins":[
+	const plan = `{"photographable":false,"story_type":"funding","maker":"Sierra","stand_ins":[
 		{"subject":"Bret Taylor","kind":"person"},
 		{"subject":"Sierra headquarters","kind":"place"}]}`
 	var queries []string
@@ -80,7 +81,7 @@ func TestFindStopsSearchingStandInsAfterAnImageDownloadIsRateLimited(t *testing.
 		requests++
 		http.Error(w, "slow down", http.StatusTooManyRequests)
 	}
-	finder := realphoto.NewFinder(&fakeText{plan: plan}, &fakeVision{}, &http.Client{Transport: routes}, nil)
+	finder := realphoto.NewFinder(&fakeText{plan: plan}, &fakeVision{}, &http.Client{Transport: routes}, nil).WithClock(fixedPhotoTime)
 	result := finder.Find(context.Background(), realphoto.Request{Title: "Sierra raises funding", Slot: realphoto.SlotFeatured})
 
 	if len(queries) != 1 || requests != 1 {
@@ -90,4 +91,54 @@ func TestFindStopsSearchingStandInsAfterAnImageDownloadIsRateLimited(t *testing.
 		t.Fatalf("result = %+v, want no chosen stand-in and a rate-limit note", result)
 	}
 	assertRateLimitedCandidates(t, result)
+}
+
+func TestParsePlanGatesPersonStandInsByStoryType(t *testing.T) {
+	for _, tc := range []struct {
+		name, field, want string
+		person            bool
+	}{
+		{"funding", `"story_type":"funding",`, "funding", true},
+		{"leadership change", `"story_type":"leadership_change",`, "leadership_change", true},
+		{"earnings", `"story_type":"earnings",`, "earnings", true},
+		{"acquisition", `"story_type":"acquisition",`, "acquisition", true},
+		{"lawsuit", `"story_type":"lawsuit",`, "lawsuit", true},
+		{"product", `"story_type":"product",`, "product", false},
+		{"research", `"story_type":"research",`, "research", false},
+		{"policy", `"story_type":"policy",`, "policy", false},
+		{"other", `"story_type":"other",`, "other", false},
+		{"missing", "", "other", false},
+		{"unknown", `"story_type":"partnership",`, "other", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := realphoto.ParsePlan(fmt.Sprintf(`{%s"photographable":false,"stand_ins":[
+				{"subject":"Bret Taylor","kind":"person"},
+				{"subject":"Sierra headquarters","kind":"place"},
+				{"subject":"Sierra app on a phone","kind":"product_in_use"}]}`, tc.field))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.StoryType != tc.want {
+				t.Errorf("story type = %q, want %q", plan.StoryType, tc.want)
+			}
+			want := "place,product_in_use"
+			if tc.person {
+				want = "person," + want
+			}
+			var kinds []string
+			for _, standIn := range plan.StandIns {
+				kinds = append(kinds, standIn.Kind)
+			}
+			if got := strings.Join(kinds, ","); got != want {
+				t.Errorf("stand-in kinds = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestParsePlanKeepsAnExactPersonSubjectForAProductStory(t *testing.T) {
+	plan, err := realphoto.ParsePlan(`{"photographable":true,"story_type":"product","kind":"person","subject":"Bret Taylor"}`)
+	if err != nil || !plan.Photographable || plan.Subject != "Bret Taylor" || plan.Kind != realphoto.KindPerson {
+		t.Fatalf("plan = %+v, err = %v", plan, err)
+	}
 }

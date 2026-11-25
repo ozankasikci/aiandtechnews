@@ -39,6 +39,9 @@ var articleAnalysisSchema string
 //go:embed migrations/018_article_featured_image_credits.sql
 var articleFeaturedImageCreditsSchema string
 
+//go:embed migrations/019_article_featured_stand_ins.sql
+var articleFeaturedStandInsSchema string
+
 // Migrations returns a fresh slice containing content's immutable schema descriptors.
 func Migrations() []migrate.Descriptor {
 	return []migrate.Descriptor{
@@ -53,5 +56,6 @@ func Migrations() []migrate.Descriptor {
 		{Version: 16, Name: "telegram channel posts", SQL: telegramPostsSchema},
 		{Version: 17, Name: "article analysis", SQL: articleAnalysisSchema},
 		{Version: 18, Name: "article featured image credits", SQL: articleFeaturedImageCreditsSchema},
+		{Version: 19, Name: "article featured stand-ins", SQL: articleFeaturedStandInsSchema},
 	}
 }

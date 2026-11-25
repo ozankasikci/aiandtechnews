@@ -119,6 +119,9 @@ These rules apply to the Go publisher (`internal/illustration`, backed by `inter
 11. Duplicate `source_url`/slug checks run before generating and uploading the image, and are repeated immediately before insertion.
 12. Historical articles keep their existing image URLs. Do not rewrite, migrate, or delete them.
 13. Real photos. The `photo` provider may use a photo only if it shows the article's subject, or a stand-in for a story with nothing physical to show: the one clear leader of the company the story is about, the headquarters of the company, regulator or court it is about, or the software product on a device. A stand-in is found on Wikimedia Commons only. Every photo passes the vision check for the featured slot: the exact subject, a real photograph, no watermark, not text-heavy, not a marketing banner, not misleading, the subject prominent, not visibly dated, quality 8 or more. A photo of a real person is allowed; a generated likeness is not. A photo of a person is used only when the Commons file itself names that person. The photo is cropped to 16:9, stored in our bucket like any featured image, and credited on the article page with a link to its Commons page or the maker's page and, for Commons, its licence. A photo is never taken from a news source, and the same photo is not used as a featured image twice within 30 days.
+    - A company leader can stand in only for that company's funding, leadership change, earnings, acquisition or lawsuit story.
+    - Commons person photos require a capture year at most five years old in either slot, and other featured Commons photos with a known capture year may be at most ten years old.
+    - A featured stand-in is skipped if the last seven days included a stand-in of the same kind with the same subject or the same known maker.
 
 ## Daily automation contract
 
