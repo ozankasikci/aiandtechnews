@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"math"
 	"testing"
@@ -85,15 +86,43 @@ func TestCropToAspectCropsAroundTheFocus(t *testing.T) {
 
 func TestCropToAspectLeavesAMatchingImageAlone(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 1600, 900))
+	for y := 0; y < 900; y++ {
+		for x := 0; x < 1600; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x % 256), G: uint8(y % 256), B: uint8((x + y) % 256), A: 255})
+		}
+	}
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
+	if err := jpeg.Encode(&buf, img, nil); err != nil {
 		t.Fatal(err)
 	}
-	out, err := imaging.CropToAspect(buf.Bytes(), 16.0/9.0, 0.2, 0.8)
+	in := buf.Bytes()
+	out, err := imaging.CropToAspect(in, 16.0/9.0, 0.2, 0.8)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(out, buf.Bytes()) {
+	if !bytes.Equal(out, in) {
 		t.Fatal("a 16:9 image must be returned unchanged")
+	}
+	if !bytes.HasPrefix(out, []byte{0xff, 0xd8, 0xff}) {
+		t.Fatal("the unchanged image must still be a JPEG")
+	}
+}
+
+func TestCropRectCentresOnTheFocus(t *testing.T) {
+	ratio := 16.0 / 9.0
+	for _, tc := range []struct {
+		name   string
+		w, h   int
+		fx, fy float64
+		want   image.Rectangle
+	}{
+		{"centre of a 4:3 image", 1600, 1200, 0.5, 0.5, image.Rect(0, 150, 1600, 1050)},
+		{"portrait, focus above centre", 1200, 1600, 0.5, 0.4, image.Rect(0, 303, 1200, 978)},
+		{"panorama, focus left of centre", 3000, 1000, 0.3, 0.5, image.Rect(11, 0, 1789, 1000)},
+		{"NaN focus is the centre", 1600, 1200, math.NaN(), math.NaN(), image.Rect(0, 150, 1600, 1050)},
+	} {
+		if got := imaging.CropRect(tc.w, tc.h, ratio, tc.fx, tc.fy); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
