@@ -2,7 +2,7 @@ import type { Article } from "../data/articles";
 import { ownImageOr } from "./own-image";
 import { parseApiDate, toIsoDate } from "./dates";
 import { readingTimeLabel } from "./reading-time";
-import { usableInlineImages } from "./inline-images";
+import { usableImageCredit, usableInlineImages } from "./inline-images";
 import { parseTopicDetail, parseTopicList, parseTopicRefs, topicTag, TOPICS_TAG, type TopicDetail, type TopicSummary } from "./topics";
 
 function getApiUrl() {
@@ -77,6 +77,7 @@ export interface ApiArticle {
     license?: string;
     licenseUrl?: string;
   }[];
+  featuredImageCredit?: unknown;
   category: { id: number; name: string; slug: string; description: string; color: string };
   author: { id: number; name: string; email: string; avatar: string; bio: string; role: string };
 }
@@ -162,6 +163,7 @@ export function mapArticle(a: ApiArticle): Article {
     updatedAt: toIsoDate(a.updated_at || a.published_at || a.created_at),
     readTime: readingTimeLabel(a.content),
     image: ownImageOr(a.featured_image),
+    imageCredit: usableImageCredit(a.featuredImageCredit),
     tldr: a.tldr?.length ? a.tldr : undefined,
     whyItMatters: a.why_it_matters || undefined,
     primarySource: parsePrimarySource(a.primary_source),

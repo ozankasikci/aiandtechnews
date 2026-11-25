@@ -227,3 +227,25 @@ func TestPublicArticleBySlugIncludesAnInlinePhotoCredit(t *testing.T) {
 		t.Fatalf("by slug = %s", body)
 	}
 }
+
+func TestPublicArticleBySlugOmitsCreditAfterFeaturedImageChanges(t *testing.T) {
+	handler, closer := newArticleHandler(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	db := closer.(*sql.DB)
+	if _, err := db.Exec(`INSERT INTO article_featured_image_credits (article_id, image_url, kind, credit, created_at)
+		SELECT id, featured_image, 'commons', 'Photo: Jane Doe', 'x' FROM articles WHERE id = 301`); err != nil {
+		t.Fatal(err)
+	}
+	const target = "/api/articles/synthetic-published-newer"
+	before := request(t, handler, target)
+	if before.Code != http.StatusOK || !strings.Contains(before.Body.String(), `"featuredImageCredit":{"credit":"Photo: Jane Doe"}`) {
+		t.Fatalf("before replacement: status %d body %s", before.Code, before.Body)
+	}
+
+	if _, err := db.Exec(`UPDATE articles SET featured_image = 'https://img.test/features/replacement.webp' WHERE id = 301`); err != nil {
+		t.Fatal(err)
+	}
+	after := request(t, handler, target)
+	if after.Code != http.StatusOK || strings.Contains(after.Body.String(), `"featuredImageCredit"`) {
+		t.Fatalf("after replacement: status %d body %s", after.Code, after.Body)
+	}
+}

@@ -179,9 +179,10 @@ func TestSQLiteStoreReturnsTheFeaturedImageCreditWithArticleBySlug(t *testing.T)
 	}
 	seed(t, db)
 	if _, err := db.Exec(`INSERT INTO article_featured_image_credits
-		(article_id, kind, credit, credit_url, license, license_url, photo_url, alt, created_at)
-		VALUES (301, 'commons', 'Photo: Jane Doe / CC BY 4.0, via Wikimedia Commons', 'https://commons.wikimedia.org/wiki/File:X.jpg',
-		'CC BY 4.0', 'https://creativecommons.org/licenses/by/4.0', 'https://upload.wikimedia.org/x.jpg', 'Bret Taylor on stage.', '2026-09-19 12:00:00')`); err != nil {
+		(article_id, image_url, kind, credit, credit_url, license, license_url, photo_url, alt, created_at)
+		SELECT id, featured_image, 'commons', 'Photo: Jane Doe / CC BY 4.0, via Wikimedia Commons', 'https://commons.wikimedia.org/wiki/File:X.jpg',
+		'CC BY 4.0', 'https://creativecommons.org/licenses/by/4.0', 'https://upload.wikimedia.org/x.jpg', 'Bret Taylor on stage.', '2026-09-19 12:00:00'
+		FROM articles WHERE id = 301`); err != nil {
 		t.Fatal(err)
 	}
 	store := content.NewSQLiteStore(db)

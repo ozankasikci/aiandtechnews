@@ -1,4 +1,4 @@
-import type { InlineImage } from "../data/articles";
+import type { ImageCredit, InlineImage } from "../data/articles";
 
 // Images (illustrations or credited photos) the API places inside an article's body. Each goes after
 // paragraph `afterParagraph`, counting the whole body's paragraphs from 1, so
@@ -94,4 +94,26 @@ export function insertInlineImages(html: string, images: InlineImage[] | undefin
     cursor = end;
   }
   return out + html.slice(cursor);
+}
+
+// The credit of a featured image that is a real photo, from the API. It is
+// undefined for a generated illustration or a malformed value; links are
+// kept only when they are http(s) URLs.
+export function usableImageCredit(raw: unknown): ImageCredit | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const { credit, creditUrl, license, licenseUrl, alt } = raw as Record<string, unknown>;
+  if (!nonEmpty(credit)) return undefined;
+  const usable: ImageCredit = { credit: credit.trim() };
+  if (isHttpUrl(creditUrl)) usable.creditUrl = creditUrl;
+  if (nonEmpty(license)) usable.license = license.trim();
+  if (nonEmpty(license) && isHttpUrl(licenseUrl)) usable.licenseUrl = licenseUrl;
+  if (nonEmpty(alt)) usable.alt = alt.trim();
+  return usable;
+}
+
+// The featured image's credit line as HTML, or undefined when the image is a
+// generated illustration, which carries no credit.
+export function featuredCaption(credit: ImageCredit | undefined): string | undefined {
+  if (!credit) return undefined;
+  return inlineCaption({ url: "", alt: "", afterParagraph: 1, ...credit });
 }

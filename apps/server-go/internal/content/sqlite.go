@@ -336,11 +336,11 @@ func loadInlineImages(ctx context.Context, tx *sql.Tx, article *Article) error {
 	return nil
 }
 
-// loadFeaturedImageCredit reads the credit of a featured image that is a real photo.
+// loadFeaturedImageCredit reads the credit if it belongs to the current featured image.
 func loadFeaturedImageCredit(ctx context.Context, tx *sql.Tx, article *Article) error {
 	var credit FeaturedImageCredit
 	err := tx.QueryRowContext(ctx, `SELECT credit, credit_url, license, license_url, alt
-		FROM article_featured_image_credits WHERE article_id = ?`, article.ID).
+		FROM article_featured_image_credits WHERE article_id = ? AND image_url = ?`, article.ID, article.FeaturedImage).
 		Scan(&credit.Credit, &credit.CreditURL, &credit.License, &credit.LicenseURL, &credit.Alt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil

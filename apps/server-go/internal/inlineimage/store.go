@@ -49,7 +49,8 @@ const sqliteDateTime = "2006-01-02 15:04:05"
 const articleColumns = `a.id, a.slug, a.title, a.content, COALESCE(a.featured_image, ''), COALESCE(a.source_url, ''),
 	COALESCE((SELECT c.source_image_url FROM candidates c WHERE c.article_id = a.id ORDER BY c.id LIMIT 1), ''),
 	COALESCE((SELECT i.attempts FROM article_images i WHERE i.article_id = a.id), 0),
-	COALESCE((SELECT f.photo_url FROM article_featured_image_credits f WHERE f.article_id = a.id), '')`
+	COALESCE((SELECT f.photo_url FROM article_featured_image_credits f
+		WHERE f.article_id = a.id AND f.image_url = a.featured_image), '')`
 
 type scanner interface{ Scan(dest ...any) error }
 

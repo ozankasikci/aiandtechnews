@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/illustration"
+	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/imaging"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/publisher"
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/realphoto"
 )
@@ -139,6 +140,21 @@ func TestPhotoStepIsSkippedWhenOnlyADrawingIsWanted(t *testing.T) {
 	}
 }
 
+func TestProduceGeneratedSkipsPhotoAfterGenerationFailure(t *testing.T) {
+	finder := &fakePhotoFinder{result: foundPhoto(t)}
+	codex := &fakeProvider{name: "codex", attempts: 1, errs: []error{errors.New("no image")}}
+	gem := &fakeProvider{name: "gemini", attempts: 1, image: solidPNG(t, 64, 36)}
+	fixture := newFixture(t, illustration.ProviderStep(codex), illustration.PhotoStep(finder), illustration.ProviderStep(gem))
+
+	result, err := illustration.NewPipeline(fixture.deps).ProduceGenerated(context.Background(), fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(codex.requests) != 1 || len(finder.requests) != 0 || result.Report.Provider != "gemini" || result.Credit != nil {
+		t.Fatalf("codex calls %d, finder calls %d, provider %q, credit %+v", len(codex.requests), len(finder.requests), result.Report.Provider, result.Credit)
+	}
+}
+
 func TestAChainThatOnlyFindsNoPhotoFailsForGood(t *testing.T) {
 	finder := &fakePhotoFinder{result: realphoto.Result{Reason: "no photographable subject"}}
 	fixture := newFixture(t, illustration.PhotoStep(finder))
@@ -160,6 +176,26 @@ func TestIllustrateReturnsThePhotoCredit(t *testing.T) {
 	}
 	if made.Credit == nil || made.Credit.PhotoURL != "https://upload.wikimedia.org/x.jpg" || made.URL == "" {
 		t.Fatalf("illustration = %+v", made)
+	}
+}
+
+func TestIllustrateStoresAWidePhotoAsScaledWebP(t *testing.T) {
+	photo := foundPhoto(t)
+	photo.Image = solidPNG(t, 3200, 1800)
+	finder := &fakePhotoFinder{result: photo}
+	fixture := newFixture(t, illustration.PhotoStep(finder))
+	store := &fakeImageStore{}
+	fixture.deps.Store = store
+
+	if _, err := illustration.NewPipeline(fixture.deps).Illustrate(context.Background(), fixture.request); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := imaging.Decode(store.stored)
+	if err != nil || imaging.SniffMIME(store.stored) != "image/webp" {
+		t.Fatalf("stored image is not WebP: %v", err)
+	}
+	if bounds := decoded.Bounds(); bounds.Dx() != 2000 || bounds.Dy() != 1125 {
+		t.Fatalf("stored %dx%d, want 2000x1125", bounds.Dx(), bounds.Dy())
 	}
 }
 

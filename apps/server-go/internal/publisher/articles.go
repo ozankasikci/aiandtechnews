@@ -187,7 +187,7 @@ func (a *SQLiteArticles) Publish(ctx context.Context, article NewArticle) (id in
 		}
 	}
 	if article.FeaturedCredit != nil {
-		if err = insertFeaturedCredit(ctx, tx, id, *article.FeaturedCredit, stamp); err != nil {
+		if err = insertFeaturedCredit(ctx, tx, id, article.FeaturedImage, *article.FeaturedCredit, stamp); err != nil {
 			return 0, err
 		}
 	}
@@ -217,11 +217,11 @@ func insertSummary(ctx context.Context, tx *sql.Tx, articleID int64, tldr []stri
 	return nil
 }
 
-func insertFeaturedCredit(ctx context.Context, tx *sql.Tx, articleID int64, credit ImageCredit, stamp string) error {
+func insertFeaturedCredit(ctx context.Context, tx *sql.Tx, articleID int64, imageURL string, credit ImageCredit, stamp string) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO article_featured_image_credits
-		(article_id, kind, credit, credit_url, license, license_url, photo_url, alt, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		articleID, credit.Kind, credit.Text, credit.URL, credit.License, credit.LicenseURL, credit.PhotoURL, credit.Alt, stamp); err != nil {
+		(article_id, image_url, kind, credit, credit_url, license, license_url, photo_url, alt, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		articleID, imageURL, credit.Kind, credit.Text, credit.URL, credit.License, credit.LicenseURL, credit.PhotoURL, credit.Alt, stamp); err != nil {
 		return fmt.Errorf("insert featured image credit: %w", err)
 	}
 	return nil

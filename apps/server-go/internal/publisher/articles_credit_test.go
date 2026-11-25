@@ -2,6 +2,7 @@ package publisher_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -45,6 +46,57 @@ func TestPublishStoresTheFeaturedCreditOnlyWhenPresent(t *testing.T) {
 	}
 	if rows != 1 {
 		t.Fatalf("credit rows = %d, want 1: a drawn image has no credit", rows)
+	}
+}
+
+func TestPublishStoresTheFeaturedImageURLWithItsCredit(t *testing.T) {
+	db := openDB(t)
+	articles := publisher.NewSQLiteArticles(db, func() time.Time { return publishNow })
+	ctx := context.Background()
+	article := newArticle("sierra-raises", "https://techcrunch.com/sierra", "Sierra raises a round", "<p>Body</p>")
+	article.FeaturedCredit = photoCredit
+	id, err := articles.Publish(ctx, article)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var imageURL string
+	if err := db.QueryRow(`SELECT image_url FROM article_featured_image_credits WHERE article_id = ?`, id).Scan(&imageURL); err != nil {
+		t.Fatal(err)
+	}
+	if imageURL != article.FeaturedImage {
+		t.Fatalf("stored credit image URL = %q, want %q", imageURL, article.FeaturedImage)
+	}
+
+	if _, err := db.Exec(`UPDATE articles SET featured_image = 'https://img.test/features/replacement.webp' WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+	urls, err := articles.RecentFeaturedPhotoURLs(ctx, publishNow.Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(urls) != 1 || urls[0] != photoCredit.PhotoURL {
+		t.Fatalf("recent photo URLs after replacement = %v, want [%s]", urls, photoCredit.PhotoURL)
+	}
+}
+
+func TestPublishRollsBackFeaturedCreditWhenCandidateIsNotProcessing(t *testing.T) {
+	db := openDB(t)
+	ctx := context.Background()
+	store, candidateID := claimedCandidate(t, db)
+	if err := store.MarkFailed(ctx, candidateID, "stopped elsewhere", publishNow); err != nil {
+		t.Fatal(err)
+	}
+	articles := publisher.NewSQLiteArticles(db, func() time.Time { return publishNow })
+	article := newArticle("sierra-raises", "https://techcrunch.com/sierra", "Sierra raises a round", "<p>Body</p>")
+	article.CandidateID = candidateID
+	article.FeaturedCredit = photoCredit
+
+	if _, err := articles.Publish(ctx, article); !errors.Is(err, publisher.ErrCandidateNotProcessing) {
+		t.Fatalf("err = %v, want ErrCandidateNotProcessing", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM article_featured_image_credits`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("credit rows = %d, err = %v; the insert must roll back", count, err)
 	}
 }
 

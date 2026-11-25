@@ -22,6 +22,8 @@ const (
 	analyzeQuality = 85
 )
 
+const maxFeaturedPhotoWidth = 2000
+
 // ErrNoCompliantImage means every generation a provider was allowed was
 // rejected by the compliance review.
 var ErrNoCompliantImage = errors.New("no compliant illustration")
@@ -147,7 +149,11 @@ func (p *Pipeline) Illustrate(ctx context.Context, request publisher.Illustratio
 	if err != nil {
 		return publisher.Illustration{}, err
 	}
-	webp, _, _, err := imaging.EncodeWebPMinWidth(result.Image, webpQuality, minFeatureWidth)
+	maxWidth := 0
+	if result.Credit != nil {
+		maxWidth = maxFeaturedPhotoWidth
+	}
+	webp, _, _, err := imaging.EncodeWebPWidth(result.Image, webpQuality, minFeatureWidth, maxWidth)
 	if err != nil {
 		return publisher.Illustration{}, publisher.Permanent(fmt.Errorf("encode featured image: %w", err))
 	}
