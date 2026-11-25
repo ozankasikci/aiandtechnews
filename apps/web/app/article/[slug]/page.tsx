@@ -142,7 +142,7 @@ export default async function ArticlePage({ params }: Props) {
         <div className="absolute inset-0 bg-gradient-to-t from-bg via-bg/40 to-transparent" />
         {imageCaption && (
           <p
-            className="absolute top-3 right-4 lg:right-8 z-20 max-w-[70%] text-right text-[11px] leading-snug text-white/75 [text-shadow:0_1px_2px_rgba(0,0,0,0.85)]"
+            className="absolute top-3 right-4 lg:right-8 z-20 max-w-[70%] rounded-sm bg-black/60 px-2 py-1 text-right text-[11px] leading-snug text-white/90 wrap-anywhere [&_a]:underline! [&_a:hover]:text-white!"
             dangerouslySetInnerHTML={{ __html: imageCaption }}
           />
         )}
