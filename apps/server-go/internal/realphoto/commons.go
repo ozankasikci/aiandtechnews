@@ -68,7 +68,7 @@ func (f *Finder) commons(ctx context.Context, request Request, plan Plan) ([]Can
 				continue
 			}
 			seen[page.Title] = true
-			candidates = append(candidates, commonsCandidate(page, currentYear))
+			candidates = append(candidates, commonsCandidate(page, currentYear, request.Slot))
 		}
 	}
 	if plan.Kind == KindPerson {
@@ -175,7 +175,7 @@ func (f *Finder) searchCommons(ctx context.Context, query string) ([]commonsPage
 
 // commonsCandidate turns a search result into a candidate, with Reason set
 // when its licence, size or shape rules it out before any download.
-func commonsCandidate(page commonsPage, currentYear int) Candidate {
+func commonsCandidate(page commonsPage, currentYear int, slot string) Candidate {
 	info := page.ImageInfo[0]
 	meta := func(key string) string {
 		if value, ok := info.ExtMetadata[key]; ok {
@@ -223,7 +223,7 @@ func commonsCandidate(page commonsPage, currentYear int) Candidate {
 	if candidate.Reason != "" {
 		return candidate
 	}
-	if ok, why := fitsSlot(info.Width, info.Height); !ok {
+	if ok, why := fitsSlot(info.Width, info.Height, slot); !ok {
 		candidate.Reason = why
 	}
 	return candidate

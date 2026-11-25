@@ -217,7 +217,7 @@ func (f *Finder) officialImages(ctx context.Context, request Request, plan Plan,
 			continue
 		}
 		candidate.Width, candidate.Height = width, height
-		if ok, why := fitsSlot(width, height); !ok {
+		if ok, why := fitsSlot(width, height, request.Slot); !ok {
 			candidate.Reason = why
 			continue
 		}

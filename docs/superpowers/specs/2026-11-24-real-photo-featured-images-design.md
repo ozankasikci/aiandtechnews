@@ -103,6 +103,10 @@ allows an unknown year.
 
 ## Checks for the featured slot
 
+Before cropping, featured photo candidates must have a width-to-height ratio
+of 4:3 to 2.10, while in-body candidates must be 1.50 to 2.10, with a tolerance
+of 0.01 at each limit in both slots.
+
 The vision check (`realphoto/verify.go`) takes the slot as a parameter. For
 the featured slot it differs from the in-body check in these ways:
 
