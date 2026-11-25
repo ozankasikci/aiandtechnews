@@ -12,6 +12,7 @@ import (
 	"image"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -284,6 +285,10 @@ func (f *Finder) verifyAll(ctx context.Context, plan Plan, request Request, mode
 	for i := range candidates {
 		candidate := &candidates[i]
 		if candidate.Reason != "" {
+			continue
+		}
+		if slices.Contains(request.Exclude, candidate.ImageURL) {
+			candidate.Reason = "already used by a recent featured image"
 			continue
 		}
 		if ctx.Err() != nil {

@@ -48,6 +48,9 @@ func (f *Finder) commons(ctx context.Context, request Request, plan Plan) ([]Can
 		pages, err := f.searchCommons(ctx, query)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("search %q: %w", query, err))
+			if errors.Is(err, ErrRateLimited) {
+				break
+			}
 			continue
 		}
 		for _, page := range pages {
