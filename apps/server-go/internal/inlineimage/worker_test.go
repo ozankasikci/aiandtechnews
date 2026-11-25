@@ -223,6 +223,39 @@ func TestWorkerPrefersAFoundPhoto(t *testing.T) {
 	}
 }
 
+func TestWorkerExcludesTheFeaturedPhotoFromTheSearch(t *testing.T) {
+	article := photoArticle()
+	article.FeaturedPhotoURL = "https://upload.wikimedia.org/x.jpg"
+	store := &fakeStore{articles: []inlineimage.Article{article}}
+	finder := &fakeFinder{result: realphoto.Result{Found: true, Image: []byte("photo"), Alt: "Another view.", Credit: photoCredit}}
+	if _, err := newWorker(store, &fakeIllustrator{}).WithPhotos(finder, &fakePhotoStore{}).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(finder.requests) != 1 || len(finder.requests[0].Exclude) != 1 || finder.requests[0].Exclude[0] != "https://upload.wikimedia.org/x.jpg" {
+		t.Fatalf("finder requests = %+v", finder.requests)
+	}
+}
+
+// An inline illustration copies the style of the featured illustration. A
+// featured photo has no drawn style, so without a second photo the article
+// gets no inline image.
+func TestWorkerDoesNotDrawWhenTheFeaturedImageIsAPhoto(t *testing.T) {
+	article := photoArticle()
+	article.FeaturedPhotoURL = "https://upload.wikimedia.org/x.jpg"
+	store := &fakeStore{articles: []inlineimage.Article{article}}
+	illustrator := &fakeIllustrator{}
+	finder := &fakeFinder{result: realphoto.Result{Reason: "no usable photo"}}
+	if _, err := newWorker(store, illustrator).WithPhotos(finder, &fakePhotoStore{}).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(illustrator.requests) != 0 {
+		t.Fatal("drew an illustration although the featured image is a photo")
+	}
+	if len(store.marks) != 1 || store.marks[0].ready || store.marks[0].attempts != inlineimage.MaxAttempts {
+		t.Fatalf("marks = %+v, want one final failure", store.marks)
+	}
+}
+
 func TestWorkerDrawsWhenNoPhotoIsFoundOrStored(t *testing.T) {
 	for name, test := range map[string]struct {
 		result realphoto.Result

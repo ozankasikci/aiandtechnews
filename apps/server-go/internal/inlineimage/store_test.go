@@ -79,6 +79,22 @@ func TestSQLiteStorePendingPicksRecentUnillustratedArticlesNewestFirst(t *testin
 	}
 }
 
+func TestSQLiteStorePendingReadsTheFeaturedPhotoURL(t *testing.T) {
+	db, store := openStore(t)
+	const photoURL = "https://upload.wikimedia.org/x.jpg"
+	if _, err := db.Exec(`INSERT INTO article_featured_image_credits (article_id, kind, credit, credit_url, photo_url, created_at)
+		VALUES (1, 'commons', 'Photo: Jane Doe', 'https://commons.wikimedia.org/wiki/File:X.jpg', ?, '2026-09-27 10:00:00')`, photoURL); err != nil {
+		t.Fatal(err)
+	}
+	articles, err := store.Pending(context.Background(), storeNow.Add(-inlineimage.Window), inlineimage.MaxAttempts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(articles) != 3 || articles[0].FeaturedPhotoURL != photoURL || articles[1].FeaturedPhotoURL != "" || articles[2].FeaturedPhotoURL != "" {
+		t.Fatalf("pending articles = %+v", articles)
+	}
+}
+
 func TestSQLiteStoreMarkReadyReplacesAFailure(t *testing.T) {
 	db, store := openStore(t)
 	if err := store.MarkReady(context.Background(), 8, "https://img.test/x.webp", "An alt.", 5, 2, nil); err != nil {

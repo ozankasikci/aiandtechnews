@@ -51,7 +51,8 @@ type PhotoStore interface {
 }
 
 // Worker gives recent long articles a second image, one per run: a real
-// photo when one is found, otherwise a generated illustration.
+// photo when one is found, otherwise a generated illustration when the
+// featured image is an illustration.
 type Worker struct {
 	store       Store
 	illustrator Illustrator
@@ -104,9 +105,14 @@ func (w *Worker) WithPhotos(finder PhotoFinder, store PhotoStore) *Worker {
 }
 
 // PhotoRequest is what the photo finder is told about an article. The
-// source URL is only read, never credited.
+// source URL is only read, never credited. A featured photo is excluded
+// so the body never shows the same picture twice.
 func PhotoRequest(article Article) realphoto.Request {
-	return realphoto.Request{Slug: article.Slug, Title: article.Title, Text: strings.Join(Paragraphs(article.Content), "\n\n"), SourceURL: article.SourceURL}
+	request := realphoto.Request{Slug: article.Slug, Title: article.Title, Text: strings.Join(Paragraphs(article.Content), "\n\n"), SourceURL: article.SourceURL}
+	if article.FeaturedPhotoURL != "" {
+		request.Exclude = []string{article.FeaturedPhotoURL}
+	}
+	return request
 }
 
 // OwnImagePrefix is the URL prefix of the featured images the pipeline
@@ -170,12 +176,17 @@ func (w *Worker) RunOnce(ctx context.Context) (bool, error) {
 }
 
 // illustrate tries a real photo first. Without one, a body long enough for a
-// generated illustration whose featured image is ours gets one; any other
-// article is marked done, so it is not searched again.
+// generated illustration whose featured image is our own drawing gets one.
+// The other articles are marked done so they are not searched again.
 func (w *Worker) illustrate(ctx context.Context, article Article, photoSlot int) error {
 	logger := w.logger.With("article", article.ID, "slug", article.Slug, "after_paragraph", photoSlot)
 	if done, err := w.tryPhoto(ctx, logger, article, photoSlot); done || err != nil {
 		return err
+	}
+	if article.FeaturedPhotoURL != "" {
+		// An inline illustration copies the drawn style of the featured image.
+		logger.InfoContext(ctx, "inline image skipped", "reason", "the featured image is a photo and no second photo is available")
+		return w.fail(ctx, article, "the featured image is a photo and no second real photo is available", MaxAttempts)
 	}
 	slot, ok := Slot(article.Content)
 	if !ok {
@@ -228,7 +239,7 @@ func (w *Worker) ours(article Article) bool {
 
 // tryPhoto looks for and stores a real photo. done is true when the article
 // got one; every failure short of a cancelled context or a failed database
-// write falls through to drawing an illustration.
+// write leaves the worker to decide whether it can draw an illustration.
 func (w *Worker) tryPhoto(ctx context.Context, logger *slog.Logger, article Article, slot int) (bool, error) {
 	if w.photos == nil || w.photoStore == nil {
 		return false, nil
@@ -238,7 +249,9 @@ func (w *Worker) tryPhoto(ctx context.Context, logger *slog.Logger, article Arti
 		return false, err
 	}
 	if !found.Found || found.Credit == nil || len(found.Image) == 0 {
-		logger.InfoContext(ctx, "inline image path", "path", "generated", "reason", found.Reason)
+		if article.FeaturedPhotoURL == "" {
+			logger.InfoContext(ctx, "inline image path", "path", "generated", "reason", found.Reason)
+		}
 		return false, nil
 	}
 	stored, err := w.photoStore.StoreInlinePhoto(ctx, article.Slug, found.Image)
@@ -246,7 +259,11 @@ func (w *Worker) tryPhoto(ctx context.Context, logger *slog.Logger, article Arti
 		if ctx.Err() != nil {
 			return false, ctx.Err()
 		}
-		logger.WarnContext(ctx, "inline photo not stored, drawing instead", "kind", found.Credit.Kind, "error", err)
+		message := "inline photo not stored, drawing instead"
+		if article.FeaturedPhotoURL != "" {
+			message = "inline photo not stored"
+		}
+		logger.WarnContext(ctx, message, "kind", found.Credit.Kind, "error", err)
 		return false, nil
 	}
 	bookkeeping, cancel := context.WithTimeout(context.WithoutCancel(ctx), bookkeepingTimeout)

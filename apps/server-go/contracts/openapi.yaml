@@ -552,6 +552,19 @@ components:
               creditUrl: {type: string}
               license: {type: string}
               licenseUrl: {type: string}
+        # Public article reads by slug, when the featured image is a real
+        # photo. credit links to creditUrl (the Wikimedia Commons file page or
+        # the maker's page). license and licenseUrl are for Commons photos.
+        # alt says what the photo shows.
+        featuredImageCredit:
+          type: object
+          required: [credit]
+          properties:
+            credit: {type: string}
+            creditUrl: {type: string}
+            license: {type: string}
+            licenseUrl: {type: string}
+            alt: {type: string}
         created_at: {type: string}
         updated_at: {type: string}
         category:

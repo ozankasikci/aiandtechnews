@@ -33,6 +33,9 @@ type Article struct {
 	// InlineImages are the ready illustrations inside the body, from
 	// article_images; also loaded only for a single article read by slug.
 	InlineImages []InlineImage `json:"inlineImages,omitempty"`
+	// FeaturedImageCredit is set when the featured image is a real photo and
+	// is loaded only for a single article read by slug.
+	FeaturedImageCredit *FeaturedImageCredit `json:"featuredImageCredit,omitempty"`
 	// Topics are the article's live topic hubs (at most MaxArticleTopics),
 	// loaded for public reads only. Absent when it has none.
 	Topics []TopicRef `json:"topics,omitempty"`
@@ -58,6 +61,17 @@ type InlineImage struct {
 	CreditURL  string `json:"creditUrl,omitempty"`
 	License    string `json:"license,omitempty"`
 	LicenseURL string `json:"licenseUrl,omitempty"`
+}
+
+// FeaturedImageCredit credits a featured image that is a real photo. Credit
+// links to CreditURL (the Commons file page or the maker's page). License and
+// LicenseURL are for Commons photos. Alt says what the photo shows.
+type FeaturedImageCredit struct {
+	Credit     string `json:"credit"`
+	CreditURL  string `json:"creditUrl,omitempty"`
+	License    string `json:"license,omitempty"`
+	LicenseURL string `json:"licenseUrl,omitempty"`
+	Alt        string `json:"alt,omitempty"`
 }
 
 type Category struct {
