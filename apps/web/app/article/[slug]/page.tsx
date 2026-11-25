@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { fallbackArticlesByCategory } from "../../lib/fallback";
 import { TrendingSidebar } from "../../components/Sidebar";
 import { ShareButtons } from "../../components/ShareButtons";
+import { ArticleAnalysis } from "../../components/ArticleAnalysis";
 import { ArticleSummary } from "../../components/ArticleSummary";
 import { ReadNext } from "../../components/ReadNext";
 import { ArticleReadTracker } from "../../components/ArticleReadTracker";
@@ -18,6 +19,7 @@ import { AdSlot } from "../../components/AdSlot";
 import { AD_SLOT_ARTICLE_TOP } from "../../lib/adsense";
 import { linkTopicMentions } from "../../lib/topics";
 import { GlossaryPopover } from "../../components/GlossaryPopover";
+import { isIndexable } from "../../lib/indexing";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -61,6 +63,8 @@ export async function generateMetadata({ params }: Props) {
     title: metaTitle,
     description: metaDescription,
     alternates: { canonical: canonicalUrl },
+    // Short articles stay readable but out of search indexes.
+    ...(isIndexable(lookup.article) ? {} : { robots: { index: false, follow: true } }),
     openGraph: {
       title: metaTitle,
       description: metaDescription,
@@ -198,6 +202,7 @@ export default async function ArticlePage({ params }: Props) {
               {withMidCard && <ReadNext placement="mid" current={article.slug} picks={readNext} withMidCard />}
               {bodyRest && <div dangerouslySetInnerHTML={{ __html: bodyRest }} />}
             </div>
+            <ArticleAnalysis analysis={article.analysis} />
             {article.primarySource && (
               <p className="mt-2 mb-6 text-sm text-text-secondary">
                 Source:{" "}

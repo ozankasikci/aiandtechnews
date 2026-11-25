@@ -5,7 +5,7 @@ const CONTACT_URL = "https://github.com/ozankasikci/aiandtechnews/issues/new";
 
 export const metadata: Metadata = {
   title: "About",
-  description: "How AI and Tech News selects, verifies, attributes, and corrects its technology coverage.",
+  description: "How AI and Tech News selects stories, drafts articles with AI assistance, checks facts, and corrects errors.",
   alternates: { canonical: "/about" },
 };
 
@@ -27,20 +27,28 @@ export default function AboutPage() {
 
       <section id="editorial-standards" className="mb-12 scroll-mt-24">
         <h2 className="text-xs font-bold uppercase tracking-widest text-text-muted mb-6 pb-2 border-b border-border">
-          Editorial standards
+          How we report
         </h2>
         <div className="bg-bg-card rounded-sm p-6 space-y-4 text-text-secondary leading-relaxed">
           <p>
             Articles are published under the name <span className="font-semibold text-white">TechNews Editorial</span>.
-            Candidates come from current RSS reporting by TechCrunch, The Verge, and Ars Technica.
+            We find stories by monitoring company blogs and newsrooms, research labs, regulators,
+            open-source releases, and other technology reporting.
           </p>
           <p>
-            Each article is rewritten in original language and checked for factual consistency, clear attribution,
-            valid source links, appropriate images, and prohibited promotional language before publication.
+            Our editorial process selects significant stories. We prefer original reports based on primary
+            sources. Rewrites of other technology reporting are reserved for major stories. We skip stories
+            with little significance, promotional items, and duplicates.
           </p>
           <p>
-            Stories that cannot support a complete and accurate article are skipped. Deals, coupons, promotional
-            roundups, and unclear automatic candidates are not published to fill a schedule.
+            Articles are drafted from the source material with the help of AI models. A second automated
+            check compares every article against its source before publication. Headlines and facts must be
+            supported by the source. We do not invent quotes or numbers. Stories that cannot support a
+            complete and accurate article are skipped.
+          </p>
+          <p>
+            Illustrations are original artwork, not copied from other sites. Real photos are used only with
+            a licence that permits their use and are credited.
           </p>
         </div>
       </section>
@@ -52,7 +60,7 @@ export default function AboutPage() {
         <div className="bg-bg-card rounded-sm p-6 space-y-4 text-text-secondary leading-relaxed">
           <p>
             To report a factual error, include the article URL, the exact statement that needs review, and a
-            reliable supporting source. Correction reports are tracked publicly so their status is visible.
+            reliable supporting source. We review reports, fix confirmed errors, and update the article.
           </p>
           <Link
             href={CONTACT_URL}

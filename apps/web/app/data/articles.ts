@@ -38,6 +38,11 @@ export type Article = {
   readTime: string;
   image: string;
   imageCredit?: ImageCredit;
+  analysis?: {
+    kind: "context" | "implications" | "watch";
+    text: string;
+    links: { slug: string; title: string }[];
+  };
   tldr?: string[];
   whyItMatters?: string;
   primarySource?: { name: string; url: string };

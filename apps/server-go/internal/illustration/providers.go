@@ -31,14 +31,14 @@ func logoRules(logos []brands.Brand) string {
 		names = append(names, logo.Name)
 		files = append(files, logoFileName(logo))
 	}
-	return fmt.Sprintf("Exception to the no-logo and no-text rules: include the real %s logo, from the attached image %s, exactly as given: same shape, spelling and colours, not redrawn or distorted. Place it once, where it would naturally appear in this scene (on the robot, a device, a building, a sign, a badge or a screen), large enough to recognise at thumbnail size. No other logos or text.",
+	return fmt.Sprintf("Exception to the no-logo and no-text rules: include the real %s logo, from the attached image %s, exactly as given: same shape, spelling and colours, not redrawn or distorted. Place it once, small and flat in one corner of the frame like a printed tag on a plain patch of background, large enough to recognise at thumbnail size. Never put it on an object, device, machine, garment, screen, sheet of paper or building in the scene, unless that exact product or building carries this logo in real life. No other logos or text.",
 		strings.Join(names, " and "), strings.Join(files, " and "))
 }
 
 func logoFileName(logo brands.Brand) string { return "logo-" + logo.ID + ".png" }
 
 // SimpleRules shape a "simple" composition: one subject, lots of space.
-const SimpleRules = "Simple composition: no people at all; show the action described happening, with its actor (a robot, agent, machine or product) and its visible result, drawn big and clear, on a plain or softly textured backdrop in the palette's colours, with generous empty space. Not a still life: something must be happening. No generic monitors, laptops or phone screens unless they are the subject."
+const SimpleRules = "Simple composition: no people at all; show the action described happening, with its actor (the machine, product, device or object the brief names) and its visible result, drawn big enough to fill at least half of the frame, on a plain or softly textured backdrop in the palette's colours. Not a still life: something must be happening. No humanoid or cute robot unless the brief asks for a physical robot. No generic monitors, laptops or phone screens unless they are the subject."
 
 // CollageRules turn the brief into a background for the public-figure
 // collage: the person's photo is pasted over the left side afterwards.

@@ -63,6 +63,9 @@ type PipelineDeps struct {
 	// RecentPhotos lists photos used lately so the "photo" step does not
 	// repeat one; nil lets it repeat.
 	RecentPhotos RecentPhotos
+	// InlineHistory remembers the latest in-article illustrations; nil
+	// disables it. Only the inline path reads and writes it.
+	InlineHistory History
 	// Vision checks that an inline image's style reference is one of our
 	// drawn illustrations; nil makes every inline image fail that check.
 	Vision VisionModel
@@ -169,7 +172,7 @@ func (p *Pipeline) Illustrate(ctx context.Context, request publisher.Illustratio
 // applyVariety fills the request's avoid and prefer fields from the latest
 // images, unless the caller set them. History errors only cost variety.
 func (p *Pipeline) applyVariety(ctx context.Context, request *publisher.IllustrationRequest) {
-	if p.deps.History == nil || len(request.AvoidStyles) > 0 || len(request.AvoidPalettes) > 0 || request.PreferComposition != "" || len(request.AvoidShots) > 0 {
+	if p.deps.History == nil || len(request.AvoidStyles) > 0 || len(request.AvoidPalettes) > 0 || request.PreferComposition != "" || len(request.AvoidShots) > 0 || len(request.RecentScenes) > 0 {
 		return
 	}
 	recent, err := p.deps.History.Recent(ctx)
@@ -179,6 +182,7 @@ func (p *Pipeline) applyVariety(ctx context.Context, request *publisher.Illustra
 	}
 	variety := VarietyFrom(recent)
 	request.AvoidStyles, request.AvoidPalettes, request.PreferComposition, request.AvoidShots = variety.AvoidStyles, variety.AvoidPalettes, variety.PreferComposition, variety.AvoidShots
+	request.RecentScenes = variety.RecentScenes
 }
 
 // recordChoice remembers a generated image's look.
@@ -187,7 +191,7 @@ func (p *Pipeline) recordChoice(ctx context.Context, report Report) {
 		return
 	}
 	style := report.Brief.Style
-	if err := p.deps.History.Record(ctx, Choice{Style: style, Palette: report.Palette, Composition: report.Composition, Shot: report.Shot}); err != nil {
+	if err := p.deps.History.Record(ctx, Choice{Style: style, Palette: report.Palette, Composition: report.Composition, Shot: report.Shot, Scene: SceneNote(*report.Brief)}); err != nil {
 		p.deps.Logger.WarnContext(ctx, "could not record featured image history", "error", err)
 	}
 }
@@ -396,7 +400,7 @@ func (r *pipelineRun) analyze(ctx context.Context) *Brief {
 	}
 	allowedStyles := deps.Styles.WithoutStyles(avoid)
 	r.allowedStyles = allowedStyles
-	input := AnalyzeInput{Title: r.request.Title, Excerpt: r.request.Excerpt, Palettes: deps.Styles.PalettesExcept(r.request.AvoidPalettes), Styles: &allowedStyles, Compositions: allowedCompositions(r.request.Compositions), PreferComposition: r.request.PreferComposition, Shots: shotsExcept(r.request.AvoidShots), Brands: deps.Brands.All()}
+	input := AnalyzeInput{Title: r.request.Title, Excerpt: r.request.Excerpt, Palettes: deps.Styles.PalettesExcept(r.request.AvoidPalettes), Styles: &allowedStyles, Compositions: allowedCompositions(r.request.Compositions), PreferComposition: r.request.PreferComposition, Shots: shotsExcept(r.request.AvoidShots), Brands: deps.Brands.All(), RecentScenes: r.request.RecentScenes}
 	if r.source != nil {
 		input.ImageURL = r.request.ReferenceImageURL
 		if normalized, err := imaging.FitJPEG(r.source, analyzeMaxEdge, analyzeQuality); err == nil {

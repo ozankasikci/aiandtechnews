@@ -1,6 +1,7 @@
 import { getArticlesUpTo } from "../lib/api";
 import { parseApiDate } from "../lib/dates";
 import { buildNewsSitemap, RECENT_NEWS_WINDOW_MS } from "./news-sitemap";
+import { isIndexable } from "../lib/indexing";
 
 export const revalidate = 1800;
 
@@ -26,7 +27,7 @@ export async function GET() {
     });
   }
 
-  return new Response(buildNewsSitemap(articles), {
+  return new Response(buildNewsSitemap(articles.filter(isIndexable)), {
     headers: {
       "Content-Type": "application/xml; charset=utf-8",
       "Cache-Control": "public, max-age=0, s-maxage=300, stale-while-revalidate=300",

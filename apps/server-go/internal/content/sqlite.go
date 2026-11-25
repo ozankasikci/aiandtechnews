@@ -149,9 +149,9 @@ func (s *SQLiteStore) Trending(ctx context.Context, limit int, since time.Time) 
 	return articles, nil
 }
 
-// PublishedBySlug reads a published article with its summary, inline images
-// and featured photo credit. The website caches article pages, so readers'
-// browsers report views through RecordView.
+// PublishedBySlug reads a published article with its summary, inline images,
+// featured photo credit and ready analysis. The website caches article pages,
+// so readers' browsers report views through RecordView.
 func (s *SQLiteStore) PublishedBySlug(ctx context.Context, slug string) (article Article, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -172,6 +172,9 @@ func (s *SQLiteStore) PublishedBySlug(ctx context.Context, slug string) (article
 		return Article{}, err
 	}
 	if err = loadFeaturedImageCredit(ctx, tx, &article); err != nil {
+		return Article{}, err
+	}
+	if err = loadAnalysis(ctx, tx, &article); err != nil {
 		return Article{}, err
 	}
 	if err = loadArticleTopics(ctx, tx, &article); err != nil {
@@ -349,5 +352,43 @@ func loadFeaturedImageCredit(ctx context.Context, tx *sql.Tx, article *Article) 
 		return fmt.Errorf("read featured image credit: %w", err)
 	}
 	article.FeaturedImageCredit = &credit
+	return nil
+}
+
+// loadAnalysis exposes only ready text. Slugs are resolved to current published
+// titles at read time, so deleted or unpublished coverage never becomes a link.
+func loadAnalysis(ctx context.Context, tx *sql.Tx, article *Article) error {
+	var analysis ArticleAnalysis
+	var raw string
+	err := tx.QueryRowContext(ctx, `SELECT kind,text,links_json FROM article_analysis
+ WHERE article_id = ? AND status = 'ready' AND text <> ''`, article.ID).Scan(&analysis.Kind, &analysis.Text, &raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read article analysis: %w", err)
+	}
+	var slugs []string
+	if err := json.Unmarshal([]byte(raw), &slugs); err != nil {
+		return fmt.Errorf("decode analysis links: %w", err)
+	}
+	analysis.Links = make([]AnalysisLink, 0, 3)
+	seen := make(map[string]bool)
+	for _, slug := range slugs {
+		if seen[slug] || slug == article.Slug || len(analysis.Links) == 3 {
+			continue
+		}
+		seen[slug] = true
+		var title string
+		err := tx.QueryRowContext(ctx, `SELECT title FROM articles WHERE slug = ? AND status = 'published'`, slug).Scan(&title)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("read analysis link: %w", err)
+		}
+		analysis.Links = append(analysis.Links, AnalysisLink{Slug: slug, Title: title})
+	}
+	article.Analysis = &analysis
 	return nil
 }

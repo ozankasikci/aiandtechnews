@@ -11,12 +11,12 @@ import (
 	"github.com/ozankasikci/aiandtechnews/apps/server-go/internal/testutil"
 )
 
-func TestInlineCommandsExplainMissingMigration17(t *testing.T) {
+func TestInlineCommandsExplainMissingMigration18(t *testing.T) {
 	ctx := context.Background()
 	db, path := testutil.OpenDatabase(t)
 	var previous []migrate.Descriptor
 	for _, migration := range app.Migrations() {
-		if migration.Version < 17 {
+		if migration.Version < 18 {
 			previous = append(previous, migration)
 		}
 	}
@@ -33,8 +33,8 @@ func TestInlineCommandsExplainMissingMigration17(t *testing.T) {
 				err = runInlineLatest(ctx, &realphoto.Finder{}, 1, path, t.TempDir(), getenv)
 			}
 			if err == nil || !strings.Contains(err.Error(), "no such table: article_featured_image_credits") ||
-				!strings.Contains(err.Error(), "run cmd/migrate on this copy first: migration 17 is missing") {
-				t.Fatalf("got %v, want migration 17 instructions", err)
+				!strings.Contains(err.Error(), "run cmd/migrate on this copy first: migration 18 is missing") {
+				t.Fatalf("got %v, want migration 18 instructions", err)
 			}
 		})
 	}

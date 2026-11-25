@@ -8,6 +8,8 @@ This file is the source of truth for every article added to this repository, whe
 
 - Collection never publishes. The collector fetches the approved feeds below, applies this policy, and stores every item that passes as a pending candidate for review. A rejected candidate is never collected again.
 - An editor selects candidates for publishing in the Omni Control app.
+- The automatic editor prefers original reports from primary sources already recognized by `internal/content.IsPrimaryFeed`. Those candidates carry `original: true` in its input. Press rewrites are reserved for major stories.
+- Automatic picks require both a publish decision and a significance score of at least 7 for original reports, or 9 for press rewrites. All other selection rules still apply.
 - Selected candidates publish one at a time, spaced by a random delay (default 30-40 minutes, configurable) from the previous publish, and the publisher additionally enforces a minimum gap equal to the configured minimum since the last publish before it will claim the next candidate.
 - The Node importer and its external scheduler (see "Daily automation contract" below) remain the active publisher in production until the Go publisher is enabled there, a later phase. **The two must never run at the same time**, since running both concurrently risks duplicate or conflicting publishes.
 
@@ -80,6 +82,16 @@ Rewrite the source into an original, human-sounding article. Do not copy the sou
 - Article body HTML may contain `<p>` and optional `<h2>` elements only.
 
 If the available reporting cannot support a complete, accurate article, skip the item. Never publish a raw feed excerpt, an unrevised source body, or an AI response that fails validation.
+
+## Original article analysis
+
+- `ANALYSIS_ENABLED` defaults off. A separate worker checks one published article from the last 14 days every `ANALYSIS_INTERVAL` (default 10 minutes), with at most two failed attempts per article.
+- Optional "What this means" blocks contain 80-150 words in 2-4 sentences: context from our earlier same-topic coverage, supported implications, or the next concrete milestone already reported.
+- Every analysis sentence must be directly traceable to a specific statement in the article or a supplied related excerpt. Prefer concrete past-coverage context; watch blocks use only stated future milestones, and implications require the article to name who is affected and how. No inferred motives, strategy, causal conclusions, market effects, outside knowledge, invented facts, hype, em dashes, or source outlet names.
+- The TL;DR, why-it-matters line and first paragraph are explicitly supplied as `do_not_repeat`. Skip rather than stretching or paraphrasing those facts.
+- An independent checker verifies every sentence against the article and up to five earlier published same-topic excerpts. Related items naming a news outlet in their title or excerpt are excluded before choosing those five.
+- A checker rejection allows exactly one revision using its reason and the same evidence, followed by style and independent factual checks again. A second rejection, a writer skip, or a style violation records a final skip without analysis text. Generation/check errors record a failed attempt; the one revision is part of that attempt. The dry-run command shows every draft and verdict.
+- Only ready analysis reaches the public single-article API and page. It may link to 0-3 of the supplied past articles, resolved to published titles; context requires a supporting link. There are no source links or credits in analysis.
 
 ## Attribution and publication
 
