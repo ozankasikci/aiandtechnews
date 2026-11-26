@@ -7,6 +7,7 @@ type headquartersEntry struct {
 	aliases []string
 	subject string
 	queries []string
+	since   int // move-in year, or zero when unset
 }
 
 var headquarters = []headquartersEntry{
@@ -14,6 +15,7 @@ var headquarters = []headquartersEntry{
 		name:    "OpenAI",
 		subject: "OpenAI headquarters, 1515 Third Street, Mission Bay, San Francisco",
 		queries: []string{"1515 Third Street San Francisco", "OpenAI headquarters Mission Bay"},
+		since:   2024,
 	},
 	{
 		name:    "Google",
@@ -46,17 +48,18 @@ var headquarters = []headquartersEntry{
 		name:    "Meta",
 		aliases: []string{"Meta Platforms", "Facebook"},
 		subject: "Meta headquarters, Menlo Park",
-		queries: []string{"Meta headquarters Menlo Park", "Facebook headquarters Menlo Park"},
+		queries: []string{"Meta headquarters", "Facebook headquarters Menlo Park"},
 	},
 	{
 		name:    "Anthropic",
 		subject: "Anthropic headquarters, 500 Howard Street, San Francisco",
 		queries: []string{"500 Howard Street San Francisco", "Anthropic headquarters"},
+		since:   2024,
 	},
 	{
 		name:    "Stripe",
 		subject: "Stripe headquarters, 354 Oyster Point Boulevard, South San Francisco",
-		queries: []string{"Stripe headquarters Oyster Point", "354 Oyster Point South San Francisco"},
+		queries: []string{"Stripe headquarters", "Stripe headquarters South San Francisco"},
 	},
 	{
 		name:    "Cloudflare",

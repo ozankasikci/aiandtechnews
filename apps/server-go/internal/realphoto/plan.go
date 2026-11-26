@@ -39,6 +39,8 @@ type StandIn struct {
 	Subject string   `json:"subject"`
 	Kind    string   `json:"kind"`
 	Queries []string `json:"queries"`
+
+	headquartersSince int // set only from the headquarters list
 }
 
 // Kinds of stand-in.
@@ -197,6 +199,7 @@ func cleanStandIns(raw []StandIn, allowPerson bool) []StandIn {
 			if entry, ok := headquartersForSubject(standIn.Subject); ok {
 				standIn.Subject = entry.subject
 				standIn.Queries = slices.Clone(entry.queries)
+				standIn.headquartersSince = entry.since
 			}
 			if slices.ContainsFunc(kept, func(other StandIn) bool {
 				return other.Kind == StandInPlace && other.Subject == standIn.Subject
