@@ -281,7 +281,7 @@ func (f *Finder) find(ctx context.Context, request Request) Result {
 		return f.findStandIn(ctx, request, plan, result)
 	}
 
-	commons, err := f.commons(ctx, request, plan)
+	commons, err := f.commons(ctx, request, plan, 0)
 	result.Candidates = append(result.Candidates, commons...)
 	if err != nil {
 		result.Notes = append(result.Notes, "commons: "+err.Error())
@@ -340,7 +340,7 @@ func (f *Finder) findStandIn(ctx context.Context, request Request, plan Plan, re
 			continue
 		}
 		subPlan := Plan{Photographable: true, Subject: standIn.Subject, Kind: standIn.Kind, Queries: standIn.Queries, Maker: plan.Maker}
-		candidates, err := f.commons(ctx, request, subPlan)
+		candidates, err := f.commons(ctx, request, subPlan, standIn.headquartersSince)
 		result.Candidates = append(result.Candidates, candidates...)
 		if err != nil {
 			result.Notes = append(result.Notes, "commons: "+err.Error())

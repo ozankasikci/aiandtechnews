@@ -12,10 +12,12 @@ func TestHeadquartersList(t *testing.T) {
 		subject string
 		queries []string
 		aliases []string
+		since   int
 	}{
 		"OpenAI": {
 			subject: "OpenAI headquarters, 1515 Third Street, Mission Bay, San Francisco",
 			queries: []string{"1515 Third Street San Francisco", "OpenAI headquarters Mission Bay"},
+			since:   2024,
 		},
 		"Google": {
 			subject: "Google headquarters, Googleplex, Mountain View",
@@ -41,16 +43,17 @@ func TestHeadquartersList(t *testing.T) {
 		},
 		"Meta": {
 			subject: "Meta headquarters, Menlo Park",
-			queries: []string{"Meta headquarters Menlo Park", "Facebook headquarters Menlo Park"},
+			queries: []string{"Meta headquarters", "Facebook headquarters Menlo Park"},
 			aliases: []string{"Meta Platforms", "Facebook"},
 		},
 		"Anthropic": {
 			subject: "Anthropic headquarters, 500 Howard Street, San Francisco",
 			queries: []string{"500 Howard Street San Francisco", "Anthropic headquarters"},
+			since:   2024,
 		},
 		"Stripe": {
 			subject: "Stripe headquarters, 354 Oyster Point Boulevard, South San Francisco",
-			queries: []string{"Stripe headquarters Oyster Point", "354 Oyster Point South San Francisco"},
+			queries: []string{"Stripe headquarters", "Stripe headquarters South San Francisco"},
 		},
 		"Cloudflare": {
 			subject: "Cloudflare headquarters, 101 Townsend Street, San Francisco",
@@ -103,6 +106,9 @@ func TestHeadquartersList(t *testing.T) {
 		if !slices.Equal(entry.queries, expected.queries) || len(entry.queries) < 1 || len(entry.queries) > 2 {
 			t.Errorf("%s queries = %q, want %q and one or two queries", entry.name, entry.queries, expected.queries)
 		}
+		if entry.since != expected.since {
+			t.Errorf("%s move-in year = %d, want %d (zero means unset)", entry.name, entry.since, expected.since)
+		}
 		for _, query := range entry.queries {
 			if strings.TrimSpace(query) == "" {
 				t.Errorf("%s has an empty query", entry.name)
@@ -126,8 +132,8 @@ func TestParsePlanOverridesHeadquarters(t *testing.T) {
 		{"SpaceX headquarters, Hawthorne, California", "SpaceX headquarters, Starbase, Texas", []string{"SpaceX Starbase", "Starbase Texas"}},
 		{"Apple, Cupertino", "Apple Park, Cupertino", []string{"Apple Park Cupertino", "Apple Park"}},
 		{"Alphabet campus", "Google headquarters, Googleplex, Mountain View", []string{"Googleplex", "Google headquarters Mountain View"}},
-		{"Meta Platforms office", "Meta headquarters, Menlo Park", []string{"Meta headquarters Menlo Park", "Facebook headquarters Menlo Park"}},
-		{"Facebook offices", "Meta headquarters, Menlo Park", []string{"Meta headquarters Menlo Park", "Facebook headquarters Menlo Park"}},
+		{"Meta Platforms office", "Meta headquarters, Menlo Park", []string{"Meta headquarters", "Facebook headquarters Menlo Park"}},
+		{"Facebook offices", "Meta headquarters, Menlo Park", []string{"Meta headquarters", "Facebook headquarters Menlo Park"}},
 		{"IBM", "IBM headquarters, Armonk, New York", []string{"IBM headquarters Armonk", "IBM Armonk"}},
 	} {
 		t.Run(tc.subject, func(t *testing.T) {

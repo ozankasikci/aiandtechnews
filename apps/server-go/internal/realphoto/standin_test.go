@@ -76,13 +76,13 @@ func TestFindRejectsProminentPeopleInAPlaceStandIn(t *testing.T) {
 	var queries []string
 	routes := sites{
 		"commons.wikimedia.org": commonsAPI(t, []commonsFile{
-			{title: "File:Secretary of State Peter Kyle visits Anthropic.jpg", license: "CC0", width: 1600, height: 900, thumb: "https://upload.wikimedia.org/visit.png"},
+			{title: "File:Secretary of State Peter Kyle visits Anthropic.jpg", date: "2025", license: "CC0", width: 1600, height: 900, thumb: "https://upload.wikimedia.org/visit.png"},
 		}, &queries),
 		"upload.wikimedia.org": serveBytes(solidPNG(t, 1600, 900, green), "image/png"),
 	}
 	vision := &fakeVision{verdicts: map[string]string{"green": `{"match":"exact","photographic":true,
 		"subject_prominent":true,"people_prominent":true,"quality":9,"alt":"Two people shake hands in a lobby."}`}}
-	finder := realphoto.NewFinder(&fakeText{plan: plan}, vision, &http.Client{Transport: routes}, nil)
+	finder := realphoto.NewFinder(&fakeText{plan: plan}, vision, &http.Client{Transport: routes}, nil).WithClock(fixedPhotoTime)
 	result := finder.Find(context.Background(), realphoto.Request{Title: "Anthropic raises funding", Slot: realphoto.SlotFeatured})
 
 	if result.Found || result.StandIn != nil || result.Transient || result.Reason != "no usable photo of a stand-in subject" {

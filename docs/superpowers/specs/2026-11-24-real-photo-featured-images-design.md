@@ -81,6 +81,8 @@ search queries.
 A `place` stand-in must show the exterior or interior architecture, with any people incidental.
 A headquarters stand-in must show the organisation's current main headquarters at the site named in the plan.
 A fixed list in `internal/realphoto/headquarters.go` gives the current headquarters for listed organisations and overrides the planner.
+For headquarters stand-ins with a listed move-in year, Commons photos with an
+unknown or earlier capture year are rejected before download.
 
 The planner returns none when no stand-in is honest. A story about a study, a
 market trend or several companies at once has none.

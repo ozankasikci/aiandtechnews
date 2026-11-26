@@ -49,7 +49,7 @@ type commonsPage struct {
 
 // commons searches Wikimedia Commons with the plan's queries and verifies
 // the licensed, big enough, landscape results.
-func (f *Finder) commons(ctx context.Context, request Request, plan Plan) ([]Candidate, error) {
+func (f *Finder) commons(ctx context.Context, request Request, plan Plan, headquartersSince int) ([]Candidate, error) {
 	currentYear := f.now().Year()
 	var candidates []Candidate
 	seen := map[string]bool{}
@@ -76,7 +76,7 @@ func (f *Finder) commons(ctx context.Context, request Request, plan Plan) ([]Can
 	}
 	for i := range candidates {
 		if candidates[i].Reason == "" {
-			candidates[i].Reason = commonsAgeRejection(candidates[i].CaptureYear, currentYear, plan.Kind, request.Slot)
+			candidates[i].Reason = commonsAgeRejection(candidates[i].CaptureYear, currentYear, plan.Kind, request.Slot, headquartersSince)
 		}
 	}
 	if err := f.verifyAll(ctx, plan, request, KindCommons, candidates); err != nil {
@@ -85,7 +85,15 @@ func (f *Finder) commons(ctx context.Context, request Request, plan Plan) ([]Can
 	return candidates, errors.Join(errs...)
 }
 
-func commonsAgeRejection(year, currentYear int, kind, slot string) string {
+func commonsAgeRejection(year, currentYear int, kind, slot string, headquartersSince int) string {
+	if kind == StandInPlace && headquartersSince != 0 {
+		switch {
+		case year == 0:
+			return fmt.Sprintf("capture year unknown. The site changed tenant in %d", headquartersSince)
+		case year < headquartersSince:
+			return fmt.Sprintf("captured in %d, before the current tenant moved in (%d)", year, headquartersSince)
+		}
+	}
 	limit := maxCommonsFeaturedAgeYears
 	if kind == KindPerson {
 		if year == 0 {
