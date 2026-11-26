@@ -29,8 +29,9 @@ func TestPlanNamesTheCurrentHeadquarters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.StandIns) != 1 || plan.StandIns[0].Kind != StandInPlace || plan.StandIns[0].Subject != subject {
-		t.Fatalf("stand-ins = %+v, want a place stand-in with subject %q", plan.StandIns, subject)
+	const wantSubject = "OpenAI headquarters, 1515 Third Street, Mission Bay, San Francisco"
+	if len(plan.StandIns) != 1 || plan.StandIns[0].Kind != StandInPlace || plan.StandIns[0].Subject != wantSubject {
+		t.Fatalf("stand-ins = %+v, want a place stand-in with subject %q", plan.StandIns, wantSubject)
 	}
 }
 

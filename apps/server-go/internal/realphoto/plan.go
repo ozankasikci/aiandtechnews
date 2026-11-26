@@ -177,7 +177,8 @@ func cleanQueries(raw []string) []string {
 }
 
 // cleanStandIns keeps at most MaxStandIns stand-ins that have a subject and a
-// known kind. One without a query searches for its subject.
+// known kind. It resolves listed headquarters and keeps the first place for
+// each subject. A stand-in without a query searches for its subject.
 func cleanStandIns(raw []StandIn, allowPerson bool) []StandIn {
 	var kept []StandIn
 	for _, standIn := range raw {
@@ -191,6 +192,17 @@ func cleanStandIns(raw []StandIn, allowPerson bool) []StandIn {
 		}
 		if standIn.Queries = cleanQueries(standIn.Queries); len(standIn.Queries) == 0 {
 			standIn.Queries = []string{standIn.Subject}
+		}
+		if standIn.Kind == StandInPlace {
+			if entry, ok := headquartersForSubject(standIn.Subject); ok {
+				standIn.Subject = entry.subject
+				standIn.Queries = slices.Clone(entry.queries)
+			}
+			if slices.ContainsFunc(kept, func(other StandIn) bool {
+				return other.Kind == StandInPlace && other.Subject == standIn.Subject
+			}) {
+				continue
+			}
 		}
 		kept = append(kept, standIn)
 		if len(kept) == MaxStandIns {

@@ -378,11 +378,18 @@ func recentlyUsedStandIn(standIn StandIn, maker string, recent []FeaturedSubject
 		}
 		usedMakerWords := strings.Fields(used.Maker)
 		prefixLen := min(len(makerWords), len(usedMakerWords))
-		if prefixLen > 0 && slices.EqualFunc(makerWords[:prefixLen], usedMakerWords[:prefixLen], strings.EqualFold) {
+		if hasWordPrefixFold(makerWords, usedMakerWords[:prefixLen]) {
 			return true
 		}
 	}
 	return false
+}
+
+// hasWordPrefixFold compares a non-empty prefix of whitespace-split words,
+// ignoring case.
+func hasWordPrefixFold(words, prefix []string) bool {
+	return len(prefix) > 0 && len(words) >= len(prefix) &&
+		slices.EqualFunc(words[:len(prefix)], prefix, strings.EqualFold)
 }
 
 // bestCandidate is the usable candidate with the highest quality score; the
