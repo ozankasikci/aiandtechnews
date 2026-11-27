@@ -87,7 +87,7 @@ func askEditor(db *sql.DB, editor *autopick.CodexEditor, headlines []string, not
 	}
 	for _, decision := range decisions {
 		verdict := "DROP   "
-		if decision.Publish && decision.Score >= autopick.MinScore {
+		if decision.Publish && decision.Score >= autopick.PressMinScore {
 			verdict = "PUBLISH"
 		}
 		title := ""

@@ -28,8 +28,8 @@ const (
 	maxCandidates = 200
 	// MinScore is the lowest significance score (1 to 10) for an original report.
 	MinScore = 7
-	// PressMinScore reserves press rewrites for major stories.
-	PressMinScore = 9
+	// PressMinScore is the lowest significance score for a press rewrite.
+	PressMinScore = 8
 	// maxPicks caps how many one run may queue.
 	maxPicks = 25
 )

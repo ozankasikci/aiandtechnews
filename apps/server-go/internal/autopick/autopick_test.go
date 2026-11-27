@@ -183,8 +183,8 @@ func TestPlanRequiresMajorNewsForPressRewrites(t *testing.T) {
 	}{
 		{name: "original at minimum", original: true, publish: true, score: 7, picked: true},
 		{name: "original below minimum", original: true, publish: true, score: 6},
-		{name: "press below minimum", publish: true, score: 8},
-		{name: "press at minimum", publish: true, score: 9, picked: true},
+		{name: "press below minimum", publish: true, score: 7},
+		{name: "press at minimum", publish: true, score: 8, picked: true},
 		{name: "original declined", original: true, score: 10},
 		{name: "press declined", score: 10},
 		{name: "press without score", publish: true},
